@@ -45,11 +45,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rajeshlande/myclinic.git"
+    "url": "https://github.com/rajeshlande/myClinic.git"
   },
-  "homepage": "https://rajeshlande.github.io/myclinic/",
+  "homepage": "https://rajeshlande.github.io/myClinic/",
   "bugs": {
-    "url": "https://github.com/rajeshlande/myclinic/issues"
+    "url": "https://github.com/rajeshlande/myClinic/issues"
   },
   "packageManager": "npm@12.2.1"
 }

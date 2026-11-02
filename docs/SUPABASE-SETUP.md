@@ -8,9 +8,9 @@ Target deployment for this repository:
 
 | Item | Value |
 | --- | --- |
-| Pages URL | `https://rajeshlande.github.io/myclinic/` |
-| Login redirect | `https://rajeshlande.github.io/myclinic/#/login` |
-| Reset redirect | `https://rajeshlande.github.io/myclinic/#/reset-password` |
+| Pages URL | `https://rajeshlande.github.io/myClinic/` |
+| Login redirect | `https://rajeshlande.github.io/myClinic/#/login` |
+| Reset redirect | `https://rajeshlande.github.io/myClinic/#/reset-password` |
 | Schema version required | **v2** (`supabase/schema.sql`) |
 | App version | 1.2.1 |
 
@@ -61,10 +61,10 @@ select public.app_schema_version();   -- must return 2
 
 **Authentication → URL configuration**:
 
-- **Site URL**: `https://rajeshlande.github.io/myclinic/`
+- **Site URL**: `https://rajeshlande.github.io/myClinic/`
 - **Redirect URLs** (add all four):
-  - `https://rajeshlande.github.io/myclinic/#/login`
-  - `https://rajeshlande.github.io/myclinic/#/reset-password`
+  - `https://rajeshlande.github.io/myClinic/#/login`
+  - `https://rajeshlande.github.io/myClinic/#/reset-password`
   - `http://localhost:5173/#/login`
   - `http://localhost:5173/#/reset-password`
 
@@ -87,7 +87,7 @@ The Pages workflow inlines them at build time; they are never committed.
 Without them the site still deploys — in demo mode, which is fine for a preview.
 
 Leave the `VITE_BASE` **variable** unset: the build uses relative asset URLs and
-works from `/myclinic/` as-is. Set it to `/myclinic/` only if you deliberately want
+works from `/myClinic/` as-is. Set it to `/myClinic/` only if you deliberately want
 absolute paths.
 
 ## 6. Deploy
@@ -98,7 +98,7 @@ Supabase keys reached the build — read it before sharing the URL.
 
 ## 7. Verify from inside the app
 
-Visit `https://rajeshlande.github.io/myclinic/#/setup` and press **Run test** in the
+Visit `https://rajeshlande.github.io/myClinic/#/setup` and press **Run test** in the
 *Connection self-test* card. Six checks run:
 
 | Check | Passes when |

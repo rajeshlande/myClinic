@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Deployment guide
-    url: https://github.com/rajeshlande/myclinic#deploy-to-github-pages
+    url: https://github.com/rajeshlande/myClinic#deploy-to-github-pages
     about: Setting up Supabase, custom domains and GitHub Pages
   - name: Security policy
-    url: https://github.com/rajeshlande/myclinic/blob/main/docs/SECURITY.md
+    url: https://github.com/rajeshlande/myClinic/blob/main/docs/SECURITY.md
     about: How to verify the RLS suite and report a vulnerability privately

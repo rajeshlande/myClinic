@@ -20,7 +20,7 @@ const html = readFileSync(join(dist, 'index.html'), 'utf8');
 
 // 1. Assets must be addressable from a sub-path. Two shapes are valid on Pages:
 //    relative (./assets/…) — works at /, /<repo>/ and a custom domain — or an
-//    absolute path that includes the repository sub-path (/myclinic/assets/…),
+//    absolute path that includes the repository sub-path (/myClinic/assets/…),
 //    which is what an explicit VITE_BASE build produces.
 const base = (process.env.VITE_BASE || '').trim();
 let expectPrefix = null;

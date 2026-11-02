@@ -25,7 +25,7 @@ Supabase migration level this release expects (`app_schema_version()`).
   `app_schema_version()` drift. Pure logic in `src/lib/health.mjs`, covered by 6 new
   unit tests.
 - **[`docs/SUPABASE-SETUP.md`](docs/SUPABASE-SETUP.md)** — the go-live checklist:
-  project creation, the exact redirect URLs for `rajeshlande.github.io/myclinic/`,
+  project creation, the exact redirect URLs for `rajeshlande.github.io/myClinic/`,
   repo secrets, deploy, and a troubleshooting table.
 
 ## [1.2.0] — 2026-11-02 · schema 2
@@ -77,5 +77,5 @@ Supabase migration level this release expects (`app_schema_version()`).
 - Appointments, patient charts, consultations, billing, follow-ups, reports and team.
 - Supabase auth with PKCE, clinic-scoped RLS, integer-paise money, demo workspace.
 
-[1.2.0]: https://github.com/rajeshlande/myclinic/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/rajeshlande/myclinic/compare/v1.0.0...v1.1.0
+[1.2.0]: https://github.com/rajeshlande/myClinic/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/rajeshlande/myClinic/compare/v1.0.0...v1.1.0

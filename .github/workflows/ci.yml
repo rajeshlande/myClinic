@@ -44,7 +44,7 @@ jobs:
         run: npm run check:pages
 
       - name: Build from a repository sub-path
-        run: VITE_BASE=/myclinic/ npm run build && VITE_BASE=/myclinic/ npm run check:pages
+        run: VITE_BASE=/myClinic/ npm run build && VITE_BASE=/myClinic/ npm run check:pages
 
       - name: Security checklist
         run: npm run test:security
