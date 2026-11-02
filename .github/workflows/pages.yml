@@ -23,11 +23,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node 26 LTS
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
+
+      - name: Install npm 12.2.1
+        # packageManager pins the exact npm used to build the published bundle.
+        run: npm install -g npm@12.2.1 --no-audit --no-fund
+
+      - name: Toolchain
+        run: |
+          node -v
+          npm -v
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
@@ -47,12 +56,31 @@ jobs:
       - name: Check GitHub Pages readiness
         run: npm run check:pages
 
+      - name: Report Supabase build configuration
+        # Never prints key material — only whether the repo secrets reached the build.
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if grep -q "abc.supabase.co\|YOUR-PROJECT" dist/assets/*.js 2>/dev/null; then
+            echo "::error::a placeholder Supabase URL was baked into the bundle"
+            exit 1
+          fi
+          if [ -n "$VITE_SUPABASE_URL" ] && [ -n "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::notice::Supabase keys present — this build will run in live mode"
+          else
+            echo "::warning::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set — the site will deploy in demo mode"
+          fi
+          BASE=$(node -e "console.log(JSON.stringify(process.env.VITE_BASE||''))")
+          echo "VITE_BASE=$BASE (empty means relative assets, correct for /<repo>/)"
+
       - name: Add a 404 fallback
         run: |
           # .nojekyll already ships from public/ so Jekyll leaves hashed assets alone.
           # Hash routing means every route resolves to index.html; 404.html is a
           # safety net for anyone who opens a deep link without the hash.
           cp dist/index.html dist/404.html
+          ls -1 dist | sed 's/^/  /'
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

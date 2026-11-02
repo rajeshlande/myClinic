@@ -27,7 +27,8 @@ Live demo data: the app boots into **Sunrise Multispecialty OPD** with six month
 
 ## Requirements
 
-- Node.js **22.12+** (pinned via `.nvmrc` → Node 22 LTS; CI also runs Node 24)
+- Node.js **26 LTS** (pinned in `.nvmrc` / `.node-version` → 26.13.0) and **npm 12.2.1** (`packageManager`)
+- Any Node from **22.22+** also works; CI verifies 22 and 26
 - npm
 - A Supabase project (only when you want real accounts and cloud persistence)
 - HTTPS for a deployed PWA; `localhost` is also a secure context
@@ -39,13 +40,16 @@ Live demo data: the app boots into **Sunrise Multispecialty OPD** with six month
 ```bash
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 39 unit tests (domain + offline replay)
+npm test             # 45 unit tests (domain, offline replay, readiness)
 npm run build        # production bundle in dist/
 ```
 
 No `.env` required — the app runs in **demo mode** until Supabase keys are present. Everything you change in the demo is stored in this browser's `localStorage` and can be reset from **Settings → Plan & data**.
 
 ## 2. Connect Supabase
+
+The full operator walkthrough (project creation, exact redirect URLs, repo secrets,
+deploy and the in-app self-test) is in [`docs/SUPABASE-SETUP.md`](docs/SUPABASE-SETUP.md).
 
 ```bash
 cp .env.example .env.local

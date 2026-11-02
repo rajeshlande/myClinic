@@ -3,6 +3,31 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.2.1] — 2026-11-02 · schema 2
+
+### Changed
+- **Toolchain on Node 26 LTS + npm 12.2.1.** `.nvmrc` / `.node-version` pin 26.13.0
+  (Lithium), `packageManager` pins npm 12.2.1, and the Pages workflow installs it
+  explicitly. `engines` now states the real floor (`node >=22.22.0`, required by
+  react-router 8), and CI verifies Node 22 and 26. Verified on Node 26: `npm ci`
+  leaves the lockfile untouched, 45/45 tests, build, `check:pages`, `test:security`
+  and `npm audit` all pass.
+- **Pages workflow reports its own configuration.** It prints the resolved node/npm
+  versions, fails if a placeholder Supabase URL is baked into the bundle, and emits a
+  notice (or a warning) depending on whether the Supabase secrets reached the build.
+  A demo-mode deploy is now visible in the Actions log instead of being discovered
+  after someone tries to log in.
+
+### Added
+- **Supabase connection self-test** on the setup page (`/#/setup` → *Run test*). Six
+  checks: project URL, publishable-key safety (a service-role/secret key is a hard
+  fail), HTTPS origin, base-path match, REST reachability with the key, and
+  `app_schema_version()` drift. Pure logic in `src/lib/health.mjs`, covered by 6 new
+  unit tests.
+- **[`docs/SUPABASE-SETUP.md`](docs/SUPABASE-SETUP.md)** — the go-live checklist:
+  project creation, the exact redirect URLs for `rajeshlande.github.io/myclinic/`,
+  repo secrets, deploy, and a troubleshooting table.
+
 ## [1.2.0] — 2026-11-02 · schema 2
 
 ### Added

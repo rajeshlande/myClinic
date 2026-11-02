@@ -7,6 +7,7 @@ import {
   validatePatient, validateAppointment, invoiceNumber, financialYear, toCSV, ordinalSuffix,
   outstandingByPatient, invoiceBalance, feeForVisit, appointmentMatchesQuery, patientVisits,
 } from '../src/lib/logic.mjs';
+import { configChecks, restCheck, schemaCheck, readiness } from '../src/lib/health.mjs';
 
 test('money parses rupees into integer paise without float drift', () => {
   assert.equal(moneyToPaise('1234.50'), 123450);
@@ -558,4 +559,51 @@ test('offline replay: a rejected op becomes a conflict instead of vanishing', as
   assert.equal(remaining.length, 0);
   assert.equal(conflicts[0].kind, 'rejected');
   assert.match(conflicts[0].message, /row-level security/);
+});
+
+// ---------------------------------------------------------------- readiness
+test('readiness: a fully configured project reports ready', () => {
+  const checks = [
+    ...configChecks({ url: 'https://abc.supabase.co', key: 'sb_publishable_abc123', base: './' }),
+    restCheck({ ok: true }),
+    schemaCheck(2, 2),
+  ];
+  const r = readiness(checks);
+  assert.equal(r.state, 'pass');
+  assert.equal(r.headline, 'Supabase connection ready');
+  assert.equal(r.failed, 0);
+});
+
+test('readiness: a service-role key in a VITE_ variable is a hard fail', () => {
+  const checks = configChecks({ url: 'https://abc.supabase.co', key: 'service_role_abc' });
+  const key = checks.find((c) => c.id === 'env-key');
+  assert.equal(key.state, 'fail');
+  assert.match(key.detail, /service-role/);
+  assert.equal(readiness(checks).state, 'fail');
+});
+
+test('readiness: a non-HTTPS project URL fails the secure-origin check', () => {
+  const checks = configChecks({ url: 'http://abc.supabase.co', key: 'anon-key' });
+  assert.equal(checks.find((c) => c.id === 'env-https').state, 'fail');
+});
+
+test('readiness: a rejected publishable key explains what to re-copy', () => {
+  const c = restCheck({ ok: false, status: 401 });
+  assert.equal(c.state, 'fail');
+  assert.match(c.detail, /401|rejected|publishable/i);
+  const unreachable = restCheck({ ok: false, message: 'Failed to fetch' });
+  assert.match(unreachable.detail, /unreachable|paused/i);
+});
+
+test('readiness: schema drift is reported in both directions', () => {
+  assert.equal(schemaCheck(null, 2).state, 'warn');
+  assert.equal(schemaCheck(2, 2).state, 'pass');
+  assert.match(schemaCheck(1, 2).detail, /re-run supabase\/schema\.sql/);
+  assert.match(schemaCheck(3, 2).detail, /latest deployment/);
+});
+
+test('readiness: warnings alone do not claim readiness', () => {
+  const r = readiness([{ id: 'a', label: 'A', state: 'pass', detail: '' }, { id: 'b', label: 'B', state: 'warn', detail: '' }]);
+  assert.equal(r.state, 'warn');
+  assert.match(r.headline, /1 check to confirm/);
 });

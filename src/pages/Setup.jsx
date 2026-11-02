@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Check, Copy, Database, ExternalLink, KeyRound, RefreshCw, Server, Stethoscope, Terminal, TriangleAlert, Rocket } from 'lucide-react';
+import { Check, Copy, Database, ExternalLink, KeyRound, Minus, RefreshCw, Rocket, Server, Stethoscope, Terminal, TriangleAlert } from 'lucide-react';
 import { useAuth } from '../lib/auth-context.jsx';
 import { useStore } from '../lib/store.jsx';
 import { Badge, Button, Card, useToast } from '../components/ui.jsx';
-import { supabaseConfigured } from '../lib/supabase.js';
+import { supabase, supabaseConfigured } from '../lib/supabase.js';
+import { configChecks, restCheck, schemaCheck, readiness } from '../lib/health.mjs';
+import { SCHEMA_VERSION } from '../lib/version.js';
 
 const ENV_SNIPPET = `# .env.local
 VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
@@ -15,12 +17,56 @@ http://localhost:5173/#/reset-password
 https://YOUR-APP.example/#/login
 https://YOUR-APP.example/#/reset-password`;
 
+const ENV_URL = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
+const ENV_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
+const ENV_BASE = import.meta.env.BASE_URL ?? '/';
+
+const STATE_STYLE = {
+  pass: { tone: 'success', icon: Check },
+  warn: { tone: 'warn', icon: TriangleAlert },
+  fail: { tone: 'danger', icon: TriangleAlert },
+  skip: { tone: 'neutral', icon: Minus },
+};
+
 export default function Setup() {
   const { configured } = useAuth();
   const store = useStore();
   const navigate = useNavigate();
   const toast = useToast();
   const [tab, setTab] = useState('env');
+  const [checks, setChecks] = useState(() => configChecks({ url: ENV_URL, key: ENV_KEY, base: ENV_BASE }));
+  const [testing, setTesting] = useState(false);
+
+  const runTest = async () => {
+    setTesting(true);
+    let list = configChecks({ url: ENV_URL, key: ENV_KEY, base: ENV_BASE });
+    if (supabase) {
+      try {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 8000);
+        const res = await fetch(`${ENV_URL.replace(/\/+$/, '')}/rest/v1/`, {
+          headers: { apikey: ENV_KEY, Authorization: `Bearer ${ENV_KEY}` },
+          signal: ctl.signal,
+        });
+        clearTimeout(timer);
+        list = [...list, restCheck({ ok: res.ok, status: res.status })];
+      } catch (err) {
+        list = [...list, restCheck({ ok: false, message: err?.message })];
+      }
+      try {
+        const { data, error } = await supabase.rpc('app_schema_version');
+        list = [...list, schemaCheck(error ? null : data, SCHEMA_VERSION)];
+      } catch {
+        list = [...list, schemaCheck(null, SCHEMA_VERSION)];
+      }
+    }
+    setChecks(list);
+    setTesting(false);
+    const result = readiness(list);
+    if (result.state === 'pass') toast.success(result.headline);
+    else if (result.state === 'fail') toast.error(result.headline);
+    else toast.info ? toast.info(result.headline) : toast.success(result.headline);
+  };
 
   const copy = async (text, label) => {
     try { await navigator.clipboard.writeText(text); toast.success(`${label} copied.`); }
@@ -62,6 +108,39 @@ export default function Setup() {
             <Check size={16} /> <span className="small">Supabase keys detected. Sign-up, sign-in and clinic isolation are active.</span>
           </div>
         )}
+
+        <Card className="pad" style={{ marginBottom: 18 }}>
+          <div className="row wrap" style={{ justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+            <div className="row" style={{ gap: 9 }}>
+              <Server size={16} className="muted" />
+              <strong>Connection self-test</strong>
+              <Badge tone={STATE_STYLE[readiness(checks).state]?.tone ?? 'neutral'} dot>{readiness(checks).headline}</Badge>
+            </div>
+            <Button size="sm" variant="subtle" icon={RefreshCw} loading={testing} onClick={runTest} disabled={testing}>
+              {testing ? 'Testing…' : 'Run test'}
+            </Button>
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            {checks.map((c) => {
+              const style = STATE_STYLE[c.state] ?? STATE_STYLE.skip;
+              const Icon = style.icon;
+              return (
+                <div key={c.id} className="row" style={{ gap: 9, alignItems: 'flex-start' }}>
+                  <Icon size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+                  <div className="tiny">
+                    <strong>{c.label}</strong>
+                    <span className="muted"> — {c.detail}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="tiny muted" style={{ marginTop: 10 }}>
+            Without keys the build stays in demo mode; the test then only reports what is missing. With keys it also
+            calls the REST endpoint and <code>app_schema_version()</code>, so a paused project or an unapplied schema
+            shows up here instead of as a blank screen later.
+          </p>
+        </Card>
 
         <div className="tabs scroll-x" style={{ marginBottom: 18 }}>
           {[['env', '1 · Environment'], ['db', '2 · Database'], ['auth', '3 · Auth emails'], ['run', '4 · Run & deploy'], ['pages', '5 · GitHub Pages']].map(([id, label]) => (

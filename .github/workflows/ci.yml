@@ -15,8 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Lowest supported (Vite 8 floor is 20.19 but supabase-js wants >=22) and current LTS.
-        node: [22, 24]
+        # 22 is the declared engine floor (react-router 8 needs >=22.22); 26 is current LTS.
+        node: [22, 26]
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +26,10 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm ci --no-audit --no-fund
+        run: |
+          node -v
+          npm -v
+          npm ci --no-audit --no-fund
 
       - name: Unit tests
         run: npm test
@@ -41,7 +44,7 @@ jobs:
         run: npm run check:pages
 
       - name: Build from a repository sub-path
-        run: VITE_BASE=/myclinic/ npm run build && npm run check:pages
+        run: VITE_BASE=/myclinic/ npm run build && VITE_BASE=/myclinic/ npm run check:pages
 
       - name: Security checklist
         run: npm run test:security

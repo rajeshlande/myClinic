@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.2.1';
 export const SCHEMA_VERSION = 2;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.2.1', date: '2026-11-02', schema: 2,
+    highlights: [
+      'Node 26 LTS with npm 12.2.1 pinned via .nvmrc, .node-version and packageManager.',
+      'Supabase connection self-test on the setup page: URL, key safety, REST reachability and schema drift.',
+      'GitHub Pages deploy hardened: Node 26 build, configuration report and a bundle-ready commit.',
+    ],
+  },
   {
     version: '1.2.0', date: '2026-11-02', schema: 2,
     highlights: [

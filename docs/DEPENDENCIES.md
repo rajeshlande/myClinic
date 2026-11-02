@@ -2,7 +2,7 @@
 
 Complete inventory of every package in the installed tree, generated from `package-lock.json` and compared against the npm registry.
 
-**Audited:** 2026-11-02 · **App version:** 1.2.0 · **Installed tree:** 59 packages (9 direct, 50 transitive)
+**Audited:** 2026-11-02 · **App version:** 1.2.1 · **Installed tree:** 59 packages (9 direct, 50 transitive)
 
 Regenerate this table at any time:
 
@@ -136,11 +136,13 @@ The whole tree is permissive or safe for a hosted web app:
 
 | Requirement | Value | Where enforced |
 | --- | --- | --- |
-| Node.js | **>= 22.12.0** | `package.json` → `engines`, `.nvmrc`, `.node-version`, CI matrix |
-| npm | >= 10 | implied by Node 22.12 |
+| Node.js | **26.13.0 LTS** (Lithium) pinned; `engines` floor `>=22.22.0` | `.nvmrc`, `.node-version`, `package.json` → `engines`, CI matrix (22 + 26), Pages workflow |
+| npm | **12.2.1** | `package.json` → `packageManager`; Pages workflow installs it explicitly |
 | Browser | Chrome/Edge 111+, Safari 16.4+, Firefox 121+ | native ESM, CSS nesting and container queries used by the theme layer |
 
 ## Engine notes
 
-- `vite@8` accepts `node ^20.19 || >=22.12`, `@supabase/supabase-js@2.118` needs `>=22`, and `react-router@8.5.1` needs `>=22.22`. **Node 22.22+ is the real floor**, so CI runs Node 22 LTS and Node 24.
+- `vite@8` accepts `node ^20.19 || >=22.12`, `@supabase/supabase-js@2.118` needs `>=22`, and `react-router@8.5.1` needs `>=22.22` — so **22.22+ is the real floor** and `engines.node` says `>=22.22.0`.
+- Toolchain now runs on **Node 26.13.0 (Lithium, current LTS) + npm 12.2.1**. npm 12 itself requires `node ^22.22.2 || ^24.15.0 || >=26.0.0`, which is why 26 was chosen over 24 for the pinned toolchain.
+- Verified end to end on Node 26: `npm ci` (lockfile v3, unchanged), 45/45 tests, build, `check:pages`, `test:security`, `npm audit` clean.
 - `@rolldown/binding-*` and `lightningcss-*` platform binaries are optional; `npm ci` on Linux skips the irrelevant ones, which keeps `node_modules` small.

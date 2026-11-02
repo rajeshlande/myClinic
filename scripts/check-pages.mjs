@@ -18,11 +18,23 @@ if (!existsSync(dist)) {
 
 const html = readFileSync(join(dist, 'index.html'), 'utf8');
 
-// 1. Assets must be addressable from a sub-path.
+// 1. Assets must be addressable from a sub-path. Two shapes are valid on Pages:
+//    relative (./assets/…) — works at /, /<repo>/ and a custom domain — or an
+//    absolute path that includes the repository sub-path (/myclinic/assets/…),
+//    which is what an explicit VITE_BASE build produces.
+const base = (process.env.VITE_BASE || '').trim();
+let expectPrefix = null;
+if (base && base !== '/' && base !== './') expectPrefix = base.endsWith('/') ? base : `${base}/`;
+
 const assetRefs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
 const absolute = assetRefs.filter((u) => u.startsWith('/') && !u.startsWith('//'));
-if (absolute.length) problems.push(`absolute asset paths break project pages: ${absolute.join(', ')}`);
-else notes.push('assets use relative URLs');
+const wrongBase = expectPrefix ? absolute.filter((u) => !u.startsWith(expectPrefix)) : absolute;
+if (!absolute.length) notes.push('assets use relative URLs (any base path)');
+else if (wrongBase.length) problems.push(expectPrefix
+  ? `asset paths do not sit under ${expectPrefix}: ${wrongBase.join(', ')}`
+  : `absolute asset paths without VITE_BASE: ${wrongBase.join(', ')}`);
+else if (!expectPrefix) problems.push(`absolute asset paths break project pages (set VITE_BASE=/<repo>/): ${absolute.join(', ')}`);
+else notes.push(`assets pinned to the ${expectPrefix} base`);
 
 // 2. PWA files.
 for (const file of ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon.svg', '.nojekyll']) {

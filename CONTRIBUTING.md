@@ -7,7 +7,7 @@ clinician's concurrent edit**.
 ## Setup
 
 ```bash
-nvm use            # Node 22.12+ (see .nvmrc)
+nvm use            # Node 26 LTS (see .nvmrc); npm 12.2.1 via packageManager
 npm ci
 npm run dev        # http://localhost:5173 — runs the demo clinic, no keys needed
 ```
@@ -28,7 +28,7 @@ npm run verify           # + production build + GitHub Pages readiness
 npm run test:security    # prints the RLS verification procedure
 ```
 
-CI runs the same commands on Node 22 and 24, plus a build from a repository sub-path.
+CI runs the same commands on Node 22 and 26, plus a build from a repository sub-path.
 
 ## Changing the database
 

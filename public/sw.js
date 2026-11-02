@@ -1,6 +1,6 @@
 /* myClinic service worker — offline app shell.
    Clinical data is never cached: Supabase/auth traffic always goes to the network. */
-const VERSION = '1.1.0';
+const VERSION = '1.2.1';
 const SHELL_CACHE = `myclinic-shell-v${VERSION}`;
 const ASSET_CACHE = `myclinic-assets-v${VERSION}`;
 
