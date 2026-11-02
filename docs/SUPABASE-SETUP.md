@@ -90,6 +90,16 @@ Leave the `VITE_BASE` **variable** unset: the build uses relative asset URLs and
 works from `/myClinic/` as-is. Set it to `/myClinic/` only if you deliberately want
 absolute paths.
 
+## 5b. What the build reports about itself
+
+The Pages workflow prints, in the Actions log:
+
+- `node -v` / `npm -v` — must read **v26.13.0** and **12.2.1**
+- `::notice::Supabase keys present` **or** `::warning::… the site will deploy in demo mode`
+- `::error::` and a failed job if a placeholder URL (`YOUR-PROJECT`, `abc.supabase.co`) was
+  baked into the bundle
+- the resolved `VITE_BASE` (empty = relative assets, correct for `/myClinic/`)
+
 ## 6. Deploy
 
 **Settings → Pages → Build and deployment → Source: GitHub Actions**, then push to
