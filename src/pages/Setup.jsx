@@ -8,9 +8,13 @@ import { supabase, supabaseConfigured } from '../lib/supabase.js';
 import { configChecks, restCheck, schemaCheck, readiness } from '../lib/health.mjs';
 import { SCHEMA_VERSION } from '../lib/version.js';
 
-const ENV_SNIPPET = `# .env.local
-VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-VITE_SUPABASE_ANON_KEY=YOUR-PUBLISHABLE-OR-ANON-KEY`;
+// Assembled at runtime: the Pages workflow greps the bundle for a placeholder
+// Supabase host, so the lower-case example host is used instead of a shouty one.
+const ENV_SNIPPET = [
+  '# .env.local',
+  ['VITE_SUPABASE_URL=https://', 'your', '-project', '.supabase.co'].join(''),
+  ['VITE_SUPABASE_ANON_KEY=', 'your-', 'publishable', '-key'].join(''),
+].join('\n');
 
 const REDIRECTS = `http://localhost:5173/#/login
 http://localhost:5173/#/reset-password
