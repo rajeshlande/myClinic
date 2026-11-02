@@ -1,0 +1,15 @@
+{
+  "name": "myClinic (Node 26 LTS)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:26",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "npm install -g npm@12.2.1 && npm ci --no-audit --no-fund",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "bradlc.vscode-tailwindcss"]
+    }
+  },
+  "forwardPorts": [5173],
+  "remoteUser": "node"
+}

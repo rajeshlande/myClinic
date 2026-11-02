@@ -174,6 +174,23 @@ Deployment, troubleshooting and the Supabase guide are also available in-app at 
 
 ## Deploy to GitHub Pages
 
+### Push this repository
+
+The Git history is already initialised on `main` with a `v1.2.1` tag, and
+`node_modules/`, `dist/` and `.env.local` are ignored. The target repository is
+<https://github.com/rajeshlande/myClinic> (already created and empty).
+
+```bash
+git remote add origin https://github.com/rajeshlande/myClinic.git
+git push -u origin main --follow-tags
+```
+
+Then set the two repository secrets (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`),
+turn on **Settings → Pages → Source: GitHub Actions**, and follow
+[`docs/SUPABASE-SETUP.md`](docs/SUPABASE-SETUP.md). The Pages path is case-sensitive:
+the repository is `myClinic`, so the site lives at `/myClinic/`.
+
+
 The repo ships a workflow at `.github/workflows/pages.yml` that tests, builds and publishes
 on every push to `main`.
 
