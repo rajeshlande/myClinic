@@ -92,16 +92,16 @@ All **9 direct dependencies are on the latest stable release** — nothing in th
 
 > The `@rolldown/binding-*` and `lightningcss-*` entries are platform-specific prebuilt binaries. npm installs only the one matching the current OS/CPU, but the lockfile pins all of them for reproducibility, so they are not real install weight.
 
-## Packages held back
+## Packages not at registry latest
 
-Four transitive packages report a newer major on the registry. None can be upgraded without an upstream change, and none is a security issue.
+Four transitive packages have a newer release on the registry. None can be moved without an upstream change, and none is a security issue: `npm audit` is clean.
 
 | Package | Installed | Latest | Required by | Why it is held |
 | --- | --- | --- | --- | --- |
 | `@remix-run/route-pattern` | 0.22.1 | 1.0.0 | `react-router` 8.5.1 | react-router pins the `^0.22` range internally; the 1.0 major is not adopted upstream yet. |
 | `iceberg-js` | 0.8.1 | 1.0.0 | `@supabase/supabase-js` 2.118.0 | supabase-js declares the pre-1.0 range and has not moved to 1.0. |
 | `nanoid` | 3.3.20 | 6.0.2 | Vite / rolldown tooling | Tooling expects the nanoid 3 API. Build-time only, never shipped in the browser bundle. |
-| `tslib` | 2.8.1 | 2.9.1 | `@supabase/*-js` | Patch drift inside the declared `^2.8` range; deduped to one copy. |
+| `tslib` | 2.8.1 | 2.9.1 | `@supabase/*-js` | Minor drift inside the declared range. Pulled in by supabase-js and deduped to a single copy; no action needed. |
 
 ## Upgrades applied in 1.2.0
 
