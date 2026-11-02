@@ -1,0 +1,27 @@
+{
+  "name": "myClinic — OPD Clinic Management",
+  "short_name": "myClinic",
+  "description": "OPD management software for clinics: appointments, patient records, consultations, billing and follow-ups in one platform.",
+  "start_url": "./#/app/dashboard",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f4f7f6",
+  "theme_color": "#0f766e",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["medical", "health", "productivity", "business"],
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Today’s queue", "short_name": "Queue", "url": "./#/app/appointments", "description": "Open today’s OPD queue" },
+    { "name": "New appointment", "short_name": "Book", "url": "./#/app/appointments?new=1", "description": "Book a patient" },
+    { "name": "Register patient", "short_name": "Patient", "url": "./#/app/patients?new=1", "description": "Register a new patient" },
+    { "name": "Billing", "short_name": "Billing", "url": "./#/app/billing", "description": "Invoices and payments" }
+  ]
+}

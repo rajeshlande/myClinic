@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in myClinic is not behaving as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please **do not paste patient data, screenshots of real patient
+        records, or any Supabase keys**. Use the built-in demo workspace to reproduce.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Settings → Offline & sync
+        2. Go offline
+        3. Register a patient
+        4. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which data mode?
+      options: [Demo workspace, Connected to Supabase, Not sure]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About & version (app version + build id)
+      placeholder: v1.2.0 · build a1b2c3d
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and device
+      placeholder: Chrome 141 on Android 15 / Safari 18 on iPhone 13
+    validations:
+      required: true

@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.log
+shot*.mjs
+probe*.mjs
+flow.mjs
+
+# build/QA artifacts
+coverage/
+.vite/
+.env.*
+!.env.example
