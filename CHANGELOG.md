@@ -3,6 +3,117 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.8.0] — 2026-11-03 · schema 6
+
+### Added
+- **A clinic medicine master with safety checks** (`src/lib/medicines.mjs`,
+  `src/components/MedicinePicker.jsx`). The drug field is now a typeahead over ~50 common
+  Indian brands with their molecule, strength, form and dispensing schedule; it matches on
+  brand (`dolo`), molecule (`paracetamol`) or symptom (`fever`), and picking a row fills the
+  dose, frequency, duration and food relation from that medicine's default template — which
+  is where the retyping actually disappears.
+- **Typing is never blocked.** The field is a plain text input first and a typeahead second:
+  an unknown drug is saved exactly as written, and the line then still goes through the
+  safety checks using an inferred molecule when the name matches one.
+- **Safety panel on every prescription** (`checkPrescriptionSafety`): duplicate molecule
+  (two brands of the same salt), duplicate *class* (two NSAIDs, two PPIs, two
+  antihistamines, two statins…), ~22 curated interaction pairs, and the patient's own
+  free-text allergy field matched against the molecule and its class. Severity ordering is
+  high → moderate → info so the dangerous finding is at the top.
+- **High-severity findings must be acknowledged, and the acknowledgement is recorded.**
+  Saving is blocked until the prescriber ticks *"I have reviewed this and want to prescribe
+  anyway"*; the finding ids, the accepted ids, the formulary version and a timestamp are
+  written to `consultations.rx_safety` (schema 6) — the audit trail a doctor needs if a case
+  is questioned, without adding clicks to the everyday prescription.
+- **Schedule H1 / X notice**: prescribing an H1 drug raises a register notice (not a block)
+  naming the drug that must be entered in the H1 register.
+- **Prescriptions are numbered** `RX/26-27/0001` — their own series, independent of
+  `INV/…` invoices, session-scoped to the financial year, unique per clinic in the database
+  (`consultations.rx_number`, `rx_version`, schema 6), and printed on the prescription.
+- **"Recently prescribed here"** replaces the fixed template list: the drugs this clinic
+  actually writes, one tap away, with their real doses.
+- Prescription print now shows each drug's molecule, form and H1/X schedule under the brand
+  name — what a pharmacist and the next doctor read.
+
+### Fixed
+- **The consultation dialog stole the caret on every pause.** Its "focus the first field"
+  timer re-armed on every render (`onClose` was an inline function in the effect's
+  dependencies), so pausing mid-word pulled the cursor to the header's Close button. It now
+  focuses once, on open, and only if the user has not already moved the caret.
+- **Dead interaction rules in the formulary.** Levothyroxine was tagged `thyroid` while
+  three rules matched `levothyroxine`, so the calcium / iron / PPI warnings could never
+  fire; `duplicateClasses` listed `ppi` twice. The test suite now fails if a rule names a
+  class no medicine carries.
+- A brand that already carries its strength ("Dolo 650") no longer prints it twice
+  ("Dolo 650 650 mg"), and `financialYear()` accepts a `Date` as well as an ISO string.
+
+## [1.7.0] — 2026-11-03 · schema 5
+
+### Added
+- **UPI collection on unpaid invoices.** A clinic can now set its UPI ID (VPA) in
+  *Settings → Billing & invoices → Payments & UPI*; every unpaid invoice then carries a
+  scannable QR with the exact balance pre-filled, on screen and on paper. The QR is
+  generated locally as SVG (`src/lib/upi.mjs`, `src/components/UpiQr.jsx`) — no QR
+  service, no network call, and it stays sharp when printed at 300 dpi. Money still moves
+  clinic-to-patient directly; the app only records that it happened.
+- **One payment sheet, three entry points.** `CollectPayment` is used by the billing list,
+  the invoice document and the patient chart, so collecting behaves identically wherever
+  the front desk stands. It shows the QR *before* anything is recorded (scan → confirmation
+  → type the reference → save), supports part payments, and captures the method plus an
+  optional reference (UPI UTR / card last-4 / receipt number).
+- **`invoices.paid_on` and `invoices.payment_ref`** (schema 5) print on the invoice, so a
+  settled bill says *when* and *how* it was settled.
+- **A "next step" strip on the patient chart**: outstanding money with a one-tap *Collect*,
+  or consultations that were never invoiced with a prompt to raise the invoice.
+
+### Changed
+- **Invoice document rebuilt** (`InvoiceView`): proper tax-invoice header with status
+  stamp, billed-to / doctor / payment columns, line-item table, totals with the amount in
+  words, and a pay block that becomes a *Paid in full* receipt once the balance is zero.
+- **Print layout for both documents**: A4 `@page` margins, a repeating page footer with the
+  clinic contact and document number, colour-exact QR and status stamp, no page breaks
+  inside totals or the pay block, and a white paper background (the app's screen backdrop
+  no longer leaks into the PDF).
+- **Prescription** now shares the invoice's header conventions (document kind, doctor,
+  register number, date), gets a framed patient strip, a real clinic footer, and no longer
+  prints a red allergy alert for "None reported" or repeats the follow-up date in English.
+- **Consultation → bill → collect is continuous**: *Save & bill* opens the invoice it just
+  raised, an invoice created from Billing opens as a document, and a patient chart shows
+  what is unbilled or unpaid instead of making the user hunt for it.
+
+### Fixed
+- **"Bill" on the consultations list opened a broken route.** It navigated to
+  `/invoice/INV/2526/0001` (the invoice *number*) instead of the created row's id, landing
+  on "Invoice not found". It now opens the invoice that was just written.
+- Amount-in-words and payment-application helpers (`amountInWords`, `applyPayment`) live in
+  `logic.mjs` so the UI and the store can never disagree about a balance.
+
+## [1.6.0] — 2026-11-03 · schema 4
+
+### Changed
+- **`supabase/schema.sql` is now the single source of truth for the whole database.**
+  The separate `licensing.sql`, `branding.sql`, `rls-tests.sql` and `licensing-tests.sql`
+  files are gone. One file creates a fresh project *and* upgrades an existing one in
+  place, in a single transaction, from any earlier version — so "the database needs
+  updating" is answered by re-running the same file.
+- **The file carries its own version story.** A header version registry, a
+  `schema_migrations` ledger, `app_migrations()` and `app_schema_version()` report where a
+  database stands and what this file expects. Each migration is a guarded block that
+  checks the recorded version, runs only if needed, then records itself.
+- `supabase/schema-tests.sql` merges both regression suites (role matrix + licensing) into
+  one rolled-back run, ending in `ALL RLS CHECKS COMPLETED` / `ALL LICENSING CHECKS COMPLETED`.
+- README, `docs/SUPABASE-SETUP.md` (§3 is now one step, not three) and `docs/SECURITY.md`
+  document the single-file model; `npm run test:security` checks for it.
+
+### Fixed
+- **`license_state()` is now `volatile`.** It seeds a default subscription row on first
+  read for a database that predates licensing, and a `stable` declaration made that write
+  fail with *"INSERT is not allowed in a non-volatile function"* — the first licence check
+  on an upgraded clinic would error instead of returning a plan.
+- Seat-limit assertions in the test suite are now isolated in their own exception blocks,
+  so a rejected insert can no longer roll back the accepted ones around it (a plpgsql
+  `exception` block is a sub-transaction).
+
 ## [1.5.0] — 2026-11-03 · schema 4
 
 ### Added
@@ -16,9 +127,9 @@ Supabase migration level this release expects (`app_schema_version()`).
   sniffing, an SVG safety check, size arithmetic and the shared brand kit.
   **`src/lib/logo.js`** — the browser half: reads the file, re-encodes through a canvas,
   drops EXIF, and keeps the output under a bounded size.
-- **`supabase/branding.sql`** — an upgrade script for existing databases that adds the
-  columns, the size guards and bumps `app_meta.schema_version` to 4. Fresh installs get
-  it from `schema.sql`. 11 new unit tests (75 total).
+- Logo columns, their size/format guards and the `schema_version = 4` bump live in
+  **§4 of `supabase/schema.sql`** (originally shipped as a separate `branding.sql`).
+  11 new unit tests (75 total).
 
 ### Security
 - Image **type is decided by magic bytes**, not by the file name or the browser-supplied
@@ -73,7 +184,7 @@ Supabase migration level this release expects (`app_schema_version()`).
 ## [1.3.0] — 2026-11-03 · schema 3
 
 ### Added
-- **Subscription licensing.** `supabase/licensing.sql` adds `clinic_subscriptions`,
+- **Subscription licensing.** §3 of `supabase/schema.sql` adds `clinic_subscriptions`,
   `license_state()`, owner-only `change_plan()` / `renew_subscription()` /
   `start_trial()` / `set_license_status()`, a `seat_guard` trigger and a
   `subscription_write_guard` trigger. Every clinic starts on a 14-day Growth trial;

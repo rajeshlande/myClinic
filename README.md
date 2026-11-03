@@ -14,8 +14,8 @@ Built by adapting the technical foundation of the supplied [`mycar`](https://git
 | **Branding** | Upload a square and a wide clinic logo — they appear on prescriptions, invoices and the sidebar, print correctly offline, and feed WhatsApp and email later through one brand kit. |
 | **Appointments** | Interval-accurate day board per doctor (a 30-minute visit occupies 30 minutes), week load view, list view, next-free suggestion, check-in, in-consult, completed, no-show, cancel with undo, reschedule. |
 | **Patients** | Registration with auto patient IDs, clinical flags (chronic conditions, allergies), full chart: timeline, vitals, prescriptions, invoices, appointments. |
-| **Consultations** | Vitals, complaint, examination, diagnoses, prescription lines, advice, follow-up date — "Save & bill" creates the invoice in one step. |
-| **Billing** | GST-ready invoices with line items, discounts, part payments, payer method (cash/UPI/card/insurance/credit), outstanding dues per patient, printable invoice. |
+| **Consultations** | Vitals, complaint, examination, diagnoses, prescription lines, advice, follow-up date — "Save & bill" creates the invoice in one step. The drug field is a **medicine master typeahead** (brand / molecule / symptom) that fills dose, frequency, duration and food relation, and runs **safety checks** on every prescription. |
+| **Billing** | GST-ready invoices with line items, discounts, part payments, payer method (cash/UPI/card/insurance/credit), outstanding dues per patient, printable invoice. Unpaid invoices carry a scannable **UPI QR** with the exact balance pre-filled — set the clinic VPA in Settings → Billing & invoices → Payments & UPI. |
 | **Follow-ups** | Overdue / due-today / next-7-days recall lists, closed-loop "mark done", gone-quiet cohort, privacy-safe reminder copy. |
 | **Reports** | Month picker, revenue trend, payer mix, revenue by category, footfall, doctor performance table, top diagnoses, appointment outcomes, utilisation, daily collection. |
 | **Doctors & staff** | Doctors with their own hours, slot length, fees and calendar colour; front-desk seats; role matrix; seat count against plan. |
@@ -67,13 +67,25 @@ Restart the dev server (or rebuild) after changing env values.
 
 ## 3. Create the database
 
-Open **Supabase → SQL Editor**, paste all of [`supabase/schema.sql`](supabase/schema.sql), and run it. It is idempotent for v1 and never deletes clinical or billing records.
+Open **Supabase → SQL Editor**, paste all of [`supabase/schema.sql`](supabase/schema.sql), and run it. **This is the only SQL a clinic ever runs.** It is idempotent from any version and never deletes clinical or billing records.
 
 **Tables:** `clinics`, `staff`, `profiles`, `patients`, `appointments`, `consultations`, `invoices`.
 
-**SQL files, in order:** `supabase/schema.sql` (fresh install — includes everything),
-then `supabase/licensing.sql` and `supabase/branding.sql` only when upgrading an
-existing database. Each file ends with a verification block that rolls itself back.
+**One file, every version.** `supabase/schema.sql` carries its own migration history:
+a version registry, a `schema_migrations` ledger, and `app_schema_version()`. A fresh
+project and a database created two releases ago both end up identical — you answer
+"the database needs updating" by re-running the same file. Nothing is ever destructive,
+so re-running it on an up-to-date database is a no-op.
+
+Check where a project stands with:
+
+```sql
+select * from public.app_schema_version();   -- current version + expected version
+select * from public.app_migrations();        -- which migration each section applied
+```
+
+The dev-only verification suite is [`supabase/schema-tests.sql`](supabase/schema-tests.sql)
+(role matrix + licensing, all rolled back). Never run it on production.
 
 What the schema enforces:
 
@@ -239,8 +251,8 @@ clinic out of a patient's chart. Renewal is recorded with a collection reference
 
 Where it lives:
 
-- `supabase/licensing.sql` — table, RPCs, seat trigger, write gate (schema v3)
-- `supabase/licensing-tests.sql` — rolled-back regression suite
+- `supabase/schema.sql` §3 — table, RPCs, seat trigger, write gate (migration 3)
+- `supabase/schema-tests.sql` — rolled-back regression suite
 - `src/lib/license.mjs` — the client mirror of those rules (unit-tested)
 - `/app/subscription` — plan, seats, payment recording, export of the terms
 
@@ -315,6 +327,32 @@ Membership is **granted, never self-asserted**: an owner creates an invite
 (`accept_invite()`). A trigger (`staff_guard()`) refuses any attempt to change
 your own role, clinic or active flag.
 
+## Medicine master & prescription safety
+
+A doctor should not retype "Tab. Dolo 650, 1 tablet, three times a day, 3 days,
+after food" two hundred times a week — and should not have to remember every
+interaction either. Both live in `src/lib/medicines.mjs`, offline, with no
+network call and no external drug database:
+
+- **Typeahead** over ~50 common Indian brands: brand (`dolo`), molecule
+  (`paracetamol`) or symptom (`fever`). Picking a row fills the whole line —
+  molecule, strength, form, dispensing schedule, dose, frequency, duration and
+  food relation — from that medicine's default template.
+- **Free text always wins.** The field is a plain input first: an unknown drug is
+  saved exactly as written. If the name matches a known molecule it is still
+  checked, because a hand-typed "Pantoprazole 40mg" is the same molecule as *Pan 40*.
+- **"Recently prescribed here"** shows what this clinic actually writes, so house
+  habits survive the catalogue.
+- **Checks on every prescription**: duplicate molecule, duplicate class (two
+  NSAIDs, two PPIs, two statins…), ~22 curated interaction pairs, and the
+  patient's own free-text allergy field matched against molecule and class.
+- **High-severity findings must be acknowledged** before saving, and the
+  acknowledgement — finding ids, formulary version, timestamp — is written to
+  `consultations.rx_safety`. Schedule H1/X drugs raise a register notice instead
+  of a block.
+- **Prescriptions are numbered** `RX/26-27/0001`, their own series, independent of
+  invoice numbers, unique per clinic in the database and printed on the sheet.
+
 ## Prescriptions in Indian languages
 
 Doctors write in English; patients need their directions in the language they
@@ -354,9 +392,10 @@ transitive packages stay inside the ranges our direct dependencies declare.
 
 ## Security
 
-`npm run test:security` prints the operator instructions for `supabase/rls-tests.sql`,
+`npm run test:security` prints the operator instructions for `supabase/schema-tests.sql`,
 a self-contained, rolled-back test suite that creates two dummy tenants and
-asserts the role matrix, tenant isolation, token issuance and invoice guards.
+asserts the role matrix, tenant isolation, token issuance, invoice guards, seat
+limits, grace/read-only licensing and plan changes.
 
 A Cloudflare-format audit (`security-audit-skill`) was run against v1.1.0; the
 five confirmed findings — including a critical staff self-escalation path — are

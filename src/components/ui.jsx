@@ -3,8 +3,8 @@ import { AlertCircle, Check, Info, X } from 'lucide-react';
 import { initials } from '../lib/logic.mjs';
 
 /* --------------------------------------------------------------- buttons */
-export function Button({ variant = 'default', size, icon: Icon, children, className = '', loading = false, ...rest }) {
-  const cls = ['btn', variant !== 'default' ? variant : '', size ?? '', className].filter(Boolean).join(' ');
+export function Button({ variant = 'default', size, icon: Icon, children, className = '', loading = false, block = false, ...rest }) {
+  const cls = ['btn', variant !== 'default' ? variant : '', size ?? '', block ? 'btn-block' : '', className].filter(Boolean).join(' ');
   return (
     <button className={cls} {...rest} disabled={rest.disabled || loading}>
       {loading ? <Spinner size={15} /> : Icon ? <Icon size={size === 'sm' ? 14 : 16} strokeWidth={2.2} /> : null}
@@ -132,17 +132,27 @@ export function Kpi({ label, value, icon: Icon, trend, meta, accent = false }) {
 export function Modal({ open, onClose, title, sub, children, footer, wide = false, labelledBy }) {
   const ref = useRef(null);
   const titleId = useId();
+  // Kept in a ref so the setup effect below depends on `open` alone: callers pass
+  // an inline onClose, and an effect that re-ran on every render would re-arm the
+  // autofocus timer on every keystroke and pull the caret out of the field being
+  // typed in.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current?.(); };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     document.body.dataset.modal = 'true';
-    // focus first input for speed of data entry
+    // Focus the first field once, when the dialog opens. Never again: if the
+    // user has already moved the caret somewhere, that is where they are writing.
     const t = setTimeout(() => {
-      const el = ref.current?.querySelector('input:not([type=hidden]), select, textarea, button');
+      const modal = ref.current;
+      if (!modal || modal.contains(document.activeElement)) return;
+      const el = modal.querySelector('input:not([type=hidden]):not([readonly]), select, textarea')
+        ?? modal.querySelector('button');
       el?.focus({ preventScroll: true });
     }, 60);
     return () => {
@@ -151,7 +161,7 @@ export function Modal({ open, onClose, title, sub, children, footer, wide = fals
       delete document.body.dataset.modal;
       clearTimeout(t);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.5.0';
-export const SCHEMA_VERSION = 4;
+export const APP_VERSION = '1.8.0';
+export const SCHEMA_VERSION = 6;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,34 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.8.0', date: '2026-11-03', schema: 6,
+    highlights: [
+      'Medicine master: the drug field autocompletes brands, molecules and symptoms, and fills the dose, frequency, duration and food relation for you.',
+      'Typing is never blocked — an unknown drug is saved exactly as written.',
+      'Safety checks on every prescription: the same molecule twice, two drugs of the same class, curated interactions, and the patient\'s recorded allergies.',
+      'High-severity findings must be acknowledged before saving, and the acknowledgement is stored on the prescription.',
+      'Schedule H1 drugs raise a register notice instead of a block.',
+      'Prescriptions are numbered RX/26-27/0001 — their own series, independent of invoices — and print with each drug\'s molecule.',
+      'Fixed the consultation dialog stealing the cursor whenever typing paused.',
+    ],
+  },
+  {
+    version: '1.7.0', date: '2026-11-03', schema: 5,
+    highlights: [
+      'UPI collection: every unpaid invoice carries a scannable QR with the exact balance, on screen and on paper.',
+      'One payment sheet everywhere — billing, invoice and patient chart — with part payments and a payment reference.',
+      'Invoice and prescription documents rebuilt to print as clean A4 pages, with a proper header, amount in words and a payment block.',
+      'Consultation → bill → collect is now one continuous flow.',
+    ],
+  },
+  {
+    version: '1.6.0', date: '2026-11-03', schema: 4,
+    highlights: [
+      'supabase/schema.sql is now the single source of truth: one file creates a new database and upgrades an old one in place.',
+      'The database reports its own schema version, so the app can say exactly what needs updating.',
+    ],
+  },
   {
     version: '1.5.0', date: '2026-11-03', schema: 4,
     highlights: [

@@ -41,6 +41,8 @@ export default function PrescriptionView() {
   const v = visit.vitals ?? {};
   const d = sheet.headings;
   const localised = lang !== 'en';
+  // "None reported" is a finding, not an allergy — don't print a red alert for it.
+  const hasAllergy = Boolean(patient?.allergies && !/^none\b|^nil\b|^no known/i.test(String(patient.allergies).trim()));
 
   /** Plain-text version for WhatsApp / SMS to the patient. */
   const shareText = () => {
@@ -103,9 +105,11 @@ export default function PrescriptionView() {
           logo={logoOnDocuments(clinic)}
           accent={clinic.brand_color}
           right={(
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontWeight: 800, fontSize: '1rem' }}>{doctor?.full_name ?? 'Consulting doctor'}</div>
-              <div className="rx-meta">
+            <div className="doc-title-block">
+              <div className="doc-kind">Prescription</div>
+              {visit.rx_number ? <div className="doc-number mono">{visit.rx_number}</div> : null}
+              <div className="doc-number">{doctor?.full_name ?? 'Consulting doctor'}</div>
+              <div className="doc-date">
                 {[doctor?.qualification, doctor?.specialty].filter(Boolean).join(' · ')}
                 {doctor?.registration_no ? <><br />Reg. {doctor.registration_no}</> : null}
               </div>
@@ -115,14 +119,14 @@ export default function PrescriptionView() {
 
         {/* --------------------------------------------------------------- patient */}
         <div className="rx-patient">
-          <div><b>{d.patient}</b>{patient?.full_name}</div>
-          <div><b>ID</b>{patient?.code}</div>
+          <div className="rx-patient-name"><b>{d.patient}</b>{patient?.full_name}</div>
+          <div><b>Patient ID</b><span className="mono">{patient?.code ?? '—'}</span></div>
           <div><b>Age / Sex</b>{ageLabel(patient)}</div>
           <div><b>Date</b>{formatDate(visit.visited_on)}</div>
           <div><b>Visit</b>{appointment?.kind ?? 'Consultation'}{appointment?.token_no ? ` · T-${String(appointment.token_no).padStart(2, '0')}` : ''}</div>
         </div>
 
-        {patient?.allergies ? (
+        {hasAllergy ? (
           <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', background: '#fbe8ec', color: '#b23b4e', padding: '4px 10px', borderRadius: 7, fontSize: '0.74rem', fontWeight: 800, letterSpacing: '.02em' }}>
             <ShieldAlert size={12} /> {d.allergy}: {patient.allergies}
           </div>
@@ -180,6 +184,14 @@ export default function PrescriptionView() {
                     <td>{i + 1}</td>
                     <td>
                       <div style={{ fontWeight: 700, fontFamily: 'var(--font)' }}>{rx.drug}</div>
+                      {/* The generic name is what a pharmacist and the next doctor read. */}
+                      {rx.salt ? (
+                        <div className="rx-salt" style={{ fontFamily: 'var(--font)' }}>
+                          {rx.salt}
+                          {rx.form ? ` · ${rx.form}` : ''}
+                          {rx.schedule === 'H1' ? ' · Schedule H1' : rx.schedule === 'X' ? ' · Schedule X' : ''}
+                        </div>
+                      ) : null}
                       {rx.notes ? <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{rx.notes}</div> : null}
                     </td>
                     <td style={{ fontFamily: 'var(--font)' }}>{rx.dose}</td>
@@ -211,7 +223,7 @@ export default function PrescriptionView() {
             <div style={{ fontSize: '0.88rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
               <CalendarClock size={13} /> {visit.follow_up_on ? formatDate(visit.follow_up_on) : 'As needed'}
             </div>
-            {visit.follow_up_on ? <div className="rx-lang" style={{ marginTop: 2 }}>{d.followup_in} {formatDate(visit.follow_up_on)}</div> : null}
+            {visit.follow_up_on && localised ? <div className="rx-lang" style={{ marginTop: 2 }}>{d.followup_in} {formatDate(visit.follow_up_on)}</div> : null}
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ height: 38 }} />
@@ -220,9 +232,25 @@ export default function PrescriptionView() {
           </div>
         </div>
 
-        <p style={{ marginTop: 14, fontSize: '0.68rem', color: '#8b9c97', borderTop: '1px solid #eef3f1', paddingTop: 8 }}>
-          {sheet.footer} · myClinic
-        </p>
+        <footer className="doc-foot">
+          <div>
+            <strong>{clinic.name ?? 'Clinic'}</strong>
+            {clinic.address ? <span>{clinic.address}</span> : null}
+            <span>{[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
+            <span className="doc-foot-fine">{sheet.footer}</span>
+          </div>
+          <div className="doc-foot-right">
+            <span>Prescription · {patient?.full_name ?? 'Patient'} · {formatDate(visit.visited_on)}</span>
+            <span className="doc-foot-fine">Computer-generated · bring this sheet to your next visit</span>
+            <span className="doc-foot-fine">myClinic</span>
+          </div>
+        </footer>
+
+        {/* repeating footer for a prescription that spills onto a second page */}
+        <div className="print-foot">
+          <span>{clinic.name ?? 'Clinic'} · {[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
+          <span>{patient?.full_name} · {formatDate(visit.visited_on)}</span>
+        </div>
       </div>
 
       <div className="no-print" style={{ maxWidth: 900, margin: '14px auto 0' }}>
