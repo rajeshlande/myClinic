@@ -11,6 +11,7 @@ Built by adapting the technical foundation of the supplied [`mycar`](https://git
 | Module | What it does |
 |---|---|
 | **Dashboard** | Today's OPD queue with one-tap check-in → consult, collected-vs-billed trend, footfall, follow-ups due, revenue mix, doctor performance. |
+| **Branding** | Upload a square and a wide clinic logo — they appear on prescriptions, invoices and the sidebar, print correctly offline, and feed WhatsApp and email later through one brand kit. |
 | **Appointments** | Interval-accurate day board per doctor (a 30-minute visit occupies 30 minutes), week load view, list view, next-free suggestion, check-in, in-consult, completed, no-show, cancel with undo, reschedule. |
 | **Patients** | Registration with auto patient IDs, clinical flags (chronic conditions, allergies), full chart: timeline, vitals, prescriptions, invoices, appointments. |
 | **Consultations** | Vitals, complaint, examination, diagnoses, prescription lines, advice, follow-up date — "Save & bill" creates the invoice in one step. |
@@ -69,6 +70,10 @@ Restart the dev server (or rebuild) after changing env values.
 Open **Supabase → SQL Editor**, paste all of [`supabase/schema.sql`](supabase/schema.sql), and run it. It is idempotent for v1 and never deletes clinical or billing records.
 
 **Tables:** `clinics`, `staff`, `profiles`, `patients`, `appointments`, `consultations`, `invoices`.
+
+**SQL files, in order:** `supabase/schema.sql` (fresh install — includes everything),
+then `supabase/licensing.sql` and `supabase/branding.sql` only when upgrading an
+existing database. Each file ends with a verification block that rolls itself back.
 
 What the schema enforces:
 

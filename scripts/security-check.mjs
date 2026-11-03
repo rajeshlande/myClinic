@@ -12,6 +12,7 @@ checks.push([existsSync(suite), `${suite} present (RLS regression suite)`]);
 checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (schema v2 role matrix)']);
 checks.push([existsSync('supabase/licensing.sql'), 'supabase/licensing.sql present (schema v3 subscriptions)']);
 checks.push([existsSync('supabase/licensing-tests.sql'), 'supabase/licensing-tests.sql present (licence regression suite)']);
+checks.push([existsSync('supabase/branding.sql'), 'supabase/branding.sql present (schema v4 logos + size guards)']);
 checks.push([existsSync('src/lib/permissions.js'), 'client role matrix mirrors the policies']);
 checks.push([existsSync('src/lib/offline.js'), 'offline engine (scoped cache, TTL, outbox)']);
 
@@ -23,6 +24,7 @@ Database checks (run against a SCRATCH project, never production):
 
   1. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
   2. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing.sql
+  2b. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/branding.sql
   3. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ${suite}
   4. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing-tests.sql
      -> every assertion prints PASS; the whole fixture set is rolled back

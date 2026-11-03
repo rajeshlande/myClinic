@@ -3,6 +3,41 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.5.0] — 2026-11-03 · schema 4
+
+### Added
+- **Clinic logos.** Settings → *Logos & branding* takes a **square** logo (1:1) and a
+  **wide** one (up to 4:1). Either stands in for the other, so a clinic that uploads one
+  file still gets a header on its paperwork.
+- **They land everywhere they should.** The wide logo heads prescriptions and invoices,
+  the square one becomes the sidebar mark, and both are available for WhatsApp profile
+  photos and email signatures through `brandKit()`.
+- **`src/lib/branding.mjs`** — pure logo rules: a two-shape catalogue, byte-level image
+  sniffing, an SVG safety check, size arithmetic and the shared brand kit.
+  **`src/lib/logo.js`** — the browser half: reads the file, re-encodes through a canvas,
+  drops EXIF, and keeps the output under a bounded size.
+- **`supabase/branding.sql`** — an upgrade script for existing databases that adds the
+  columns, the size guards and bumps `app_meta.schema_version` to 4. Fresh installs get
+  it from `schema.sql`. 11 new unit tests (75 total).
+
+### Security
+- Image **type is decided by magic bytes**, not by the file name or the browser-supplied
+  MIME type, so a renamed file cannot slip through.
+- **SVG logos are parsed as text and refused** when they contain script, event handlers,
+  `foreignObject`, remote `href`/`xlink:href` or `@import`. Raster logos are re-encoded
+  through a canvas, which strips anything that is not pixels.
+- Logos are only ever stored as `data:image/…` URLs; the database constraint rejects any
+  other value, so a logo field cannot be used to smuggle a remote URL into documents.
+- Uploads are capped at 2 MB in, ~220 KB stored, with a hard row-level guard.
+
+### Fixed
+- **The allergy line printed as a bare `:` on every prescription** — the chip read
+  `d.heading_allergy`, but the sheet exposes `d.allergy`, so the label was `undefined`
+  in all ten languages. Patients with allergies now see `ALLERGY: Penicillin`.
+- An invoice table wider than a 360px phone pushed the whole page sideways; the table now
+  scrolls on its own.
+- The landing page hero badge was hardcoded `v1.0` and had been stale since 1.1.
+
 ## [1.4.0] — 2026-11-03 · schema 3
 
 ### Added

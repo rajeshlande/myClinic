@@ -5,6 +5,8 @@ import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, EmptyState, Segmented } from '../components/ui.jsx';
 import { ageLabel, formatDate } from '../lib/logic.mjs';
 import { RX_LANGUAGES, patientInstruction, rxSheet, fontStackFor, durationParts } from '../lib/rx-language.js';
+import { DocumentHeader } from '../components/Branding.jsx';
+import { logoOnDocuments } from '../lib/branding.mjs';
 
 export default function PrescriptionView() {
   const { id } = useParams();
@@ -96,36 +98,33 @@ export default function PrescriptionView() {
 
       <div className="print-sheet card rx-sheet" style={{ maxWidth: 900, margin: '0 auto', fontFamily: localised ? fontStackFor(lang) : 'var(--font)' }}>
         {/* ---------------------------------------------------------------- header */}
-        <div className="rx-head">
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="rx-doctor">{clinic.name ?? 'Clinic'}</div>
-            <div className="rx-meta">
-              {clinic.address}<br />
-              {[clinic.phone, clinic.email].filter(Boolean).join(' · ')}
-              {clinic.gstin ? <><br />GSTIN {clinic.gstin}</> : null}
+        <DocumentHeader
+          clinic={clinic}
+          logo={logoOnDocuments(clinic)}
+          accent={clinic.brand_color}
+          right={(
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontWeight: 800, fontSize: '1rem' }}>{doctor?.full_name ?? 'Consulting doctor'}</div>
+              <div className="rx-meta">
+                {[doctor?.qualification, doctor?.specialty].filter(Boolean).join(' · ')}
+                {doctor?.registration_no ? <><br />Reg. {doctor.registration_no}</> : null}
+              </div>
             </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontWeight: 800, fontSize: '1rem' }}>{doctor?.full_name ?? 'Consulting doctor'}</div>
-            <div className="rx-meta">
-              {[doctor?.qualification, doctor?.specialty].filter(Boolean).join(' · ')}
-              {doctor?.registration_no ? <><br />Reg. {doctor.registration_no}</> : null}
-            </div>
-          </div>
-        </div>
+          )}
+        />
 
         {/* --------------------------------------------------------------- patient */}
         <div className="rx-patient">
           <div><b>{d.patient}</b>{patient?.full_name}</div>
           <div><b>ID</b>{patient?.code}</div>
           <div><b>Age / Sex</b>{ageLabel(patient)}</div>
-          <div><b>{d.heading_followup === 'Next visit' ? 'Date' : 'Date'}</b>{formatDate(visit.visited_on)}</div>
+          <div><b>Date</b>{formatDate(visit.visited_on)}</div>
           <div><b>Visit</b>{appointment?.kind ?? 'Consultation'}{appointment?.token_no ? ` · T-${String(appointment.token_no).padStart(2, '0')}` : ''}</div>
         </div>
 
         {patient?.allergies ? (
           <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', background: '#fbe8ec', color: '#b23b4e', padding: '4px 10px', borderRadius: 7, fontSize: '0.74rem', fontWeight: 800, letterSpacing: '.02em' }}>
-            <ShieldAlert size={12} /> {d.heading_allergy}: {patient.allergies}
+            <ShieldAlert size={12} /> {d.allergy}: {patient.allergies}
           </div>
         ) : null}
 

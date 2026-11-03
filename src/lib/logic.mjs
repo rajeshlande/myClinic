@@ -520,6 +520,11 @@ export const DEFAULT_CLINIC = {
   gst_rate: 0,
   invoice_prefix: 'INV',
   brand_color: '#0f766e',
+  // Branding: uploaded in Settings → Logos & branding. Stored as data URLs on the
+  // clinic row so documents render offline and the logo travels with the clinic.
+  logo_square_url: null,
+  logo_wide_url: null,
+  logo_on_documents: true,
 };
 
 export const DEFAULT_PREFERENCES = {

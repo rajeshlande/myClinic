@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.4.0';
-export const SCHEMA_VERSION = 3;
+export const APP_VERSION = '1.5.0';
+export const SCHEMA_VERSION = 4;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.5.0', date: '2026-11-03', schema: 4,
+    highlights: [
+      'Upload a square and a wide clinic logo; both appear on prescriptions, invoices and the sidebar.',
+      'Logos are resized in the browser before saving, so they print offline and stay small.',
+      'Turn logos off per clinic for letterhead that already carries them.',
+      'One brand kit feeds documents today and WhatsApp or email later — same name, colour and logo.',
+      'Fixed the allergy line printing as a bare colon on every prescription.',
+    ],
+  },
   {
     version: '1.4.0', date: '2026-11-03', schema: 3,
     highlights: [

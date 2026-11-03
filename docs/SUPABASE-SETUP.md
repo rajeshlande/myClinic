@@ -86,6 +86,28 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing-tests.sql
 
 ---
 
+
+## 3c. Apply the branding columns (schema v4)
+
+Run `supabase/branding.sql` after the licensing layer. A **fresh** install already has
+these columns from `schema.sql`, so this file is only for databases created before v1.5.0.
+
+| Column | Purpose |
+| --- | --- |
+| `logo_square_url` | 1:1 logo — sidebar mark, app icon, WhatsApp Business profile photo |
+| `logo_wide_url` | up to 4:1 logo — prescription and invoice header, email signature |
+| `logo_on_documents` | print toggle, for clinics whose letterhead already carries a logo |
+
+Both logo columns only accept `data:image/…` URLs and are capped at 700 KB / 900 KB, so a
+clinic row (and the offline snapshot that carries it) stays small. Logos are uploaded in
+**Settings → Logos & branding**, resized in the browser before they are saved.
+
+Confirm:
+
+```sql
+select public.app_schema_version();   -- must return 4
+```
+
 ## 4. Configure authentication
 
 **Authentication → URL configuration**:

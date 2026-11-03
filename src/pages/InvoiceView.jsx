@@ -7,6 +7,8 @@ import {
   PAYMENT_METHODS, downloadFile, formatDate, formatMoney, invoiceBalance, invoiceStatus,
   toCSV, today,
 } from '../lib/logic.mjs';
+import { DocumentHeader } from '../components/Branding.jsx';
+import { logoOnDocuments } from '../lib/branding.mjs';
 
 export default function InvoiceView() {
   useEffect(() => {
@@ -59,21 +61,18 @@ export default function InvoiceView() {
       </div>
 
       <div className="print-sheet card" style={{ maxWidth: 860, margin: '0 auto', padding: 'clamp(18px, 3vw, 38px)' }}>
-        <div className="row wrap" style={{ gap: 18, alignItems: 'flex-start', borderBottom: '2px solid #0f766e', paddingBottom: 16 }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{clinic.name ?? 'Clinic'}</div>
-            <div style={{ fontSize: '0.76rem', color: '#5a6b66', lineHeight: 1.6, marginTop: 4 }}>
-              {clinic.address}<br />
-              {clinic.phone} {clinic.email ? `· ${clinic.email}` : ''}<br />
-              {clinic.gstin ? `GSTIN: ${clinic.gstin}` : null}
+        <DocumentHeader
+          clinic={clinic}
+          logo={logoOnDocuments(clinic)}
+          accent={clinic.brand_color}
+          right={(
+            <div style={{ textAlign: 'right', minWidth: 190 }}>
+              <div style={{ fontSize: '0.72rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#5a6b66', fontWeight: 700 }}>Tax invoice</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 800, marginTop: 2 }}>{invoice.number}</div>
+              <div style={{ fontSize: '0.78rem', color: '#5a6b66' }}>{formatDate(invoice.issued_on)}</div>
             </div>
-          </div>
-          <div style={{ textAlign: 'right', minWidth: 190 }}>
-            <div style={{ fontSize: '0.72rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#5a6b66', fontWeight: 700 }}>Tax invoice</div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 800, marginTop: 2 }}>{invoice.number}</div>
-            <div style={{ fontSize: '0.78rem', color: '#5a6b66' }}>{formatDate(invoice.issued_on)}</div>
-          </div>
-        </div>
+          )}
+        />
 
         <div className="row wrap" style={{ gap: 26, margin: '16px 0' }}>
           <div style={{ flex: 1, minWidth: 210 }}>
@@ -94,6 +93,7 @@ export default function InvoiceView() {
           </div>
         </div>
 
+        <div className="doc-table-wrap">
         <table>
           <thead>
             <tr>
@@ -121,6 +121,7 @@ export default function InvoiceView() {
             ))}
           </tbody>
         </table>
+        </div>
 
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
           <div style={{ minWidth: 260, width: 'min(320px, 100%)' }}>

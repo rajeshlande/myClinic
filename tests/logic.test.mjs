@@ -811,3 +811,133 @@ test('schedule: slots are grouped into the sessions a front desk talks about', (
   assert.deepEqual(groups.map((g) => g.label), ['Morning', 'Afternoon', 'Evening']);
   assert.ok(groups.every((g) => g.slots.length > 0));
 });
+
+// ---------------------------------------------------------------- branding
+import {
+  LOGO_KINDS, LOGO_MAX_BYTES, acceptLogo, anyLogo, brandKit, clinicInitials, dataUrlBytes,
+  fitWithin, formatBytes, isSvgSafe, logoFor, logoKind, logoOnDocuments, sniffImageMime,
+  validateLogoFile,
+} from '../src/lib/branding.mjs';
+
+const PNG_1PX = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+const JPEG_HEAD = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);
+const WEBP_HEAD = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x20, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
+]);
+const SVG_OK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>';
+
+test('branding: image types are identified from bytes, not from the file name', () => {
+  assert.equal(sniffImageMime(PNG_1PX), 'image/png');
+  assert.equal(sniffImageMime(JPEG_HEAD), 'image/jpeg');
+  assert.equal(sniffImageMime(WEBP_HEAD), 'image/webp');
+  assert.equal(sniffImageMime(new Uint8Array([0x47, 0x49, 0x46, 0x38])), null, 'GIF is refused');
+  assert.equal(sniffImageMime(new TextEncoder().encode('<svg>')), null, 'SVG is text, not a magic number');
+  assert.equal(sniffImageMime(new Uint8Array(0)), null);
+});
+
+test('branding: a file renamed to .png is still rejected', () => {
+  const verdict = acceptLogo({ mime: sniffImageMime(new TextEncoder().encode('not an image')), size: 900 });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /PNG, JPEG, WebP or SVG/);
+});
+
+test('branding: uploads over the cap are refused with a readable message', () => {
+  const big = validateLogoFile({ name: 'logo.png', type: 'image/png', size: LOGO_MAX_BYTES + 1 });
+  assert.equal(big.ok, false);
+  assert.match(big.error, /Keep the logo under 2\.0 MB/);
+  assert.match(big.error, /That file is 2\.0 MB/, 'the message says how big the file actually is');
+  assert.equal(validateLogoFile({ name: 'logo.png', type: 'image/png', size: 400_000 }).ok, true);
+  assert.equal(validateLogoFile({ name: 'logo.pdf', type: 'application/pdf', size: 1000 }).ok, false);
+  assert.equal(validateLogoFile({ name: 'empty.png', type: 'image/png', size: 0 }).ok, false);
+});
+
+test('branding: SVG logos are accepted only when they carry no script or remote refs', () => {
+  assert.equal(isSvgSafe(SVG_OK), true);
+  assert.equal(isSvgSafe('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), false);
+  assert.equal(isSvgSafe('<svg onload="alert(1)"></svg>'), false);
+  assert.equal(isSvgSafe('<svg><image href="https://evil.example/x.png"/></svg>'), false);
+  assert.equal(isSvgSafe('<svg><use xlink:href="//evil.example/s.svg#a"/></svg>'), false);
+  assert.equal(isSvgSafe('<svg><style>@import url(//evil.example)</style></svg>'), false);
+  assert.equal(isSvgSafe('<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "y">]><svg/>'), false);
+  assert.equal(isSvgSafe('just text'), false);
+  // a local fragment reference is legitimate
+  assert.equal(isSvgSafe('<svg xmlns="http://www.w3.org/2000/svg"><use xlink:href="#mark"/></svg>'), true);
+
+  assert.equal(acceptLogo({ mime: 'image/svg+xml', size: 200, svgText: SVG_OK }).ok, true);
+  assert.equal(acceptLogo({ mime: 'image/svg+xml', size: 200, svgText: '<svg><script>x</script></svg>' }).ok, false);
+  assert.equal(acceptLogo({ mime: 'image/svg+xml', size: 999_999, svgText: SVG_OK }).ok, false, 'vector cap is tighter');
+});
+
+test('branding: logos fit inside their box without cropping or upscaling', () => {
+  assert.deepEqual(fitWithin(1024, 1024, 512), { width: 512, height: 512, scaled: true });
+  assert.deepEqual(fitWithin(2000, 500, 1024), { width: 1024, height: 256, scaled: true }, 'wide keeps its aspect');
+  assert.deepEqual(fitWithin(300, 120, 512), { width: 300, height: 120, scaled: false }, 'never upscales');
+  assert.deepEqual(fitWithin(0, 0, 512), { width: 1, height: 1, scaled: false });
+  assert.equal(logoKind('wide').maxEdge, 1024);
+  assert.equal(logoKind('nonsense').id, 'square');
+  assert.equal(LOGO_KINDS.length, 2);
+});
+
+test('branding: square is preferred, wide stands in, neither shows nothing', () => {
+  const both = { logo_square_url: 'data:image/png;base64,AAA', logo_wide_url: 'data:image/png;base64,BBB' };
+  assert.equal(logoFor(both, 'square'), 'data:image/png;base64,AAA');
+  assert.equal(logoFor(both, 'wide'), 'data:image/png;base64,BBB');
+  assert.equal(logoFor(both), 'data:image/png;base64,AAA', 'square is the default (avatars, favicons)');
+
+  const wideOnly = { logo_wide_url: 'data:image/png;base64,BBB' };
+  assert.equal(logoFor(wideOnly, 'square'), null);
+  assert.equal(anyLogo(wideOnly), 'data:image/png;base64,BBB', 'one upload is enough to start');
+
+  assert.equal(logoFor({}, 'square'), null);
+  assert.equal(anyLogo(null), null);
+  // anything that is not a data URL is ignored, so a URL cannot be injected
+  assert.equal(logoFor({ logo_square_url: 'https://evil.example/x.png' }, 'square'), null);
+  assert.equal(logoFor({ logo_square_url: 'javascript:alert(1)' }, 'square'), null);
+});
+
+test('branding: the print toggle defaults on and can be turned off', () => {
+  assert.equal(logoOnDocuments({}), true);
+  assert.equal(logoOnDocuments(null), true);
+  assert.equal(logoOnDocuments({ logo_on_documents: false }), false);
+  assert.equal(logoOnDocuments({ logo_on_documents: true }), true);
+});
+
+test('branding: the brand kit is the single object every channel reads', () => {
+  const kit = brandKit({
+    name: 'Sunrise Multispecialty OPD', brand_color: '#0f766e',
+    logo_square_url: 'data:image/png;base64,AAA',
+    phone: '+91 22 4000 1200', email: 'desk@sunrise.in', address: 'Bandra West, Mumbai', gstin: '27ABCDE1234F1Z5',
+  });
+  assert.equal(kit.name, 'Sunrise Multispecialty OPD');
+  assert.equal(kit.initials, 'SO');
+  assert.equal(kit.color, '#0f766e');
+  assert.equal(kit.square, 'data:image/png;base64,AAA');
+  assert.equal(kit.primary, 'data:image/png;base64,AAA', 'what a WhatsApp profile or email avatar would use');
+  assert.equal(kit.wide, null);
+  assert.equal(kit.onDocuments, true);
+  assert.equal(kit.phone, '+91 22 4000 1200');
+  // never throws on a half-built clinic
+  const bare = brandKit({});
+  assert.equal(bare.color, '#0f766e');
+  assert.equal(bare.initials, 'CL', 'a nameless clinic still gets a usable lettermark');
+  assert.equal(brandKit(null).name, 'Clinic');
+});
+
+test('branding: initials fall back sensibly for odd clinic names', () => {
+  assert.equal(clinicInitials('Sunrise Multispecialty OPD'), 'SO');
+  assert.equal(clinicInitials('Clinic'), 'CL');
+  assert.equal(clinicInitials('  '), 'C');
+  assert.equal(clinicInitials(undefined), 'C');
+  assert.equal(clinicInitials('Dr Rao'), 'DR');
+});
+
+test('branding: stored weight is measured the way the data URL actually grows', () => {
+  // 4 base64 chars carry 3 bytes
+  assert.equal(dataUrlBytes('data:image/png;base64,AAAA'), 3);
+  assert.equal(dataUrlBytes('data:image/png;base64,AAA='), 2);
+  assert.equal(dataUrlBytes('data:image/png;base64,'), 0);
+  assert.equal(dataUrlBytes(null), 0);
+  assert.equal(formatBytes(512), '512 B');
+  assert.equal(formatBytes(4096), '4 KB');
+  assert.equal(formatBytes(2 * 1024 * 1024), '2.0 MB');
+});

@@ -36,6 +36,12 @@ create table if not exists public.clinics (
   gst_rate numeric(5,2) not null default 0 check (gst_rate between 0 and 28),
   invoice_prefix text not null default 'INV' check (char_length(invoice_prefix) between 1 and 8),
   brand_color text not null default '#0f766e' check (brand_color ~ '^#[0-9a-fA-F]{6}$'),
+  -- Branding. Data URLs, so a logo needs no storage bucket, no CORS and no
+  -- second fetch on clinic wifi. The size guard keeps a clinic row small enough
+  -- for the offline snapshot (a 512px PNG lands around 40-60 KB).
+  logo_square_url text check (logo_square_url is null or (logo_square_url like 'data:image/%' and char_length(logo_square_url) <= 700000)),
+  logo_wide_url   text check (logo_wide_url   is null or (logo_wide_url   like 'data:image/%' and char_length(logo_wide_url)   <= 900000)),
+  logo_on_documents boolean not null default true,
   plan text not null default 'growth' check (plan in ('solo','growth','chain')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

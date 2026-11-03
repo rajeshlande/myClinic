@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import {
   BellRing, Building2, Check, CreditCard, Download, LogOut, MoonStar, RefreshCw, Save,
   Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, ExternalLink, Smartphone,
+  ImagePlus,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -10,6 +11,7 @@ import { PWAStatus } from '../components/PWAWidgets.jsx';
 import { useToast, Badge, Button, Card, CardHead, Field, Input, Modal, Segmented, Select, Tabs } from '../components/ui.jsx';
 import { ACCENTS, applyDensity, applyTheme, readAccent, readTheme, saveAccent, saveTheme } from '../lib/theme.js';
 import { SyncCenter } from '../components/SyncCenter.jsx';
+import { BrandingFields, BrandMark } from '../components/Branding.jsx';
 import { APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION } from '../lib/version.js';
 import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
 import { CloudOff, GitBranch, History, Palette, RefreshCcw, Scale } from 'lucide-react';
@@ -63,6 +65,11 @@ export default function Settings() {
         open_time: clinic.open_time, close_time: clinic.close_time,
         gst_enabled: Boolean(clinic.gst_enabled), gst_rate: Number(clinic.gst_rate) || 0,
         invoice_prefix: clinic.invoice_prefix || 'INV',
+        // Branding travels with the clinic row so it survives offline and appears
+        // on every document without a second fetch.
+        logo_square_url: clinic.logo_square_url ?? null,
+        logo_wide_url: clinic.logo_wide_url ?? null,
+        logo_on_documents: clinic.logo_on_documents !== false,
       });
       toast.success('Clinic profile saved.');
     } catch (e) { toast.error(e.message ?? 'Could not save.'); } finally { setSaving(false); }
@@ -120,6 +127,7 @@ export default function Settings() {
         value={tab} onChange={setTab}
         tabs={[
           { value: 'clinic', label: 'Clinic' },
+          { value: 'branding', label: 'Logos & branding' },
           { value: 'billing', label: 'Billing & invoices' },
           { value: 'account', label: 'My account' },
           { value: 'appearance', label: 'Appearance & colours' },
@@ -128,6 +136,53 @@ export default function Settings() {
           { value: 'plan', label: 'Plan & data' },
         ]}
       />
+
+      {tab === 'branding' ? (
+        <Card>
+          <CardHead
+            title="Logos & branding"
+            sub="Used on prescriptions, invoices, and ready for WhatsApp and email"
+            icon={ImagePlus}
+            action={<Button size="sm" variant="primary" icon={Save} onClick={saveClinic} loading={saving}>Save</Button>}
+          />
+          <div className="card-body stack" style={{ gap: 14 }}>
+            {!can(role, 'clinic:settings') ? (
+              <div className="row small" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '9px 12px', borderRadius: 11 }}>
+                <ShieldCheck size={14} />
+                <span>Only the clinic owner can change branding.</span>
+              </div>
+            ) : null}
+
+            <div className="branding-preview">
+              <div className="row" style={{ gap: 10 }}>
+                <BrandMark clinic={clinic} size={44} />
+                <div>
+                  <div className="strong">{clinic.name || 'Your clinic'}</div>
+                  <div className="tiny faint">How the clinic appears across myClinic</div>
+                </div>
+              </div>
+              <div className="branding-preview-note tiny muted">
+                Upload a square logo for avatars and profile photos, and a wide one for letterheads.
+                Either can stand in for the other, so one upload is enough to get started.
+              </div>
+            </div>
+
+            <BrandingFields
+              clinic={clinic}
+              disabled={!can(role, 'clinic:settings') || saving}
+              onChange={(patch) => setClinic((c) => ({ ...c, ...patch }))}
+            />
+
+            <div className="row small" style={{ gap: 8, background: 'var(--surface-2)', padding: '10px 12px', borderRadius: 11 }}>
+              <ShieldCheck size={14} className="muted" />
+              <span className="muted">
+                Logos are resized in your browser and stored with the clinic, so they print correctly
+                offline and are covered by the same access rules as the rest of your clinic data.
+              </span>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {tab === 'clinic' ? (
         <Card>

@@ -14,6 +14,7 @@ import { SyncBadge, SyncCenter } from './SyncCenter.jsx';
 import { LicenseBanner } from './LicenseBanner.jsx';
 import { licenseHeadline, licenseTone } from '../lib/license.mjs';
 import { Avatar, Button, IconButton, Modal, SearchInput } from './ui.jsx';
+import { BrandMark } from './Branding.jsx';
 
 const NAV = [
   { group: 'Clinic', items: [
@@ -104,7 +105,7 @@ export default function AppLayout() {
   const nav = (
     <>
       <div className="brand">
-        <span className="brand-mark"><Stethoscope size={19} strokeWidth={2.3} /></span>
+        <BrandMark clinic={store.clinic} size={34} className="brand-mark-logo" />
         <div style={{ minWidth: 0 }}>
           <div className="brand-name">myClinic</div>
           <div className="brand-sub truncate" style={{ maxWidth: 150 }}>{brand}</div>
