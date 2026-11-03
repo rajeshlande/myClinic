@@ -29,15 +29,26 @@ cd myClinic
 git fetch /path/to/myClinic-update-to-v1.8.0.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
-git push origin main --follow-tags        # main + v1.3.0 … v1.8.0
+
+git push origin main
+git push origin refs/tags/v1.3.0 refs/tags/v1.4.0 refs/tags/v1.5.0 \
+               refs/tags/v1.7.0 refs/tags/v1.8.0
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
 expects and you should stop rather than invent a merge.
 
-Verified from this sandbox against the live repository: the fetch applies, the
-merge fast-forwards to `8df4296` (*feat(rx): medicine master…*) with all six
-tags, and `git log` shows the four new commits on top of `53c0957`.
+Tags are pushed by name rather than with `--tags`/`--follow-tags` on purpose:
+**`v1.2.1` already exists on GitHub pointing at `53c0957`, while in this history
+it points at `5224806`.** The bundle therefore carries only the tags GitHub does
+not have, so nothing is rejected and no published tag is rewritten. If you want
+the old tag moved onto this history, do it deliberately:
+`git push --force origin refs/tags/v1.2.1` (only if nothing references it).
+
+Verified from this sandbox against the live repository: `git clone` of
+github.com/rajeshlande/myClinic → fetch the bundle → `git merge --ff-only` lands
+on `d5a69a0`, exit code 0, working tree clean, tags `v1.3.0 … v1.8.0` present and
+`v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
@@ -45,8 +56,13 @@ tags, and `git log` shows the four new commits on top of `53c0957`.
 git clone -b main myClinic-full-v1.8.0.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
-git push -u origin main --follow-tags
+git push -u origin main
+git push origin refs/tags/v1.3.0 refs/tags/v1.4.0 refs/tags/v1.5.0 \
+               refs/tags/v1.7.0 refs/tags/v1.8.0
 ```
+
+(A fresh clone *can* be pushed with `--follow-tags`; the explicit tag list above
+still avoids the pre-existing `v1.2.1` on GitHub.)
 
 Verified from this sandbox: cloned from the bundle, `npm test` → **119 passed**,
 `npm run build` and `npm run check:pages` → clean, 13 commits of history present.
@@ -55,6 +71,7 @@ Verified from this sandbox: cloned from the bundle, `npm test` → **119 passed*
 
 | Commit | Release | Scope |
 |---|---|---|
+| `d5a69a0` | docs | This file, for the v1.8.0 bundles. |
 | `cc0ca35` | **1.7.0** · schema 5 | UPI QR collection on unpaid invoices, one payment sheet for billing/invoice/patient chart, rebuilt invoice and prescription documents, and `supabase/schema.sql` as the single source of truth for the whole database. |
 | `8df4296` | **1.8.0** · schema 6 | Medicine master typeahead with dose defaults, prescription safety (duplicate molecule/class, interactions, allergies, H1 notice), acknowledgement logged to `consultations.rx_safety`, and `RX/26-27/0001` prescription numbering. Also fixes the consultation dialog stealing the caret. |
 
