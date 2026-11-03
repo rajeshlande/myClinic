@@ -3,6 +3,35 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.3.0] — 2026-11-03 · schema 3
+
+### Added
+- **Subscription licensing.** `supabase/licensing.sql` adds `clinic_subscriptions`,
+  `license_state()`, owner-only `change_plan()` / `renew_subscription()` /
+  `start_trial()` / `set_license_status()`, a `seat_guard` trigger and a
+  `subscription_write_guard` trigger. Every clinic starts on a 14-day Growth trial;
+  yearly billing is 20% cheaper.
+- **`/app/subscription`** — plan cards with proration-free upgrade/downgrade pricing,
+  live seat meters, payment recording with a collection reference, and a CSV export of
+  the current terms. Owner-only, mirroring the RPCs.
+- **`src/lib/license.mjs`** — the pure client mirror of the database rules:
+  `trial → active → grace (7 days) → read_only → expired`, seat arithmetic, pricing.
+  Covered by 9 new unit tests (54 total).
+- **Licence banner** in the app shell and a real status badge on the sidebar plan card.
+  Quiet while healthy, loud in the last week of a trial, and unmistakable once writes stop.
+- **`supabase/licensing-tests.sql`** — a rolled-back suite that proves the trial cannot be
+  farmed, seat limits hold, downgrades below usage are refused, the read-only gate blocks
+  writes while reads keep working, and renewal restores the active state.
+
+### Changed
+- `create_clinic()` now creates the trial subscription in the same transaction.
+- The demo workspace persists its licence on first boot, so offline demos behave the same.
+- `npm run test:security` now lists both database suites and their operator commands.
+
+### Safety
+- Read-only mode blocks writes in the UI **and** in Postgres; reads, printing and CSV
+  export keep working in every state. Nothing is deleted when a subscription lapses.
+
 ## [1.2.1] — 2026-11-02 · schema 2
 
 ### Changed

@@ -180,8 +180,9 @@ export default function Setup() {
             <Card className="pad">
               <div className="row" style={{ gap: 9, marginBottom: 8 }}><Database size={16} className="muted" /><strong>Run the schema once</strong></div>
               <p className="small muted" style={{ marginBottom: 10 }}>
-                Open <strong>SQL Editor</strong> in Supabase, paste the entire contents of <code>supabase/schema.sql</code> from this project and run it.
-                It is idempotent for v1 and never deletes clinical data.
+                Open <strong>SQL Editor</strong> in Supabase and run these two files in order:
+                <code>supabase/schema.sql</code> (tables, roles, RLS) then <code>supabase/licensing.sql</code>
+                (subscriptions, seat limits, read-only gate). Both are idempotent and never delete clinical data.
               </p>
               <div className="grid two" style={{ gap: 10 }}>
                 {[
@@ -192,6 +193,7 @@ export default function Setup() {
                   ['appointments', 'One slot per doctor per time — double bookings rejected.'],
                   ['consultations', 'Vitals, diagnoses, prescription JSON, follow-up date.'],
                   ['invoices', 'Paise amounts, GST, payment method, immutable numbering.'],
+                  ['clinic_subscriptions', 'Plan, status, trial and period end — enforced in triggers.'],
                 ].map(([table, body]) => (
                   <div key={table} className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
                     <Badge tone="brand">{table}</Badge>
@@ -212,6 +214,7 @@ export default function Setup() {
                 <li>Unique <code>(doctor_id, scheduled_on, scheduled_at)</code> so the same slot cannot be booked twice.</li>
                 <li>Money stored as integer paise; <code>paid_paise ≤ total_paise</code> checked.</li>
                 <li>Server-side patient-code and invoice-number generators.</li>
+                <li>Subscription seat limits and the read-only gate are triggers, not UI checks.</li>
               </ul>
             </Card>
           </div>

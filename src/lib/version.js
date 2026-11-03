@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.2.1';
-export const SCHEMA_VERSION = 2;
+export const APP_VERSION = '1.3.0';
+export const SCHEMA_VERSION = 3;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.3.0', date: '2026-11-03', schema: 3,
+    highlights: [
+      'Subscription licensing: 14-day trial, monthly or yearly plans, 7-day grace, read-only fallback.',
+      'Seat limits per plan enforced by a Postgres trigger, not just the UI.',
+      'Subscription screen: plan changes, payment recording, seat meters and an export of the terms.',
+      'Solo → Growth → Multi-clinic, with proration-free upgrades and 20% off yearly.',
+    ],
+  },
   {
     version: '1.2.1', date: '2026-11-02', schema: 2,
     highlights: [

@@ -214,6 +214,31 @@ Why it works without editing the config:
 `npm run verify` runs the unit tests, the production build and a Pages readiness check
 (relative assets, manifest icons, SW scoping) locally.
 
+## Subscription licensing
+
+myClinic is sold as a subscription, enforced in Postgres rather than in the UI.
+
+| Plan | Price | Seats |
+| --- | --- | --- |
+| Solo | ₹999 / month | 1 doctor, 1 front desk, 1 branch |
+| Growth | ₹2,499 / month | 5 doctors, 3 front desk, 1 branch |
+| Multi-clinic | ₹5,999 / month | unlimited |
+
+Yearly billing is 20% cheaper. Every clinic starts on a **14-day Growth trial**.
+
+**Lifecycle:** `trial → active → grace (7 days past the period) → read_only → expired`.
+Writes are blocked from `read_only` onwards by a trigger (`subscription_write_guard`);
+**reads, printing and CSV export never stop**, so a billing problem can never lock a
+clinic out of a patient's chart. Renewal is recorded with a collection reference
+(UPI / bank / reseller) — card data never enters myClinic.
+
+Where it lives:
+
+- `supabase/licensing.sql` — table, RPCs, seat trigger, write gate (schema v3)
+- `supabase/licensing-tests.sql` — rolled-back regression suite
+- `src/lib/license.mjs` — the client mirror of those rules (unit-tested)
+- `/app/subscription` — plan, seats, payment recording, export of the terms
+
 ## The token queue
 
 The front desk can serve a patient in two ways:

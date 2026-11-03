@@ -3,6 +3,8 @@ import { Clock, Plus, Pencil, Stethoscope, Users, UserRound, ShieldCheck, Copy, 
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
 import { ROLES, formatMoney, moneyToPaise, paiseToInput, slugify } from '../lib/logic.mjs';
+import { canAddSeat } from '../lib/license.mjs';
+import { guardWrite } from '../components/LicenseBanner.jsx';
 
 export default function Team() {
   const store = useStore();
@@ -42,6 +44,7 @@ export default function Team() {
 
   async function save() {
     if (!draft.full_name.trim()) { toast.error('Add the person’s name.'); return; }
+    if (!seasonCheck(draft.role)) return;
     setSaving(true);
     try {
       let fee = 0, followUp = 0;
@@ -80,6 +83,15 @@ export default function Team() {
     } catch (e) { toast.error(e.message ?? 'Could not save.'); } finally { setSaving(false); }
   }
 
+  /** Licence gate: read-only clinics and full plans cannot take a new seat. */
+  function seasonCheck(role) {
+    if (!guardWrite(store, toast, 'add or change staff')) return false;
+    const kind = role === 'frontdesk' ? 'frontdesk' : 'doctors';
+    const verdict = canAddSeat(store.license, store.licenseUsage, kind);
+    if (!verdict.allowed) { toast.error(verdict.message); return false; }
+    return true;
+  }
+
   async function toggleActive(member) {
     try {
       await store.update('staff', member.id, { active: !member.active });
@@ -89,6 +101,7 @@ export default function Team() {
 
   async function sendInvite() {
     if (!invite.email.trim()) { toast.error('Add the person’s work email.'); return; }
+    if (!seasonCheck(invite.role)) return;
     setSaving(true);
     try {
       if (store.mode === 'demo') {

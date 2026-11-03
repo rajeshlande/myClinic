@@ -24,6 +24,7 @@ import FollowUps from './pages/FollowUps.jsx';
 import Team from './pages/Team.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
+import Subscription from './pages/Subscription.jsx';
 
 const InvoiceView = lazy(() => import('./pages/InvoiceView.jsx'));
 const PrescriptionView = lazy(() => import('./pages/PrescriptionView.jsx'));
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="follow-ups" element={<RequireCapability capability="consultation:read"><FollowUps /></RequireCapability>} />
           <Route path="team" element={<RequireCapability capability="team:read"><Team /></RequireCapability>} />
           <Route path="reports" element={<RequireCapability capability="clinic:reports"><Reports /></RequireCapability>} />
+          <Route path="subscription" element={<Subscription />} />
           <Route path="settings" element={<Settings />} />
         </Route>
 

@@ -1,0 +1,192 @@
+/**
+ * Subscription / licence logic (pure — no React, no network).
+ *
+ * The database is the authority (supabase/schema.sql: clinic_subscriptions,
+ * license_seats(), license_state(), start_trial(), change_plan(), set_license_status()).
+ * This module mirrors those rules so the UI can show the real state, warn before a
+ * limit bites, and refuse to offer an action the server would reject.
+ *
+ * Vocabulary
+ *   trial     14 days of the Growth feature set, once per clinic
+ *   active    paid and inside the current period
+ *   grace     7 days past the period end — reads and writes still work, with a banner
+ *   read_only after grace: the clinic can read and export, but not write
+ *   expired   subscription cancelled — read-only plus an export escape hatch
+ *
+ * Money is integer paise everywhere, matching the rest of the app.
+ */
+
+export const TRIAL_DAYS = 14;
+export const GRACE_DAYS = 7;
+
+/** Seat limits per plan. `null` means unlimited. */
+export const PLAN_LIMITS = {
+  solo: { doctors: 1, frontdesk: 1, branches: 1 },
+  growth: { doctors: 5, frontdesk: 3, branches: 1 },
+  chain: { doctors: null, frontdesk: null, branches: null },
+};
+
+export const PLAN_ORDER = ['solo', 'growth', 'chain'];
+
+/**
+ * @typedef {'trial'|'active'|'grace'|'read_only'|'expired'} LicenseStatus
+ * @typedef {{ status: LicenseStatus, plan: string, daysLeft: number|null, endsAt: string|null }} License
+ */
+
+const DAY_MS = 86_400_000;
+
+const toDate = (value) => {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+/** Whole days from `now` until `value` (negative once past). */
+export function daysUntil(value, now = new Date()) {
+  const d = toDate(value);
+  if (!d) return null;
+  const start = new Date(now);
+  return Math.ceil((d.getTime() - start.getTime()) / DAY_MS);
+}
+
+/**
+ * Normalise whatever the row says into one licence view the UI can trust.
+ * `status` from the database wins; a date in the past still downgrades a stale
+ * 'active' row so an offline client never shows a paid plan forever.
+ *
+ * @param {object|string|null} sub  subscription row (or just the status string)
+ * @param {Date} now
+ * @returns {License}
+ */
+export function licenseState(sub, now = new Date()) {
+  if (!sub) return { status: 'expired', plan: 'growth', daysLeft: 0, endsAt: null };
+  const row = typeof sub === 'string' ? { status: sub } : sub;
+  const raw = String(row.status ?? 'expired');
+  const plan = PLAN_ORDER.includes(row.plan) ? row.plan : 'growth';
+  const endsAt = row.status === 'trial' ? row.trial_ends_at : row.current_period_end;
+  const daysLeft = daysUntil(endsAt, now);
+
+  if (raw === 'active') {
+    if (daysLeft !== null && daysLeft < 0) {
+      const overdue = Math.abs(daysLeft);
+      return { status: overdue <= GRACE_DAYS ? 'grace' : 'read_only', plan, daysLeft, endsAt };
+    }
+    return { status: 'active', plan, daysLeft, endsAt };
+  }
+  if (raw === 'trial') {
+    if (daysLeft !== null && daysLeft < 0) return { status: 'read_only', plan, daysLeft, endsAt };
+    return { status: 'trial', plan, daysLeft, endsAt };
+  }
+  if (raw === 'grace') return { status: 'grace', plan, daysLeft, endsAt };
+  if (raw === 'read_only') return { status: 'read_only', plan, daysLeft, endsAt };
+  return { status: 'expired', plan, daysLeft: daysLeft ?? 0, endsAt };
+}
+
+/** Can the clinic change clinical or financial records? */
+export function canWrite(license) {
+  return Boolean(license) && ['trial', 'active', 'grace'].includes(license.status);
+}
+
+/** Can the clinic still read and export its data? */
+export function canRead() {
+  return true; // deliberately always true — patient records are never held hostage
+}
+
+/** One-line status for a badge. */
+export function licenseHeadline(license) {
+  if (!license) return 'No subscription';
+  const d = license.daysLeft;
+  switch (license.status) {
+    case 'trial':
+      return d === null ? 'Trial' : d <= 0 ? 'Trial ends today' : `Trial · ${d} day${d === 1 ? '' : 's'} left`;
+    case 'active':
+      return d === null ? 'Active' : `Active · renews in ${d} day${d === 1 ? '' : 's'}`;
+    case 'grace':
+      return `Payment overdue · ${d === null ? '' : `${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} grace left`}`.trim();
+    case 'read_only':
+      return 'Read-only · renew to keep writing';
+    case 'expired':
+    default:
+      return 'Expired · read-only';
+  }
+}
+
+/** Badge tone used across the app. */
+export function licenseTone(license) {
+  if (!license) return 'danger';
+  if (license.status === 'active') return 'success';
+  if (license.status === 'trial') return (license.daysLeft ?? 99) <= 3 ? 'warn' : 'brand';
+  if (license.status === 'grace') return 'warn';
+  return 'danger';
+}
+
+/**
+ * Seat usage against the plan. Owners are doctors, so they count in `doctors`.
+ * @param {{plan?: string}} license
+ * @param {{doctors?: number, frontdesk?: number, branches?: number}} usage
+ */
+export function seatUsage(license, usage = {}) {
+  const plan = license?.plan ?? 'growth';
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth;
+  const rows = [
+    { id: 'doctors', label: 'Doctors', used: Number(usage.doctors ?? 0), limit: limits.doctors },
+    { id: 'frontdesk', label: 'Front desk', used: Number(usage.frontdesk ?? 0), limit: limits.frontdesk },
+    { id: 'branches', label: 'Branches', used: Number(usage.branches ?? 1), limit: limits.branches },
+  ];
+  return rows.map((r) => ({
+    ...r,
+    unlimited: r.limit === null,
+    left: r.limit === null ? Infinity : Math.max(0, r.limit - r.used),
+    full: r.limit !== null && r.used >= r.limit,
+    over: r.limit !== null && r.used > r.limit,
+    percent: r.limit === null ? 0 : Math.min(100, Math.round((r.used / Math.max(1, r.limit)) * 100)),
+  }));
+}
+
+/**
+ * Would adding one more seat of `kind` break the plan?
+ * @returns {{allowed: boolean, message: string}}
+ */
+export function canAddSeat(license, usage, kind = 'doctors') {
+  if (!canWrite(license)) {
+    return { allowed: false, message: 'The subscription is read-only. Renew to add staff.' };
+  }
+  const row = seatUsage(license, usage).find((r) => r.id === kind);
+  if (!row) return { allowed: true, message: '' };
+  if (row.unlimited) return { allowed: true, message: '' };
+  if (row.full) {
+    const planName = license?.plan === 'solo' ? 'Solo' : license?.plan === 'chain' ? 'Multi-clinic' : 'Growth';
+    return {
+      allowed: false,
+      message: `${planName} includes ${row.limit} ${row.label.toLowerCase()} seat${row.limit === 1 ? '' : 's'} and they are all in use. Upgrade the plan to add another.`,
+    };
+  }
+  return { allowed: true, message: '' };
+}
+
+/** Monthly (or yearly) price in paise for a plan, with the yearly discount applied. */
+export function planPrice(plan, { interval = 'monthly' } = {}) {
+  const base = { solo: 99900, growth: 249900, chain: 599900 }[plan];
+  if (!base) return null;
+  if (interval === 'yearly') return Math.round(base * 12 * 0.8); // 20% off, two months free
+  return base;
+}
+
+/** What the clinic would pay to switch from one plan to another. No proration games. */
+export function upgradeCost(fromPlan, toPlan, { interval = 'monthly' } = {}) {
+  const from = planPrice(fromPlan, { interval });
+  const to = planPrice(toPlan, { interval });
+  if (to === null) return null;
+  const delta = to - (from ?? 0);
+  return { from, to, delta, direction: delta > 0 ? 'upgrade' : delta < 0 ? 'downgrade' : 'same' };
+}
+
+/**
+ * Human-readable expiry line, used in Settings and the invoice-style card.
+ * @param {string|Date|null} value
+ */
+export function formatExpiry(value) {
+  const d = toDate(value);
+  if (!d) return '—';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}

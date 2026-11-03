@@ -11,6 +11,8 @@ import { applyTheme, readTheme, saveTheme } from '../lib/theme.js';
 import { appointmentMatchesQuery, formatMoney, patientSearch, relativeDay, today, tokenLabel } from '../lib/logic.mjs';
 import { can } from '../lib/permissions.js';
 import { SyncBadge, SyncCenter } from './SyncCenter.jsx';
+import { LicenseBanner } from './LicenseBanner.jsx';
+import { licenseHeadline, licenseTone } from '../lib/license.mjs';
 import { Avatar, Button, IconButton, Modal, SearchInput } from './ui.jsx';
 
 const NAV = [
@@ -28,6 +30,7 @@ const NAV = [
   ] },
   { group: 'Clinic setup', items: [
     { to: '/app/team', label: 'Doctors & staff', icon: ClipboardList, capability: 'team:read' },
+    { to: '/app/subscription', label: 'Subscription', icon: Ticket },
     { to: '/app/settings', label: 'Settings', icon: SettingsIcon },
   ] },
 ];
@@ -51,6 +54,7 @@ function pageTitle(pathname) {
     ['/app/follow-ups', 'Follow-ups', 'Recalls and reminders due'],
     ['/app/reports', 'Reports', 'Revenue, footfall and doctor performance'],
     ['/app/team', 'Doctors & staff', 'Who can access this clinic'],
+    ['/app/subscription', 'Subscription', 'Plan, seats, billing and renewal'],
     ['/app/settings', 'Settings', 'Clinic profile, billing and preferences'],
   ];
   const hit = map.find(([p]) => pathname === p || pathname.startsWith(`${p}/`));
@@ -124,9 +128,10 @@ export default function AppLayout() {
 
       <div className="sidebar-foot">
         <div className="plan-card">
-          <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {(store.clinic?.plan ?? 'growth') === 'chain' ? 'Multi-clinic' : (store.clinic?.plan ?? 'growth') === 'solo' ? 'Solo plan' : 'Growth plan'}</div>
-          <p className="tiny muted" style={{ margin: '4px 0 8px' }}>{store.mode === 'demo' ? 'Demo workspace · sample data' : 'Live workspace · Supabase synced'}</p>
-          <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/settings')}>Manage plan</Button>
+          <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {(store.license?.plan ?? 'growth') === 'chain' ? 'Multi-clinic' : (store.license?.plan ?? 'growth') === 'solo' ? 'Solo plan' : 'Growth plan'}</div>
+          <p className="tiny muted" style={{ margin: '4px 0 6px' }}>{store.mode === 'demo' ? 'Demo workspace · sample data' : 'Live workspace · Supabase synced'}</p>
+          <span className={`badge ${licenseTone(store.license) === 'success' ? 'success' : licenseTone(store.license) === 'danger' ? 'danger' : 'warn'} tiny`} style={{ marginBottom: 8, display: 'inline-flex' }}>{licenseHeadline(store.license)}</span>
+          <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/subscription')}>Manage subscription</Button>
         </div>
         <button className="user-chip" onClick={() => navigate('/app/settings')}>
           <Avatar name={store.profile?.full_name || user?.email || 'Clinic owner'} size="sm" />
@@ -174,6 +179,10 @@ export default function AppLayout() {
             <Button variant="primary" icon={Plus} onClick={() => navigate('/app/appointments?new=1')}>New appointment</Button>
           </div>
         </header>
+
+        <div className="page-wrap" style={{ padding: '0 20px' }}>
+          <LicenseBanner />
+        </div>
 
         <Outlet />
 

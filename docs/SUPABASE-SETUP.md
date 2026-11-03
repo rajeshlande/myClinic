@@ -57,6 +57,35 @@ Confirm it worked:
 select public.app_schema_version();   -- must return 2
 ```
 
+## 3b. Apply the licensing layer (schema v3)
+
+Run `supabase/licensing.sql` in the same SQL Editor, after the schema. It adds:
+
+| Object | Purpose |
+| --- | --- |
+| `clinic_subscriptions` | plan, status, interval, trial end, current period end, billing details |
+| `plan_seat_limit()` / `plan_price_paise()` | one place for plan limits and prices |
+| `license_state(clinic)` | the view the app renders (`status`, `days_left`, `can_write`, seat usage) |
+| `change_plan()`, `renew_subscription()`, `start_trial()`, `set_license_status()` | owner-only RPCs |
+| `seat_guard` trigger | refuses a staff row beyond the plan's seats |
+| `subscription_write_guard` trigger | blocks writes while read-only, keeps reads working |
+
+Confirm:
+
+```sql
+select public.app_schema_version();                     -- must return 3
+select public.license_state('<your-clinic-uuid>'::uuid); -- status, plan, seats, can_write
+```
+
+Then optionally prove it end to end with the rolled-back suite:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing-tests.sql
+# expect notices: PASS … ALL LICENSING CHECKS COMPLETED
+```
+
+---
+
 ## 4. Configure authentication
 
 **Authentication → URL configuration**:

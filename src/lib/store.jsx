@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase, supabaseConfigured } from './supabase.js';
 import { makeDemoWorkspace } from './demo-data.js';
 import { nextId } from './logic.mjs';
+import { licenseState, canWrite, seatUsage } from './license.mjs';
+import { TRIAL_DAYS } from './license.mjs';
 import {
   TABLES, readCache, writeCache, clearAllCache, readOutbox, writeOutbox, enqueue,
   newClientId, replayOutbox, readSyncMeta, writeSyncMeta,
@@ -10,7 +12,7 @@ import {
 const DEMO_KEY = 'myclinic.demo.v1';
 const StoreContext = createContext(null);
 
-const emptyState = { clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [], invoices: [] };
+const emptyState = { clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [], invoices: [], subscription: null };
 const STATE_TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices'];
 
 function readDemo() {
@@ -42,6 +44,7 @@ export function StoreProvider({ children, session }) {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  const writableRef = useRef(true);
   const flushing = useRef(false);
   const userId = session?.user?.id ?? null;
 
@@ -49,6 +52,20 @@ export function StoreProvider({ children, session }) {
   const bootDemo = useCallback(() => {
     const cached = readDemo();
     const next = cached ?? makeDemoWorkspace();
+    if (!next.subscription) {
+      const startedAt = new Date();
+      next.subscription = {
+        clinic_id: next.clinic?.id ?? 'demo-clinic',
+        plan: next.clinic?.plan ?? 'growth',
+        status: 'trial',
+        interval: 'monthly',
+        trial_ends_at: new Date(startedAt.getTime() + TRIAL_DAYS * 86400000).toISOString(),
+        current_period_end: null,
+        billing_email: '',
+        collection_ref: 'DEMO-TRIAL',
+      };
+    }
+    writeDemo(next);          // persist immediately: offline demos survive a reload
     setState({ ...next });
     setMode('demo');
     setReady(true);
@@ -88,6 +105,10 @@ export function StoreProvider({ children, session }) {
       const failure = results.find((r) => r.error);
       if (failure) throw failure.error;
 
+      // Licence: the server is authoritative. A failure here must not blank the
+      // clinic, so it degrades to "read-only, unknown plan" for the banner only.
+      const { data: licenseRow } = await supabase.rpc('license_state', { p_clinic: clinic.id });
+
       const next = {
         clinic,
         profile: profile ?? { id: session.user.id, full_name: session.user.email, theme: 'system' },
@@ -96,6 +117,7 @@ export function StoreProvider({ children, session }) {
         appointments: results[2].data ?? [],
         consultations: results[3].data ?? [],
         invoices: results[4].data ?? [],
+        subscription: licenseRow ?? null,
       };
       setState(next);
       writeCache(session.user.id, clinic.id, next);      // scoped + TTL'd
@@ -240,6 +262,7 @@ export function StoreProvider({ children, session }) {
   /* --------------------------------------------------------------------- writes */
   const create = useCallback(async (table, row) => {
     if (!TABLES.includes(table)) throw new Error(`Unknown table ${table}`);
+    if (table !== 'profile') assertWritable();
     const clinicId = stateRef.current.clinic?.id;
     const clientId = row.client_id ?? newClientId();
     const record = {
@@ -268,6 +291,8 @@ export function StoreProvider({ children, session }) {
 
   const update = useCallback(async (table, id, patch) => {
     const target = table === 'clinic' ? 'clinics' : table === 'profile' ? 'profiles' : table;
+    // The clinic row stays editable so a lapsed clinic can still fix its details.
+    if (!['profile', 'clinic'].includes(table)) assertWritable();
     const baseRow = table === 'clinic' ? stateRef.current.clinic
       : table === 'profile' ? stateRef.current.profile
         : (stateRef.current[table] ?? []).find((r) => r.id === id);
@@ -290,6 +315,7 @@ export function StoreProvider({ children, session }) {
   }, [mode, persistLocal, userId, flush]);
 
   const remove = useCallback(async (table, id) => {
+    assertWritable();
     persistLocal((prev) => ({ ...prev, [table]: (prev[table] ?? []).filter((r) => r.id !== id) }));
     if (mode === 'demo') return;
     enqueue(userId, { op_id: newClientId(), type: 'delete', table, id, queued_at: new Date().toISOString() });
@@ -385,6 +411,94 @@ export function StoreProvider({ children, session }) {
 
   const refresh = useCallback(() => loadLive(), [loadLive]);
 
+  /* ------------------------------------------------------------------ licensing */
+  // Defence in depth: every write path funnels through create/update/remove, so a
+  // lapsed subscription is blocked here as well as in Postgres. Pages already
+  // wrap these calls in try/catch and surface the message in a toast.
+  const license = useMemo(() => licenseState(state.subscription), [state.subscription]);
+
+  const licenseUsage = useMemo(() => ({
+    doctors: (state.staff ?? []).filter((s) => s.active !== false && s.role !== 'frontdesk').length,
+    frontdesk: (state.staff ?? []).filter((s) => s.active !== false && s.role === 'frontdesk').length,
+    branches: 1,
+  }), [state.staff]);
+
+  const licenseSeats = useMemo(() => seatUsage(license, licenseUsage), [license, licenseUsage]);
+  const writable = useMemo(() => (mode === 'demo' ? true : canWrite(license)), [mode, license]);
+  writableRef.current = mode === 'demo' ? canWrite(license) : writable;
+
+  const assertWritable = useCallback(() => {
+    if (writableRef.current) return;
+    throw new Error('The subscription is read-only, so this change was not saved. Everything stays readable and exportable — renew the plan to resume writing.');
+  }, []);
+
+  /** Mirror the server's answer into local state (both modes). */
+  const applyLicense = useCallback((row) => {
+    if (!row) return null;
+    setState((prev) => {
+      const next = { ...prev, subscription: row };
+      const clinicId = prev.clinic?.id;
+      if (mode === 'demo') writeDemo(next);
+      else if (userId && clinicId) writeCache(userId, clinicId, next);
+      return next;
+    });
+    return row;
+  }, [mode, userId]);
+
+  const licenceRpc = useCallback(async (fn, args) => {
+    if (mode === 'demo') return null;            // demo keeps its local trial
+    const { data, error: e } = await supabase.rpc(fn, args);
+    if (e) throw e;
+    applyLicense(data);
+    return data;
+  }, [mode, applyLicense]);
+
+  const changePlan = useCallback(async ({ plan, interval = 'monthly', billing = {} }) => {
+    if (mode === 'demo') {
+      const days = interval === 'yearly' ? 365 : 30;
+      return applyLicense({
+        ...(stateRef.current.subscription ?? {}),
+        plan, status: 'active', interval,
+        current_period_end: new Date(Date.now() + days * 86400000).toISOString(),
+        ...billing,
+      });
+    }
+    return licenceRpc('change_plan', {
+      p_clinic: stateRef.current.clinic?.id, p_plan: plan, p_interval: interval, p_billing: billing,
+    });
+  }, [mode, applyLicense, licenceRpc]);
+
+  const renewSubscription = useCallback(async ({ reference = '', months = null } = {}) => {
+    if (mode === 'demo') {
+      const from = new Date(stateRef.current.subscription?.current_period_end ?? Date.now()).getTime();
+      return applyLicense({
+        ...(stateRef.current.subscription ?? {}),
+        status: 'active',
+        current_period_end: new Date(Math.max(from, Date.now()) + 30 * 86400000).toISOString(),
+        collection_ref: reference,
+      });
+    }
+    return licenceRpc('renew_subscription', {
+      p_clinic: stateRef.current.clinic?.id, p_reference: reference, p_months: months,
+    });
+  }, [mode, applyLicense, licenceRpc]);
+
+  const setLicenseStatus = useCallback(async (status) => {
+    if (mode === 'demo') return applyLicense({ ...(stateRef.current.subscription ?? {}), status });
+    return licenceRpc('set_license_status', { p_clinic: stateRef.current.clinic?.id, p_status: status });
+  }, [mode, applyLicense, licenceRpc]);
+
+  const startTrial = useCallback(async () => {
+    if (mode === 'demo') {
+      return applyLicense({
+        ...(stateRef.current.subscription ?? {}),
+        plan: 'growth', status: 'trial',
+        trial_ends_at: new Date(Date.now() + TRIAL_DAYS * 86400000).toISOString(),
+      });
+    }
+    return licenceRpc('start_trial', { p_clinic: stateRef.current.clinic?.id });
+  }, [mode, applyLicense, licenceRpc]);
+
   const value = useMemo(() => ({
     ready, error, savedAt, mode, needsOnboarding,
     ...state,
@@ -397,9 +511,14 @@ export function StoreProvider({ children, session }) {
     flushNow: flush, resolveConflict, dismissConflict, signOutCleanup,
     create, update, remove, createClinic, inviteStaff, acceptInvite,
     refresh, resetDemo, enterDemo: bootDemo,
+    // licensing
+    license, licenseSeats, licenseUsage, writable,
+    changePlan, renewSubscription, setLicenseStatus, startTrial,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, inviteStaff, acceptInvite, resetDemo, bootDemo, refresh]);
+    create, update, remove, createClinic, inviteStaff, acceptInvite, resetDemo, bootDemo, refresh,
+    license, licenseSeats, licenseUsage, writable,
+    changePlan, renewSubscription, setLicenseStatus, startTrial]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

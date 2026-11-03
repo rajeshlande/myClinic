@@ -8,6 +8,10 @@ import {
   outstandingByPatient, invoiceBalance, feeForVisit, appointmentMatchesQuery, patientVisits,
 } from '../src/lib/logic.mjs';
 import { configChecks, restCheck, schemaCheck, readiness } from '../src/lib/health.mjs';
+import {
+  GRACE_DAYS, TRIAL_DAYS, canAddSeat, canRead, canWrite, formatExpiry, licenseHeadline, licenseState,
+  planPrice, seatUsage, upgradeCost,
+} from '../src/lib/license.mjs';
 
 test('money parses rupees into integer paise without float drift', () => {
   assert.equal(moneyToPaise('1234.50'), 123450);
@@ -606,4 +610,89 @@ test('readiness: warnings alone do not claim readiness', () => {
   const r = readiness([{ id: 'a', label: 'A', state: 'pass', detail: '' }, { id: 'b', label: 'B', state: 'warn', detail: '' }]);
   assert.equal(r.state, 'warn');
   assert.match(r.headline, /1 check to confirm/);
+});
+
+// ---------------------------------------------------------------- licensing
+const NOW = new Date('2026-11-03T09:00:00Z');
+const day = (n) => new Date(NOW.getTime() + n * 86400000).toISOString();
+
+test('licence: a fresh trial reports days left and allows writing', () => {
+  const s = licenseState({ status: 'trial', plan: 'growth', trial_ends_at: day(9) }, NOW);
+  assert.equal(s.status, 'trial');
+  assert.equal(s.daysLeft, 9);
+  assert.equal(canWrite(s), true);
+  assert.match(licenseHeadline(s), /Trial · 9 days left/);
+});
+
+test('licence: an active plan renews and stays writable', () => {
+  const s = licenseState({ status: 'active', plan: 'solo', current_period_end: day(30) }, NOW);
+  assert.equal(s.status, 'active');
+  assert.equal(canWrite(s), true);
+  assert.match(licenseHeadline(s), /renews in 30 days/);
+});
+
+test('licence: 7 days of grace after the period ends, then read-only', () => {
+  const grace = licenseState({ status: 'active', plan: 'growth', current_period_end: day(-3) }, NOW);
+  assert.equal(grace.status, 'grace');
+  assert.equal(canWrite(grace), true, 'grace still allows clinical work');
+  assert.match(licenseHeadline(grace), /3 days grace left/);
+
+  const lapsed = licenseState({ status: 'active', plan: 'growth', current_period_end: day(-30) }, NOW);
+  assert.equal(lapsed.status, 'read_only');
+  assert.equal(canWrite(lapsed), false, 'writes stop, reads never do');
+  assert.equal(canRead(), true);
+});
+
+test('licence: an expired or missing subscription is read-only, not destructive', () => {
+  for (const s of [licenseState({ status: 'expired', plan: 'growth' }, NOW), licenseState(null, NOW)]) {
+    assert.equal(s.status, 'expired');
+    assert.equal(canWrite(s), false);
+    assert.match(licenseHeadline(s), /Expired/);
+  }
+});
+
+test('licence: an overdue trial becomes read-only on the same day it ends', () => {
+  assert.equal(licenseState({ status: 'trial', trial_ends_at: day(0) }, NOW).status, 'trial');
+  assert.equal(licenseState({ status: 'trial', trial_ends_at: day(-1) }, NOW).status, 'read_only');
+});
+
+test('licence: seat limits match the plan and block one more seat', () => {
+  const solo = seatUsage({ plan: 'solo' }, { doctors: 1, frontdesk: 1, branches: 1 });
+  assert.deepEqual(solo.map((r) => r.limit), [1, 1, 1]);
+  assert.ok(solo.every((r) => r.full));
+
+  const growth = { plan: 'growth', status: 'active' };
+  const usage = { doctors: 5, frontdesk: 1, branches: 1 };
+  assert.equal(canAddSeat(growth, usage, 'doctors').allowed, false);
+  assert.match(canAddSeat(growth, usage, 'doctors').message, /5 doctors seats/);
+  assert.equal(canAddSeat(growth, usage, 'frontdesk').allowed, true);
+
+  const chain = { plan: 'chain', status: 'active' };
+  assert.equal(canAddSeat(chain, { doctors: 40 }, 'doctors').allowed, true, 'unlimited plan');
+});
+
+test('licence: read-only clinics cannot add staff even on an unlimited plan', () => {
+  const v = canAddSeat({ plan: 'chain', status: 'read_only' }, { doctors: 1 }, 'doctors');
+  assert.equal(v.allowed, false);
+  assert.match(v.message, /renew/i);
+});
+
+test('licence: yearly pricing is 20% cheaper than twelve monthly payments', () => {
+  for (const plan of ['solo', 'growth', 'chain']) {
+    const m = planPrice(plan) * 12;
+    const y = planPrice(plan, { interval: 'yearly' });
+    assert.ok(y < m, `${plan}: yearly must beat monthly`);
+    assert.equal(y, Math.round(m * 0.8));
+  }
+  const up = upgradeCost('solo', 'growth');
+  assert.equal(up.direction, 'upgrade');
+  assert.equal(up.delta, 249900 - 99900);
+  assert.equal(upgradeCost('chain', 'solo').direction, 'downgrade');
+  assert.equal(upgradeCost('growth', 'growth').direction, 'same');
+});
+
+test('licence: expiry formatting is stable and never shows a bad date', () => {
+  assert.equal(formatExpiry(null), '—');
+  assert.equal(formatExpiry('not-a-date'), '—');
+  assert.match(formatExpiry('2026-12-03T00:00:00Z'), /Dec 2026/);
 });
