@@ -11,7 +11,7 @@ Built by adapting the technical foundation of the supplied [`mycar`](https://git
 | Module | What it does |
 |---|---|
 | **Dashboard** | Today's OPD queue with one-tap check-in → consult, collected-vs-billed trend, footfall, follow-ups due, revenue mix, doctor performance. |
-| **Appointments** | Slot-accurate booking per doctor (double bookings rejected), day grid + list views, week strip, check-in, in-consult, completed, no-show, cancel, reschedule. |
+| **Appointments** | Interval-accurate day board per doctor (a 30-minute visit occupies 30 minutes), week load view, list view, next-free suggestion, check-in, in-consult, completed, no-show, cancel with undo, reschedule. |
 | **Patients** | Registration with auto patient IDs, clinical flags (chronic conditions, allergies), full chart: timeline, vitals, prescriptions, invoices, appointments. |
 | **Consultations** | Vitals, complaint, examination, diagnoses, prescription lines, advice, follow-up date — "Save & bill" creates the invoice in one step. |
 | **Billing** | GST-ready invoices with line items, discounts, part payments, payer method (cash/UPI/card/insurance/credit), outstanding dues per patient, printable invoice. |
@@ -243,7 +243,9 @@ Where it lives:
 
 The front desk can serve a patient in two ways:
 
-- **Book a slot** — Appointments → *New appointment*, or the doctor's day grid.
+- **Book a slot** — Appointments → click any dashed *Available* cell on a doctor's day
+  board (the time is carried into the sheet), or **New** to pick a slot yourself. Busy
+  slots are struck through, and *Next free* jumps to the earliest workable time.
 - **Issue a token** — Queue → *Issue token* (⌘K works too). One screen: patient (or register
   inline), doctor, visit type → the next number is reserved and the slip is ready to print.
 

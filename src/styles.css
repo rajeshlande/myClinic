@@ -756,3 +756,165 @@ body[data-modal='true'] .syncbar { display: none; }
 @media print {
   .rx-sheet { border: 0; padding: 0; }
 }
+
+/* ==========================================================================
+   Appointment scheduling — command bar, KPI strip, day board, week grid
+   ========================================================================== */
+
+.sched-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; padding: 10px 12px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-xs);
+}
+.date-pill {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; min-width: 150px; padding: 4px 10px; border: 0; border-radius: 10px;
+  background: transparent; cursor: pointer; color: inherit; font: inherit;
+}
+.date-pill:hover { background: var(--surface-2); }
+.date-pill .strong { font-size: 0.95rem; line-height: 1.15; }
+
+.sched-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.kpi-tile {
+  display: flex; flex-direction: column; gap: 1px; padding: 9px 11px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-xs); min-width: 0;
+}
+.kpi-num { font-size: 1.25rem; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi-num.tone-brand { color: var(--brand-600); }
+.kpi-num.tone-success { color: var(--success); }
+.kpi-num.tone-warn { color: var(--warn); }
+.kpi-num.tone-neutral { color: var(--text); }
+:root[data-theme='dark'] .kpi-num.tone-brand { color: var(--brand-300); }
+
+/* week strip */
+.weekstrip-day {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%;
+  padding: 7px 4px; border-radius: 12px; cursor: pointer; font: inherit; color: inherit;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-xs);
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+.weekstrip-day:hover { border-color: var(--brand-300); }
+.weekstrip-day.active { border-color: var(--brand-500); background: var(--brand-50); box-shadow: 0 0 0 1px var(--brand-500); }
+.weekstrip-day.today .ws-num { color: var(--brand-600); }
+:root[data-theme='dark'] .weekstrip-day.active { background: color-mix(in srgb, var(--brand-500) 16%, transparent); }
+.ws-num { font-size: 1.02rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ws-meter { display: block; width: 32px; height: 3px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.ws-meter > span { display: block; height: 100%; background: var(--brand-500); border-radius: 99px; }
+
+/* day board */
+.day-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; grid-auto-rows: minmax(58px, auto); }
+.slot {
+  position: relative; display: flex; flex-direction: column; gap: 2px; padding: 7px 9px;
+  border-radius: 10px; text-align: left; font: inherit; color: inherit; min-width: 0;
+  transition: border-color .14s var(--ease), background .14s var(--ease), transform .14s var(--ease);
+}
+button.slot:hover { border-color: var(--brand-400); background: var(--brand-50); transform: translateY(-1px); }
+.slot-time { font-size: 0.7rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); letter-spacing: .01em; }
+.slot-hint { font-size: 0.72rem; font-weight: 600; color: var(--brand-600); }
+:root[data-theme='dark'] .slot-hint { color: var(--brand-300); }
+.slot-icon { position: absolute; right: 8px; bottom: 8px; color: var(--brand-500); opacity: .55; }
+button.slot:hover .slot-icon { opacity: 1; }
+
+.slot.booked { cursor: default; }
+.slot.booked.live { background: var(--brand-50); }
+.slot.top { align-items: flex-start; }
+.slot-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.slot-status { font-size: 0.63rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 1px 5px; border-radius: 99px; background: var(--surface-3); color: var(--muted); }
+.slot-status.tone-success { background: var(--success-bg); color: var(--success); }
+.slot-status.tone-warn { background: var(--warn-bg); color: var(--warn); }
+.slot-status.tone-danger { background: var(--danger-bg); color: var(--danger); }
+.slot-status.tone-brand { background: var(--brand-50); color: var(--brand-600); }
+:root[data-theme='dark'] .slot-status.tone-brand { color: var(--brand-300); }
+.slot-now { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; color: var(--brand-600); letter-spacing: .05em; }
+.slot.now { box-shadow: inset 3px 0 0 var(--brand-500); }
+.slot-who { display: flex; flex-direction: column; gap: 0; min-width: 0; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.slot-who b { font-size: 0.82rem; font-weight: 700; line-height: 1.2; }
+.slot-actions { display: flex; align-items: center; gap: 4px; margin-top: auto; padding-top: 5px; }
+.slot-actions .btn.sm { padding: 2px 7px; min-height: 24px; font-size: 0.7rem; }
+
+/* week grid */
+.week-grid { width: 100%; border-collapse: separate; border-spacing: 0 4px; min-width: 620px; }
+.week-grid th { font-size: 0.7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 0 4px 4px; text-align: center; }
+.week-grid th.today { color: var(--brand-600); }
+.wk-day { display: block; font-size: 0.64rem; }
+.wk-num { display: block; font-size: 0.9rem; font-weight: 800; }
+.week-grid td { padding: 0 3px; vertical-align: middle; }
+.week-grid tr.selected td { background: var(--brand-50); }
+.week-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%;
+  padding: 6px 4px; border-radius: 9px; cursor: pointer; font: inherit; color: inherit;
+  background: var(--surface-2); border: 1px solid transparent;
+}
+.week-cell:hover { border-color: var(--brand-400); background: var(--brand-50); }
+.week-cell.has { background: var(--surface); border-color: var(--border); }
+.week-count { font-size: 0.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.week-bar { display: block; width: 100%; height: 3px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.week-bar > span { display: block; height: 100%; background: var(--brand-500); border-radius: 99px; }
+
+@media (max-width: 900px) {
+  .sched-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .day-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+@media (max-width: 620px) {
+  .sched-bar { padding: 8px; gap: 8px; }
+  .date-pill { min-width: 118px; }
+  /* One scrolling strip instead of five stacked tiles — keeps the schedule above the fold */
+  .sched-kpis {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px;
+    grid-auto-flow: column; grid-auto-columns: minmax(96px, 1fr);
+    overflow-x: auto; scrollbar-width: none;
+    margin-inline: -12px; padding: 2px 12px 4px; scroll-snap-type: x proximity;
+  }
+  .sched-kpis::-webkit-scrollbar { display: none; }
+  .kpi-tile { min-width: 0; padding: 7px 10px; scroll-snap-align: start; }
+  .kpi-tile > .tiny.faint:last-child { display: none; }
+  .kpi-num { font-size: 1.05rem; }
+  .day-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .slot-actions .btn.sm { font-size: 0.66rem; }
+  .weekstrip { gap: 5px; }
+  /* Filters + New share row one, the view switch takes row two. Nothing gets
+     squeezed and nothing can push the page wider than the phone. */
+  .sched-bar > .row.wrap {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'filters new' 'views views';
+    width: 100%; gap: 6px;
+  }
+  .sched-bar > .row.wrap > select,
+  .sched-bar > .row.wrap > .select { grid-area: filters; min-width: 0; }
+  .sched-bar > .row.wrap > .btn { grid-area: new; white-space: nowrap; }
+  .sched-bar > .row.wrap > .segmented { grid-area: views; width: 100%; }
+}
+
+/* ---------------------------------------------------------------- slot picker */
+.slot-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.slot-groups { display: grid; gap: 8px; max-height: 232px; overflow-y: auto; padding: 2px; }
+.slot-group { display: grid; gap: 5px; }
+.slot-group-label {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 0.68rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--faint);
+}
+.slot-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 5px; }
+.pick {
+  display: flex; flex-direction: column; align-items: center; gap: 0; padding: 7px 4px;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--surface);
+  font: inherit; color: var(--text-2); cursor: pointer; transition: all .13s var(--ease);
+}
+.pick:hover:not(:disabled) { border-color: var(--brand-400); background: var(--brand-50); color: var(--brand-600); }
+.pick.active { background: var(--brand-500); border-color: var(--brand-500); color: #fff; box-shadow: 0 2px 8px color-mix(in srgb, var(--brand-500) 34%, transparent); }
+.pick.taken { background: var(--surface-2); color: var(--faint); cursor: not-allowed; text-decoration: line-through; opacity: .65; }
+.pick-time { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pick-note { font-size: 0.58rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 800; }
+
+/* Undo strip — cancelling a booking must never be a one-way door */
+.undo-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px 8px 12px; border-radius: 11px;
+  background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 26%, transparent);
+  color: var(--warn-text, var(--text)); animation: undo-in .18s var(--ease);
+}
+.undo-strip .btn { flex: 0 0 auto; }
+@keyframes undo-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (max-width: 620px) {
+  .undo-strip { padding: 7px 8px; gap: 6px; }
+  .undo-strip .small { flex: 1 1 100%; order: 2; }
+}

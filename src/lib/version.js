@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.4.0';
 export const SCHEMA_VERSION = 3;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.4.0', date: '2026-11-03', schema: 3,
+    highlights: [
+      'Appointment scheduling rebuilt: a per-doctor day board where a 30-minute visit occupies 30 minutes, not two separate cells.',
+      'Week view shows load per doctor per day — open slots, booked counts and utilisation in one glance.',
+      'The booking sheet blocks interval-accurate clashes, groups slots by morning/afternoon/evening and offers the next free slot.',
+      'Cancel or no-show is undoable from the day view; nothing leaves the board without a way back.',
+      'Free-slot and utilisation figures now come from one shared scheduling engine (11 new unit tests).',
+    ],
+  },
   {
     version: '1.3.0', date: '2026-11-03', schema: 3,
     highlights: [

@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
-  CalendarPlus, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock, LogIn,
-  Pencil, PlayCircle, Search, Trash2, UserX, X, Phone, LayoutGrid, List,
+  CalendarDays, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Clock, LayoutGrid,
+  List, LogIn, Pencil, PlayCircle, RotateCcw, Search, Sparkles, UserX, X,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, Input, Modal, Segmented, Select, Tabs, SearchInput } from '../components/ui.jsx';
+import {
+  useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, Modal,
+  SearchInput, Segmented, Select, Tabs,
+} from '../components/ui.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import PatientForm from '../components/PatientForm.jsx';
+import { DayBoard, WeekGrid } from '../components/DayBoard.jsx';
 import {
-  addDays, appointmentMatchesQuery, appointmentsForDate, formatDate, formatMoney, formatSlotRange,
-  generateSlots, relativeDay, sortAppointments, statusMeta, timeToMinutes, today, doctorPerformance,
+  addDays, appointmentMatchesQuery, appointmentsForDate, formatDate, formatSlotRange, relativeDay,
+  statusMeta, today,
 } from '../lib/logic.mjs';
+import { LIVE_STATUSES, buildDayBoard, suggestNext, weekByDoctor, weekLoad } from '../lib/schedule.mjs';
 
 export default function Appointments() {
   const store = useStore();
@@ -29,9 +34,8 @@ export default function Appointments() {
   const [patientOpen, setPatientOpen] = useState(false);
   const [consultFor, setConsultFor] = useState(null);
   const [cancelFor, setCancelFor] = useState(null);
+  const [lastCleared, setLastCleared] = useState(null);
 
-  // React Router reuses the component when only the query string changes, so this
-  // must react to the parameter instead of running once on mount.
   useEffect(() => {
     if (params.get('new') === '1') {
       setFormOpen(true);
@@ -40,29 +44,56 @@ export default function Appointments() {
     }
   }, [params, setParams]);
 
+  const doctorsShown = useMemo(
+    () => (doctorId === 'all' ? store.doctors.filter((d) => d.active !== false) : store.doctors.filter((d) => d.id === doctorId)),
+    [store.doctors, doctorId],
+  );
+
   const dayAppts = useMemo(() => appointmentsForDate(store.appointments, date, doctorId), [store.appointments, date, doctorId]);
+  const board = useMemo(
+    () => buildDayBoard({ doctors: doctorsShown, appointments: store.appointments, iso: date }),
+    [doctorsShown, store.appointments, date],
+  );
+
   const filtered = useMemo(() => {
     const base = status === 'all' ? dayAppts : dayAppts.filter((a) => a.status === status);
     return base.filter((a) => appointmentMatchesQuery(a, store.patients, query));
   }, [dayAppts, status, query, store.patients]);
 
+  // Patient joined onto each appointment once, so the board and list share it.
+  const decorated = useMemo(() => store.appointments.map((a) => ({
+    ...a,
+    patient: store.patients.find((p) => p.id === a.patient_id) ?? null,
+  })), [store.appointments, store.patients]);
+
   const patientOf = (id) => store.patients.find((p) => p.id === id);
   const doctorOf = (id) => store.doctors.find((d) => d.id === id);
+  const nextFree = useMemo(
+    () => suggestNext({ doctors: doctorsShown, appointments: store.appointments, iso: date }),
+    [doctorsShown, store.appointments, date],
+  );
 
-  const counts = useMemo(() => ({
-    all: dayAppts.length,
-    booked: dayAppts.filter((a) => a.status === 'booked').length,
-    live: dayAppts.filter((a) => ['checked-in', 'in-consult'].includes(a.status)).length,
-    completed: dayAppts.filter((a) => a.status === 'completed').length,
-    missed: dayAppts.filter((a) => ['no-show', 'cancelled'].includes(a.status)).length,
-  }), [dayAppts]);
-
-  const revenueDay = dayAppts.filter((a) => a.status === 'completed').length;
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(date, i - 3)), [date]);
+  const week = useMemo(() => weekLoad({ doctors: doctorsShown, appointments: store.appointments, startIso: addDays(date, -3) }),
+    [doctorsShown, store.appointments, date]);
+  const weekRows = useMemo(() => weekByDoctor({ doctors: doctorsShown, appointments: store.appointments, startIso: addDays(date, -3) }),
+    [doctorsShown, store.appointments, date]);
 
   async function setApptStatus(appt, next, label) {
     try {
       await store.update('appointments', appt.id, { status: next });
+      // Cancelling or marking a no-show clears the slot on the board, so keep the
+      // booking to hand: one tap must be enough to put it back.
+      setLastCleared(['cancelled', 'no-show'].includes(next) ? { ...appt, from: appt.status } : null);
       toast.success(label);
+    } catch (e) { toast.error(e.message ?? 'Could not update.'); }
+  }
+
+  async function undoStatus(appt) {
+    try {
+      await store.update('appointments', appt.id, { status: appt.from ?? 'booked' });
+      setLastCleared(null);
+      toast.info('Back in the booked queue.');
     } catch (e) { toast.error(e.message ?? 'Could not update.'); }
   }
 
@@ -70,127 +101,201 @@ export default function Appointments() {
     if (!cancelFor) return;
     try {
       await store.update('appointments', cancelFor.id, { status: 'cancelled' });
+      setLastCleared({ ...cancelFor, from: cancelFor.status ?? 'booked' });
       toast.info('Appointment cancelled. The slot is free again.');
       setCancelFor(null);
     } catch (e) { toast.error(e.message ?? 'Could not cancel.'); }
   }
 
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(date, i - 3)), [date]);
+  const openNew = (slot, doctor) => {
+    setEditing({ scheduled_on: date, scheduled_at: slot ?? nextFree?.time ?? '09:00', doctor_id: doctor ?? nextFree?.doctor_id, duration_minutes: store.clinic?.slot_minutes ?? 15 });
+    setFormOpen(true);
+  };
 
   return (
     <div className="page stack" style={{ gap: 16 }}>
-      {/* toolbar */}
-      <div className="row wrap toolbar">
+      {/* ── command bar ─────────────────────────────────────────────── */}
+      <div className="sched-bar">
         <div className="row" style={{ gap: 4 }}>
           <IconButton icon={ChevronLeft} label="Previous day" onClick={() => setDate(addDays(date, -1))} />
-          <div style={{ textAlign: 'center', minWidth: 132 }}>
-            <div className="strong" style={{ fontSize: '0.95rem' }}>{relativeDay(date)}</div>
-            <div className="tiny faint">{formatDate(date)}</div>
-          </div>
+          <button className="date-pill" onClick={() => setDate(today())} title="Jump to today">
+            <span className="strong">{relativeDay(date)}</span>
+            <span className="tiny faint">{formatDate(date, { weekday: true })}</span>
+          </button>
           <IconButton icon={ChevronRight} label="Next day" onClick={() => setDate(addDays(date, 1))} />
-          <Button size="sm" variant="subtle" onClick={() => setDate(today())}>Today</Button>
         </div>
-        <div className="row wrap toolbar-actions">
-          <Select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} style={{ minWidth: 150, maxWidth: 200 }} aria-label="Filter by doctor">
+
+        <div className="row wrap" style={{ gap: 8 }}>
+          <Select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} style={{ minWidth: 148, maxWidth: 200 }} aria-label="Filter by doctor">
             <option value="all">All doctors</option>
             {store.doctors.map((d) => <option key={d.id} value={d.id}>{d.full_name}</option>)}
           </Select>
-          <div className="segmented no-print">
-            <button className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}><LayoutGrid size={13} style={{ marginRight: 4, verticalAlign: -2 }} />Day</button>
-            <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}><List size={13} style={{ marginRight: 4, verticalAlign: -2 }} />List</button>
-          </div>
-          <Button variant="primary" icon={CalendarPlus} onClick={() => { setEditing(null); setFormOpen(true); }}>New</Button>
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'day', label: 'Day', icon: LayoutGrid },
+              { value: 'week', label: 'Week', icon: CalendarDays },
+              { value: 'list', label: 'List', icon: List },
+            ]}
+          />
+          <Button variant="primary" icon={CalendarPlus} onClick={() => openNew()}>
+            New
+          </Button>
         </div>
       </div>
 
-      {/* week strip */}
+      {/* ── KPI strip ──────────────────────────────────────────────── */}
+      <div className="sched-kpis">
+        {[
+          { id: 'total', label: 'Scheduled', value: board.summary.total, tone: 'neutral', hint: `${board.summary.booked} still to arrive` },
+          { id: 'live', label: 'In clinic', value: board.summary.live, tone: 'brand', hint: 'checked in or in consult' },
+          { id: 'done', label: 'Completed', value: board.summary.done, tone: 'success', hint: 'notes closed' },
+          { id: 'free', label: 'Free slots', value: board.columns.reduce((n, c) => n + c.stats.free, 0), tone: 'warn', hint: `next at ${nextFree?.time ?? '—'}` },
+          { id: 'load', label: 'Utilisation', value: `${board.summary.utilization}%`, tone: 'neutral', hint: 'of booked clinic time' },
+        ].map((kpi) => (
+          <div key={kpi.id} className="kpi-tile">
+            <span className="tiny faint">{kpi.label}</span>
+            <span className={`kpi-num tone-${kpi.tone}`}>{kpi.value}</span>
+            <span className="tiny faint truncate">{kpi.hint}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── week strip ─────────────────────────────────────────────── */}
       <div className="weekstrip">
-        {weekDays.map((iso) => {
-          const count = store.appointments.filter((a) => a.scheduled_on === iso && a.status !== 'cancelled').length;
-          const active = iso === date;
+        {week.map((day) => {
+          const active = day.iso === date;
           return (
             <button
-              key={iso} onClick={() => setDate(iso)} className="card"
-              style={{
-                padding: '8px 4px', textAlign: 'center', cursor: 'pointer', minHeight: 62,
-                borderColor: active ? 'var(--brand-500)' : 'var(--border)',
-                background: active ? 'var(--brand-50)' : 'var(--surface)',
-                boxShadow: active ? '0 0 0 1px var(--brand-500)' : 'var(--shadow-xs)',
-              }}
+              key={day.iso} onClick={() => setDate(day.iso)} className={`weekstrip-day ${active ? 'active' : ''} ${day.isToday ? 'today' : ''}`}
+              aria-current={active ? 'date' : undefined}
             >
-              <div className="tiny faint">{new Date(`${iso}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })}</div>
-              <div className="strong mono" style={{ fontSize: '1rem', color: active ? 'var(--brand-600)' : 'var(--text)' }}>{iso.slice(8)}</div>
-              <div className="tiny" style={{ color: count ? 'var(--brand-500)' : 'var(--faint)' }}>{count ? `${count} appt` : 'free'}</div>
+              <span className="tiny faint">{day.weekday}</span>
+              <span className="ws-num">{day.day}</span>
+              <span className="ws-meter"><span style={{ width: `${Math.min(100, day.utilization)}%` }} /></span>
+              <span className="tiny" style={{ color: day.total ? 'var(--brand-600)' : 'var(--faint)' }}>
+                {day.total ? `${day.total} appt` : 'free'}
+              </span>
             </button>
           );
         })}
       </div>
 
-      <div className="row wrap" style={{ gap: 10 }}>
-        <Tabs
-          value={status} onChange={setStatus}
-          tabs={[
-            { value: 'all', label: 'All', count: counts.all },
-            { value: 'booked', label: 'Booked', count: counts.booked },
-            { value: 'checked-in', label: 'In clinic', count: counts.live },
-            { value: 'completed', label: 'Completed', count: counts.completed },
-            { value: 'no-show', label: 'Missed', count: counts.missed },
-          ]}
-        />
-        <span className="spacer" />
-        <div style={{ width: 'min(280px, 100%)' }}>
-          <SearchInput value={query} onChange={setQuery} placeholder="Find a patient in this day" />
+      {/* ── filters ────────────────────────────────────────────────── */}
+      {view !== 'week' ? (
+        <div className="row wrap" style={{ gap: 10 }}>
+          <Tabs
+            value={status} onChange={setStatus}
+            tabs={[
+              { value: 'all', label: 'All', count: board.summary.total },
+              { value: 'booked', label: 'Booked', count: board.summary.booked },
+              { value: 'checked-in', label: 'In clinic', count: board.summary.live },
+              { value: 'completed', label: 'Completed', count: board.summary.done },
+              { value: 'no-show', label: 'Missed', count: board.summary.missed },
+            ]}
+          />
+          <span className="spacer" />
+          <div style={{ width: 'min(280px, 100%)' }}>
+            <SearchInput value={query} onChange={setQuery} placeholder="Find a patient in this day" />
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {view === 'day' ? (
-        <DaySchedule
-          date={date} doctorId={doctorId} doctors={store.doctors} appointments={filtered}
-          patientOf={patientOf} doctorOf={doctorOf}
-          onNew={(slot, doctor) => { setEditing({ scheduled_on: date, scheduled_at: slot, doctor_id: doctor }); setFormOpen(true); }}
+      {/* ── undo strip ─────────────────────────────────────────────── */}
+      {lastCleared && lastCleared.scheduled_on === date ? (
+        <div className="undo-strip no-print" role="status">
+          <RotateCcw size={14} />
+          <span className="small">
+            <b>{patientOf(lastCleared.patient_id)?.full_name ?? 'Patient'}</b> {lastCleared.status === 'no-show' ? 'marked as a no-show' : 'cancelled'}
+            {lastCleared.scheduled_at ? ` — ${formatSlotRange(lastCleared.scheduled_at, lastCleared.duration_minutes ?? 15)} is free again` : ''}
+          </span>
+          <span className="spacer" />
+          <Button size="sm" variant="subtle" icon={RotateCcw} onClick={() => undoStatus(lastCleared)}>Undo</Button>
+          <IconButton icon={X} label="Dismiss" size={13} className="plain sm" onClick={() => setLastCleared(null)} />
+        </div>
+      ) : null}
+
+      {/* ── views ──────────────────────────────────────────────────── */}
+      {view === 'day' && !query && status === 'all' ? (
+        <DayBoard
+          doctors={doctorsShown}
+          appointments={decorated}
+          iso={date}
+          duration={store.clinic?.slot_minutes ?? 15}
+          onNew={openNew}
           onEdit={(a) => { setEditing(a); setFormOpen(true); }}
           onStatus={setApptStatus}
           onConsult={(a) => setConsultFor(a)}
           onCancel={(a) => setCancelFor(a)}
           onPatient={(id) => navigate(`/app/patients/${id}`)}
         />
-      ) : (
+      ) : null}
+
+      {view === 'week' ? (
+        <WeekGrid
+          rows={weekRows}
+          days={week}
+          selectedDoctorId={doctorId === 'all' ? null : doctorId}
+          onPick={(iso, docId) => { setDate(iso); setDoctorId(docId); setView('day'); }}
+        />
+      ) : null}
+
+      {(view === 'list' || view === 'day') && (view === 'list' || query || status !== 'all') ? (
         <Card>
-          <CardHead title={`${filtered.length} appointment${filtered.length === 1 ? '' : 's'}`} sub={formatDate(date, { weekday: true })} icon={CalendarDays}
-            action={<Badge tone="brand">{revenueDay} completed</Badge>} />
+          <CardHead
+            title={`${filtered.length} appointment${filtered.length === 1 ? '' : 's'}`}
+            sub={formatDate(date, { weekday: true })}
+            icon={CalendarDays}
+            action={<Badge tone="brand">{board.summary.done} completed</Badge>}
+          />
           <div className="card-body" style={{ paddingTop: 8 }}>
             {filtered.length ? filtered.map((appt) => {
               const patient = patientOf(appt.patient_id);
               const doctor = doctorOf(appt.doctor_id);
               const meta = statusMeta(appt.status);
+              const live = LIVE_STATUSES.includes(appt.status);
               return (
-                <div key={appt.id} className={`appt ${['checked-in', 'in-consult'].includes(appt.status) ? 'live' : ''}`}>
-                  <div className="when">{appt.scheduled_at}</div>
+                <div key={appt.id} className={`appt ${live ? 'live' : ''}`}>
+                  <div className="when">
+                    <span className="mono strong">{appt.scheduled_at?.slice(0, 5)}</span>
+                    <span className="tiny faint">{formatSlotRange(appt.scheduled_at, appt.duration_minutes ?? 15)}</span>
+                  </div>
                   <Avatar name={patient?.full_name} size="sm" tone={doctor?.color} />
-                  <button className="who" onClick={() => onPatientClick(navigate, appt.patient_id)} style={{ background: 'none', border: 0, textAlign: 'left', cursor: 'pointer', padding: 0 }}>
+                  <button className="who" onClick={() => navigate(`/app/patients/${appt.patient_id}`)}>
                     <b>{patient?.full_name ?? 'Patient'}</b>
                     <span className="tiny muted truncate" style={{ display: 'block' }}>{appt.kind} · {doctor?.full_name} · {appt.reason || 'no reason noted'}</span>
                   </button>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                   <div className="appt-actions no-print">
-                    {appt.status === 'booked' ? <>
-                      <IconButton icon={LogIn} label="Check in" size={15} onClick={() => setApptStatus(appt, 'checked-in', 'Patient checked in.')} />
-                      <IconButton icon={Pencil} label="Reschedule" size={15} onClick={() => { setEditing(appt); setFormOpen(true); }} />
-                    </> : null}
+                    {appt.status === 'booked' ? (
+                      <>
+                        <IconButton icon={LogIn} label="Check in" size={15} onClick={() => setApptStatus(appt, 'checked-in', 'Patient checked in.')} />
+                        <IconButton icon={Pencil} label="Reschedule" size={15} onClick={() => { setEditing(appt); setFormOpen(true); }} />
+                        <IconButton icon={UserX} label="No-show" size={15} onClick={() => setApptStatus(appt, 'no-show', 'Marked as a no-show.')} />
+                      </>
+                    ) : null}
                     {appt.status === 'checked-in' ? <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(appt)}>Start</Button> : null}
                     {appt.status === 'in-consult' ? <Button size="sm" variant="primary" icon={CheckCircle2} onClick={() => setConsultFor(appt)}>Resume</Button> : null}
                     {appt.status === 'completed' ? <Button size="sm" variant="subtle" onClick={() => navigate(`/app/patients/${appt.patient_id}`)}>Chart</Button> : null}
+                    {['cancelled', 'no-show'].includes(appt.status) ? (
+                      <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => undoStatus(appt)}>Undo</Button>
+                    ) : null}
                   </div>
                 </div>
               );
             }) : (
-              <EmptyState icon={CalendarDays} title="No appointments match" description="Try another status filter, clear the search, or book a new appointment for this day."
-                action={<Button size="sm" variant="primary" icon={CalendarPlus} onClick={() => setFormOpen(true)}>Book appointment</Button>} />
+              <EmptyState
+                icon={Search} title="Nothing matches this filter"
+                description="Clear the search or switch back to All to see the whole day."
+                action={<Button size="sm" variant="subtle" onClick={() => { setQuery(''); setStatus('all'); }}>Clear filters</Button>}
+              />
             )}
           </div>
         </Card>
-      )}
+      ) : null}
 
+      {/* ── dialogs ────────────────────────────────────────────────── */}
       <AppointmentForm
         open={formOpen}
         onClose={() => { setFormOpen(false); setEditing(null); }}
@@ -203,91 +308,20 @@ export default function Appointments() {
       {consultFor ? (
         <ConsultationForm open onClose={() => setConsultFor(null)} appointment={consultFor} patient={patientOf(consultFor.patient_id)} onSaved={() => setConsultFor(null)} />
       ) : null}
+
       <Modal
         open={Boolean(cancelFor)} onClose={() => setCancelFor(null)} title="Cancel this appointment?"
-        footer={<>
-          <Button variant="ghost" onClick={() => setCancelFor(null)}>Keep it</Button>
-          <Button variant="danger" onClick={confirmCancel}>Cancel appointment</Button>
-        </>}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setCancelFor(null)}>Keep it</Button>
+            <Button variant="danger" onClick={confirmCancel}>Cancel appointment</Button>
+          </>
+        )}
       >
         <p className="small muted">
-          {cancelFor ? `${patientOf(cancelFor.patient_id)?.full_name ?? 'This patient'} at ${cancelFor.scheduled_at} will be marked cancelled and the slot released. The record stays in the patient’s history.` : ''}
+          {cancelFor ? `${patientOf(cancelFor.patient_id)?.full_name ?? 'This patient'} at ${formatSlotRange(cancelFor.scheduled_at, cancelFor.duration_minutes ?? 15)} will be marked cancelled and the slot released. The record stays in the patient’s history.` : ''}
         </p>
       </Modal>
-    </div>
-  );
-}
-
-const onPatientClick = (navigate, id) => navigate(`/app/patients/${id}`);
-
-function DaySchedule({ date, doctorId, doctors, appointments, patientOf, doctorOf, onNew, onEdit, onStatus, onConsult, onCancel, onPatient }) {
-  const shown = doctorId === 'all' ? doctors : doctors.filter((d) => d.id === doctorId);
-  if (!shown.length) return <Card><div className="card-body"><EmptyState title="No doctors configured" description="Add a doctor under Doctors &amp; staff to start booking slots." /></div></Card>;
-
-  return (
-    <div className="stack" style={{ gap: 14 }}>
-      {shown.map((doctor) => {
-        const start = timeToMinutes(doctor.day_start || '09:00');
-        const end = timeToMinutes(doctor.day_end || '13:00');
-        const slots = generateSlots({ start: doctor.day_start || '09:00', end: doctor.day_end || '13:00', duration: doctor.slot_minutes || 15 });
-        const booked = appointments.filter((a) => a.doctor_id === doctor.id);
-        const freeCount = slots.length - booked.filter((a) => a.status !== 'cancelled').length;
-        return (
-          <Card key={doctor.id}>
-            <CardHead
-              title={doctor.full_name} icon={Clock}
-              sub={`${doctor.specialty} · ${doctor.day_start}–${doctor.day_end} · ${doctor.slot_minutes || 15} min slots`}
-              action={
-                <div className="row" style={{ gap: 8 }}>
-                  <Badge tone={freeCount > 0 ? 'success' : 'warn'}>{freeCount} free</Badge>
-                  <Badge tone="neutral">{booked.length} booked</Badge>
-                  <Button size="sm" variant="subtle" icon={CalendarPlus} onClick={() => onNew(slots.find((s) => !booked.some((b) => b.scheduled_at === s && b.status !== 'cancelled')) ?? slots[0], doctor.id)}>Add</Button>
-                </div>
-              }
-            />
-            <div className="card-body" style={{ paddingTop: 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6 }}>
-                {slots.map((slot) => {
-                  const appt = booked.find((a) => a.scheduled_at === slot && a.status !== 'cancelled');
-                  const cancelled = booked.find((a) => a.scheduled_at === slot && a.status === 'cancelled');
-                  if (!appt) {
-                    return (
-                      <button key={slot} onClick={() => onNew(slot, doctor.id)} className="card" style={{ padding: '8px 10px', textAlign: 'left', cursor: 'pointer', background: 'var(--surface-2)', boxShadow: 'none', minHeight: 52 }}>
-                        <div className="tiny mono faint">{slot}</div>
-                        <div className="tiny" style={{ color: 'var(--brand-500)', fontWeight: 600 }}>{cancelled ? 'Freed slot — book' : 'Available'}</div>
-                      </button>
-                    );
-                  }
-                  const patient = patientOf(appt.patient_id);
-                  const meta = statusMeta(appt.status);
-                  const live = ['checked-in', 'in-consult'].includes(appt.status);
-                  return (
-                    <div key={slot} className="card" style={{ padding: '8px 10px', minHeight: 52, borderColor: live ? 'var(--brand-500)' : 'var(--border)', background: live ? 'var(--brand-50)' : 'var(--surface)', boxShadow: 'none' }}>
-                      <div className="row" style={{ gap: 6 }}>
-                        <span className="tiny mono faint">{slot}</span>
-                        <span className="spacer" />
-                        <span className="tiny" style={{ color: `var(--${meta.tone === 'neutral' ? 'muted' : meta.tone})`, fontWeight: 700 }}>{meta.label}</span>
-                      </div>
-                      <button onClick={() => onPatient(appt.patient_id)} style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', width: '100%' }}>
-                        <div className="small strong truncate" style={{ marginTop: 2 }}>{patient?.full_name ?? 'Patient'}</div>
-                        <div className="tiny muted truncate">{appt.kind}</div>
-                      </button>
-                      <div className="row no-print" style={{ gap: 4, marginTop: 6 }}>
-                        {appt.status === 'booked' ? <button className="btn sm" style={{ padding: '2px 7px', minHeight: 24, fontSize: '0.7rem' }} onClick={() => onStatus(appt, 'checked-in', 'Patient checked in.')}>Check in</button> : null}
-                        {live ? <button className="btn sm primary" style={{ padding: '2px 7px', minHeight: 24, fontSize: '0.7rem' }} onClick={() => onConsult(appt)}>Consult</button> : null}
-                        {appt.status === 'completed' ? <button className="btn sm subtle" style={{ padding: '2px 7px', minHeight: 24, fontSize: '0.7rem' }} onClick={() => onPatient(appt.patient_id)}>Chart</button> : null}
-                        <span className="spacer" />
-                        <IconButton icon={Pencil} label="Edit" size={12} className="plain sm" onClick={() => onEdit(appt)} />
-                        {appt.status === 'booked' ? <IconButton icon={X} label="Cancel" size={12} className="plain sm" onClick={() => onCancel(appt)} /> : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </Card>
-        );
-      })}
     </div>
   );
 }

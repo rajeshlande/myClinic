@@ -126,8 +126,12 @@ export function makeDemoWorkspace() {
       const doctor = pick(doctors);
       const day = monthsAgo === 0 ? int(1, Math.max(1, now.getDate())) : int(1, 28);
       const visited_on = `${month}-${String(day).padStart(2, '0')}`;
-      const hour = int(9, 19);
-      const scheduled_at = `${String(hour).padStart(2, '0')}:${pick(['00', '15', '30', '45'])}`;
+      // Stay inside this doctor's session so every seeded visit lands on the board.
+      const mOpen = Number(String(doctor.day_start || '09:00').slice(0, 2)) * 60 + Number(String(doctor.day_start || '09:00').slice(3, 5));
+      const mClose = Number(String(doctor.day_end || '13:00').slice(0, 2)) * 60 + Number(String(doctor.day_end || '13:00').slice(3, 5));
+      const steps = Math.max(1, Math.floor((mClose - mOpen) / 15));
+      const mAt = mOpen + int(0, steps - 1) * 15;
+      const scheduled_at = `${String(Math.floor(mAt / 60)).padStart(2, '0')}:${String(mAt % 60).padStart(2, '0')}`;
       const apptId = `apt-${appointments.length + 1}`;
       const isPast = visited_on < t;
 
@@ -213,17 +217,30 @@ export function makeDemoWorkspace() {
     { status: 'booked', doctor: 1, minsAgo: 5 },
     { status: 'no-show', doctor: 0, minsAgo: 68 },
   ];
-  const clock = (minsAgo) => {
-    const d = new Date(Date.now() - minsAgo * 60000);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  };
+  // Demo appointments must sit inside each doctor's own session, otherwise the
+  // scheduling board would show them all as off-grid. Tokens are laid out at the
+  // start of that doctor's session in 15-minute steps, which is exactly how a real
+  // OPD fills up.
+  const toM = (hhmm) => Number(String(hhmm).slice(0, 2)) * 60 + Number(String(hhmm).slice(3, 5));
+  const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const sessionStart = new Map();
+  const sessionCount = new Map();
   const tokenCounters = new Map();
   tokenPlan.forEach((plan, i) => {
     const doctor = doctors[plan.doctor];
     const patient = patients[(i * 3 + 1) % patients.length];
     const tokenNo = (tokenCounters.get(doctor.id) ?? 0) + 1;
     tokenCounters.set(doctor.id, tokenNo);
-    const slot = clock(plan.minsAgo);
+    // Lay the token out inside this doctor's session.
+    if (!sessionStart.has(doctor.id)) {
+      sessionStart.set(doctor.id, toM(doctor.day_start || '09:00'));
+      sessionCount.set(doctor.id, 0);
+    }
+    const openM = sessionStart.get(doctor.id);
+    const closeM = toM(doctor.day_end || '13:00');
+    const n = sessionCount.get(doctor.id);
+    sessionCount.set(doctor.id, n + 1);
+    const slot = fmt(Math.min(closeM - 15, openM + n * 15));
     const apptId = `apt-today-${i + 1}`;
     appointments.push({
       id: apptId, clinic_id: clinic.id, patient_id: patient.id, doctor_id: doctor.id,
@@ -262,10 +279,22 @@ export function makeDemoWorkspace() {
   for (let d = 1; d <= 5; d++) {
     const date = addDays(t, d);
     const n = int(3, 6);
+    const used = new Set();
     for (let i = 0; i < n; i++) {
       const patient = pick(patients);
       const doctor = pick(doctors);
-      const slot = `${String(9 + i).padStart(2, '0')}:${pick(['00', '30'])}`;
+      // One booking per doctor per slot, chosen from the clinic's real session.
+      // Offer slots from the picked doctor's own session, not a fixed 9-to-5 grid.
+      const dOpen = toM(doctor.day_start || '09:00');
+      const dClose = toM(doctor.day_end || '13:00');
+      const candidates = [];
+      for (let m = dOpen; m + 15 <= dClose; m += 30) candidates.push(fmt(m));
+      let slot = null;
+      for (const candidate of candidates) {
+        const key = `${doctor.id}-${candidate}`;
+        if (!used.has(key)) { used.add(key); slot = candidate; break; }
+      }
+      if (!slot) continue;
       appointments.push({
         id: `apt-${date}-${i}`, clinic_id: clinic.id, patient_id: patient.id, doctor_id: doctor.id,
         scheduled_on: date, scheduled_at: slot, duration_minutes: 15,

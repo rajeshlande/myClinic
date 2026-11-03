@@ -3,6 +3,38 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.4.0] — 2026-11-03 · schema 3
+
+### Added
+- **`src/lib/schedule.mjs`** — one pure scheduling engine for the whole app:
+  `intervalOf`, `overlaps`, `detectClashes`, `availableSlots`, `groupSlots`,
+  `suggestNext`, `buildDayBoard`, `weekLoad`, `weekByDoctor`, `explainConflict`.
+  Intervals are half-open, so back-to-back visits never clash and a 30-minute
+  booking correctly blocks both 15-minute rows it covers. 11 new unit tests (65 total).
+- **Day board** (`/app/appointments`) — a column per doctor, blocks that span their
+  real duration, dashed bookable slots, a live marker on the visit happening now, and a
+  separate list for bookings that sit off the slot grid so nothing silently disappears.
+- **Week view** — load per doctor per day: open slots, bookings and utilisation, with a
+  click-through that opens that day's board for that doctor.
+- **Slot-first booking sheet** — times grouped Morning / Afternoon / Evening, booked
+  slots struck through and disabled, day stepper, and a *Next free* button that jumps to
+  the earliest workable slot across the clinic.
+- **Undo** for cancelled and no-show bookings in the day view, with the freed slot named.
+- KPI strip on the scheduling screen: scheduled, in clinic, completed, free slots and
+  utilisation, all computed from the same engine as the board.
+
+### Changed
+- Availability is interval-aware everywhere. A visit now blocks its whole duration
+  rather than just the starting row, and "outside working hours" is judged on the visit's
+  **end** time, so a 45-minute consultation can no longer start four minutes before close.
+- Demo data now seeds each appointment inside its doctor's own session, so the board,
+  the token queue and Reports all describe a believable clinic day.
+
+### Fixed
+- Booking a specific time from an empty slot opened the sheet with 09:00 preselected —
+  the clicked slot was dropped when the sheet re-seeded, which could book the wrong time.
+- `week` did not honour an injected clock, so "today" was highlighted from the real date.
+
 ## [1.3.0] — 2026-11-03 · schema 3
 
 ### Added

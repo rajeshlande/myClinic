@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, UserPlus, AlertTriangle, Check } from 'lucide-react';
+import { CalendarClock, UserPlus, AlertTriangle, Check, ChevronLeft, ChevronRight, Sparkles, Sun, Sunrise, Sunset } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Button, Field, Input, Select, Textarea, Modal, Avatar, Badge } from './ui.jsx';
+import { useToast, Button, Field, IconButton, Input, Select, Textarea, Modal, Avatar, Badge } from './ui.jsx';
 import {
-  APPOINTMENT_TYPES, formatMoney, formatSlotRange, relativeDay, sortAppointments,
-  slotAvailability, today, validateAppointment,
+  APPOINTMENT_TYPES, addDays, formatMoney, formatSlotRange, relativeDay, sortAppointments,
+  today, validateAppointment,
 } from '../lib/logic.mjs';
+import { availableSlots, detectClashes, explainConflict, groupSlots, suggestNext } from '../lib/schedule.mjs';
 
 export default function AppointmentForm({ open, onClose, appointment, defaults = {}, onCreated, onRegisterPatient }) {
   const store = useStore();
@@ -20,13 +21,39 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
 
+  // Re-seed the whole draft every time the sheet opens. A click on an empty board
+  // slot, "New", a reschedule and "register patient then book" all arrive here —
+  // previously only the doctor and patient were carried over, so the slot the
+  // receptionist clicked was silently replaced by the 09:00 default.
   useEffect(() => {
-    if (open) setDraft((d) => ({ ...d, patient_id: appointment?.patient_id ?? defaults.patient_id ?? d.patient_id, doctor_id: appointment?.doctor_id ?? defaults.doctor_id ?? doctors[0]?.id ?? '' }));
+    if (!open) return;
+    const seed = appointment?.id
+      ? { ...appointment }
+      : {
+          patient_id: '', doctor_id: doctors[0]?.id ?? '', scheduled_on: today(), scheduled_at: '09:00',
+          duration_minutes: store.clinic?.slot_minutes ?? 15, kind: 'New consultation',
+          source: 'walk-in', reason: '', notes: '', token_no: null, ...defaults,
+        };
+    setDraft((d) => ({ ...d, ...seed, doctor_id: seed.doctor_id || doctors[0]?.id || d.doctor_id }));
+    setErrors({});
+    setQuery('');
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (key) => (e) => setDraft((d) => ({ ...d, [key]: e.target?.value ?? e }));
   const doctor = doctors.find((d) => d.id === draft.doctor_id);
-  const availability = useMemo(() => (doctor ? slotAvailability({ appointments: store.appointments.filter((a) => a.id !== appointment?.id), doctor, iso: draft.scheduled_on, duration: Number(draft.duration_minutes) }) : { all: [], taken: new Set(), free: [] }), [doctor, draft.scheduled_on, draft.duration_minutes, store.appointments, appointment]);
+  // Interval-aware: a 30-minute visit blocks both 15-minute rows it covers.
+  const slots = useMemo(() => {
+    if (!doctor) return [];
+    return availableSlots({
+      appointments: store.appointments.filter((a) => a.id !== appointment?.id),
+      doctor,
+      iso: draft.scheduled_on,
+      duration: Number(draft.duration_minutes) || 15,
+    });
+  }, [doctor, draft.scheduled_on, draft.duration_minutes, store.appointments, appointment]);
+  const groups = useMemo(() => groupSlots(slots), [slots]);
+  const freeCount = slots.filter((s) => s.free).length;
+  const clashes = useMemo(() => detectClashes(store.appointments, draft), [store.appointments, draft]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -41,12 +68,13 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
 
   async function submit() {
     const found = validateAppointment(draft);
-    if (availability.taken.has(draft.scheduled_at) && appointment?.scheduled_at !== draft.scheduled_at) {
-      found.scheduled_at = 'That slot is already booked for this doctor.';
+    const startM = Number(draft.scheduled_at.slice(0, 2)) * 60 + Number(draft.scheduled_at.slice(3, 5));
+    const endM = startM + (Number(draft.duration_minutes) || 15);
+    const closeM = Number((doctor?.day_end || '23:59').slice(0, 2)) * 60 + Number((doctor?.day_end || '23:59').slice(3, 5));
+    if (clashes.length && !(appointment && appointment.scheduled_at === draft.scheduled_at && appointment.scheduled_on === draft.scheduled_on)) {
+      found.scheduled_at = explainConflict(clashes[0]);
     }
-    if (availability.all.length && !availability.all.includes(draft.scheduled_at)) {
-      found.scheduled_at = 'That time is outside the doctor’s working hours.';
-    }
+    if (endM > closeM) found.scheduled_at = 'That visit runs past the doctor’s finishing time.';
     setErrors(found);
     if (Object.keys(found).length) return;
     setSaving(true);
@@ -153,31 +181,67 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
           </Field>
         </div>
 
-        <Field label="Available slots" error={errors.scheduled_at} hint={doctor ? `${doctor.full_name.split(' ').slice(-1)[0]}’s hours ${doctor.day_start}–${doctor.day_end}` : ''}>
-          <div className="row wrap" style={{ gap: 6, maxHeight: 150, overflowY: 'auto', padding: 2 }}>
-            {availability.all.map((slot) => {
-              const taken = availability.taken.has(slot);
-              const active = draft.scheduled_at === slot;
-              return (
-                <button
-                  key={slot} type="button" disabled={taken} onClick={() => { setDraft((d) => ({ ...d, scheduled_at: slot })); setErrors((er) => ({ ...er, scheduled_at: undefined })); }}
-                  className="btn sm"
-                  style={{
-                    minWidth: 92, fontVariantNumeric: 'tabular-nums',
-                    background: active ? 'var(--brand-500)' : taken ? 'var(--surface-3)' : 'var(--surface)',
-                    color: active ? '#fff' : taken ? 'var(--faint)' : 'var(--text-2)',
-                    borderColor: active ? 'transparent' : 'var(--border)',
-                    textDecoration: taken ? 'line-through' : 'none',
-                    opacity: taken ? 0.7 : 1,
-                  }}
-                  title={taken ? 'Already booked' : `Book ${formatSlotRange(slot, Number(draft.duration_minutes))}`}
-                >
-                  {slot}
-                </button>
-              );
-            })}
-            {!availability.all.length ? <p className="small muted">This doctor has no working hours configured. Add them under Doctors &amp; staff.</p> : null}
+        <Field
+          label="Time"
+          error={errors.scheduled_at}
+          hint={doctor ? `${doctor.day_start}–${doctor.day_end} · ${freeCount} of ${slots.length} slots free` : ''}
+        >
+          {/* day stepper + quick jumps */}
+          <div className="slot-toolbar">
+            <div className="row" style={{ gap: 2 }}>
+              <IconButton icon={ChevronLeft} label="Previous day" size={14} className="plain sm" onClick={() => setDraft((d) => ({ ...d, scheduled_on: addDays(d.scheduled_on, -1), scheduled_at: '' }))} />
+              <span className="small mono strong">{formatSlotDate(draft.scheduled_on)}</span>
+              <IconButton icon={ChevronRight} label="Next day" size={14} className="plain sm" onClick={() => setDraft((d) => ({ ...d, scheduled_on: addDays(d.scheduled_on, 1), scheduled_at: '' }))} />
+            </div>
+            <span className="spacer" />
+            <Button
+              size="sm" variant="ghost" icon={Sparkles} type="button"
+              onClick={() => {
+                const next = suggestNext({
+                  doctors, appointments: store.appointments.filter((a) => a.id !== appointment?.id),
+                  iso: draft.scheduled_on, duration: Number(draft.duration_minutes) || 15,
+                  doctorId: draft.doctor_id,
+                });
+                if (next) setDraft((d) => ({ ...d, scheduled_at: next.time, doctor_id: next.doctor_id }));
+              }}
+            >
+              Next free
+            </Button>
           </div>
+
+          {slots.length ? (
+            <div className="slot-groups">
+              {groups.map((group) => {
+                const Icon = group.id === 'morning' ? Sunrise : group.id === 'afternoon' ? Sun : Sunset;
+                return (
+                  <div key={group.id} className="slot-group">
+                    <span className="slot-group-label"><Icon size={12} /> {group.label}</span>
+                    <div className="slot-picker">
+                      {group.slots.map((slot) => {
+                        const active = draft.scheduled_at === slot.time;
+                        return (
+                          <button
+                            key={slot.time} type="button" disabled={!slot.free}
+                            className={`pick ${active ? 'active' : ''} ${slot.free ? '' : 'taken'}`}
+                            onClick={() => { setDraft((d) => ({ ...d, scheduled_at: slot.time })); setErrors((er) => ({ ...er, scheduled_at: undefined })); }}
+                            title={slot.free ? `Book ${formatSlotRange(slot.time, Number(draft.duration_minutes) || 15)}` : 'Already booked'}
+                            aria-pressed={active}
+                          >
+                            <span className="pick-time">{slot.time}</span>
+                            {!slot.free ? <span className="pick-note">booked</span> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="small muted" style={{ margin: 0 }}>
+              This doctor has no working hours configured. Add them under Doctors &amp; staff.
+            </p>
+          )}
         </Field>
 
         <div className="form-grid">
@@ -189,9 +253,9 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
           </Field>
         </div>
 
-        {availability.taken.has(draft.scheduled_at) && appointment?.scheduled_at !== draft.scheduled_at ? (
-          <div className="row small" style={{ color: 'var(--warn)', background: 'var(--warn-bg)', padding: '8px 11px', borderRadius: 10 }}>
-            <AlertTriangle size={14} /> This slot is already taken. Pick another time to avoid a double booking.
+        {clashes.length && draft.scheduled_at ? (
+          <div className="row small" style={{ color: 'var(--warn)', background: 'var(--warn-bg)', padding: '8px 11px', borderRadius: 10, gap: 8 }}>
+            <AlertTriangle size={14} /> {explainConflict(clashes[0], patientOfName(store, draft.patient_id))}
           </div>
         ) : selectedPatient && doctor ? (
           <div className="row small" style={{ color: 'var(--muted)', background: 'var(--surface-2)', padding: '9px 11px', borderRadius: 10, flexWrap: 'wrap', gap: 8 }}>
@@ -204,6 +268,16 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
       </div>
     </Modal>
   );
+}
+
+function formatSlotDate(iso) {
+  if (!iso) return '—';
+  return new Date(`${iso}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function patientOfName(store, id) {
+  const p = store.patients.find((x) => x.id === id);
+  return p?.full_name ?? 'This patient';
 }
 
 export function sortedUpcoming(appointments) { return sortAppointments(appointments.filter((a) => a.status === 'booked')); }

@@ -10,6 +10,7 @@ import { PLANS, formatMoney } from '../lib/logic.mjs';
 import { useAuth } from '../lib/auth-context.jsx';
 import { applyTheme, readTheme } from '../lib/theme.js';
 import { Button, Badge } from '../components/ui.jsx';
+import { APP_VERSION } from '../lib/version.js';
 
 const FEATURES = [
   { icon: Ticket, title: 'Token queue for walk-ins', body: 'The front desk taps once to issue the next token — no appointment, no patient record needed first. Doctors call numbers in order, and the lounge screen shows who is next.' },
@@ -73,7 +74,7 @@ export default function Landing({ anchor }) {
         <div className="stack" style={{ gap: 20 }}>
           <div className="row wrap" style={{ gap: 6 }}>
             <Badge tone="brand" dot>Built for single & multi-doctor OPDs</Badge>
-            <Badge tone="neutral"><Sparkles size={11} /> v1.0</Badge>
+            <Badge tone="neutral"><Sparkles size={11} /> v{APP_VERSION}</Badge>
           </div>
           <h1 className="mk-h1">
             Everything you need for<br />

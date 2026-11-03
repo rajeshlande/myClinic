@@ -696,3 +696,118 @@ test('licence: expiry formatting is stable and never shows a bad date', () => {
   assert.equal(formatExpiry('not-a-date'), '—');
   assert.match(formatExpiry('2026-12-03T00:00:00Z'), /Dec 2026/);
 });
+
+// ---------------------------------------------------------------- scheduling
+import {
+  availableSlots, buildDayBoard, detectClashes, explainConflict, groupSlots, intervalOf,
+  overlaps, suggestNext, weekLoad,
+} from '../src/lib/schedule.mjs';
+
+const DOC = { id: 'doc-1', full_name: 'Dr Rao', day_start: '09:00', day_end: '12:00', slot_minutes: 15 };
+const doc2 = { id: 'doc-2', full_name: 'Dr Sheikh', day_start: '16:00', day_end: '18:00', slot_minutes: 15 };
+const on = '2026-11-04';
+const appt = (id, at, duration = 15, status = 'booked', doctorId = 'doc-1') =>
+  ({ id, doctor_id: doctorId, scheduled_on: on, scheduled_at: at, duration_minutes: duration, status, patient_id: `p-${id}` });
+
+test('schedule: a 30-minute visit blocks both 15-minute rows it covers', () => {
+  const list = [appt('a1', '09:00', 30)];
+  const slots = availableSlots({ appointments: list, doctor: DOC, iso: on, duration: 15 });
+  const byTime = Object.fromEntries(slots.map((s) => [s.time, s.free]));
+  assert.equal(byTime['09:00'], false);
+  assert.equal(byTime['09:15'], false, 'the second half of a 30-min booking is not free');
+  assert.equal(byTime['09:30'], true);
+  assert.equal(slots.length, 12, '09:00–12:00 in 15-minute steps');
+});
+
+test('schedule: a longer candidate slot needs a wider gap', () => {
+  const list = [appt('a1', '09:00', 30)];
+  const thirty = availableSlots({ appointments: list, doctor: DOC, iso: on, duration: 30 });
+  assert.equal(thirty.find((s) => s.time === '09:15').free, false, 'no room for 30 min at 09:15');
+  assert.equal(thirty.find((s) => s.time === '09:30').free, true);
+});
+
+test('schedule: cancelled and no-show appointments release their slot', () => {
+  const list = [appt('a1', '09:00', 15, 'cancelled'), appt('a2', '09:15', 15, 'no-show')];
+  const slots = availableSlots({ appointments: list, doctor: DOC, iso: on, duration: 15 });
+  assert.equal(slots.find((s) => s.time === '09:00').free, true);
+  assert.equal(slots.find((s) => s.time === '09:15').free, true);
+});
+
+test('schedule: other doctors and other days never block a slot', () => {
+  const list = [
+    appt('a1', '09:00', 15, 'booked', 'doc-2'),
+    { ...appt('a2', '09:00'), scheduled_on: '2026-11-05' },
+  ];
+  const slots = availableSlots({ appointments: list, doctor: DOC, iso: on, duration: 15 });
+  assert.ok(slots.every((s) => s.free));
+});
+
+test('schedule: clash detection reports the appointment that actually overlaps', () => {
+  const list = [appt('a1', '09:00', 30), appt('a2', '10:00', 15)];
+  const clash = detectClashes(list, { doctor_id: 'doc-1', scheduled_on: on, scheduled_at: '09:15', duration_minutes: 15 });
+  assert.deepEqual(clash.map((c) => c.id), ['a1']);
+  assert.match(explainConflict(clash[0], 'Asha'), /Asha already has 09:00–09:30/);
+  // editing an existing appointment must not clash with itself
+  assert.equal(detectClashes(list, { id: 'a1', doctor_id: 'doc-1', scheduled_on: on, scheduled_at: '09:00', duration_minutes: 30 }).length, 0);
+  // starting inside a running visit is a clash
+  assert.equal(detectClashes(list, { doctor_id: 'doc-1', scheduled_on: on, scheduled_at: '09:20', duration_minutes: 15 }).length, 1);
+  // ...but the moment that visit ends, the room is free again
+  assert.equal(detectClashes(list, { doctor_id: 'doc-1', scheduled_on: on, scheduled_at: '09:30', duration_minutes: 30 }).length, 0);
+  assert.equal(detectClashes(list, { doctor_id: 'doc-1', scheduled_on: on, scheduled_at: '10:15', duration_minutes: 15 }).length, 0);
+});
+
+test('schedule: intervals are half-open, so touching bookings do not overlap', () => {
+  assert.equal(overlaps({ scheduled_on: on, scheduled_at: '09:00', duration_minutes: 30 }, { scheduled_on: on, scheduled_at: '09:30', duration_minutes: 30 }), false);
+  assert.equal(overlaps({ scheduled_on: on, scheduled_at: '09:00', duration_minutes: 31 }, { scheduled_on: on, scheduled_at: '09:30', duration_minutes: 30 }), true);
+  assert.equal(overlaps({ scheduled_on: on, scheduled_at: '09:00' }, { scheduled_on: '2026-11-05', scheduled_at: '09:00' }), false);
+  assert.deepEqual(intervalOf({ scheduled_at: '09:00:00', duration_minutes: 45 }), { start: 540, end: 585, duration: 45 });
+  assert.equal(intervalOf({ scheduled_at: '09:00', duration_minutes: 0 }).duration, 15, 'bad duration falls back');
+});
+
+test('schedule: the day board labels every slot and computes utilisation', () => {
+  const list = [appt('a1', '09:00', 30, 'completed'), appt('a2', '10:00', 15, 'checked-in'), appt('a3', '10:30', 15, 'booked')];
+  const board = buildDayBoard({ doctors: [DOC], appointments: list, iso: on, now: new Date('2026-11-04T10:10:00') });
+  const col = board.columns[0];
+  const state = Object.fromEntries(col.slots.map((s) => [s.time, s.state]));
+  assert.equal(state['09:00'], 'done');
+  assert.equal(state['09:15'], 'free', 'half of the completed 30-min block is bookable again');
+  assert.equal(state['10:00'], 'live');
+  assert.equal(state['10:30'], 'booked');
+  assert.equal(col.stats.total, 3);
+  assert.equal(col.stats.live, 1);
+  assert.equal(col.stats.utilisation, Math.min(100, Math.round((60 / 180) * 100)), '60 booked minutes of a 180-minute session');
+  assert.equal(board.summary.total, 3);
+});
+
+test('schedule: appointments off the slot grid are still surfaced', () => {
+  const list = [appt('a1', '09:07', 15)];
+  const board = buildDayBoard({ doctors: [DOC], appointments: list, iso: on });
+  assert.equal(board.columns[0].offGrid.length, 1, 'no booking may silently disappear from the board');
+  assert.equal(board.columns[0].offGrid[0].id, 'a1');
+});
+
+test('schedule: suggestNext picks the earliest free slot across doctors', () => {
+  const list = [appt('a1', '09:00', 15, 'booked', 'doc-1')];
+  const next = suggestNext({ doctors: [DOC, doc2], appointments: list, iso: on, duration: 15 });
+  assert.equal(next.time, '09:15');
+  assert.equal(next.doctor_id, 'doc-1');
+  const onlyLate = suggestNext({ doctors: [doc2], appointments: [], iso: on, duration: 15 });
+  assert.equal(onlyLate.time, '16:00', 'a doctor whose session starts at 16:00 is offered at 16:00');
+});
+
+test('schedule: the week view reports load per day', () => {
+  const list = [appt('a1', '09:00', 15), appt('a2', '09:15', 15)];
+  const week = weekLoad({ doctors: [DOC], appointments: list, startIso: on, days: 3, now: new Date('2026-11-04T08:00:00') });
+  assert.equal(week.length, 3);
+  assert.equal(week[0].iso, on);
+  assert.equal(week[0].total, 2);
+  assert.equal(week[0].isToday, true);
+  assert.equal(week[1].total, 0);
+});
+
+test('schedule: slots are grouped into the sessions a front desk talks about', () => {
+  const slots = availableSlots({ appointments: [], doctor: { ...DOC, day_end: '19:00' }, iso: on, duration: 15 });
+  const groups = groupSlots(slots);
+  assert.deepEqual(groups.map((g) => g.label), ['Morning', 'Afternoon', 'Evening']);
+  assert.ok(groups.every((g) => g.slots.length > 0));
+});
