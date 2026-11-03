@@ -7,12 +7,9 @@
 import { existsSync } from 'node:fs';
 
 const checks = [];
-const suite = 'supabase/rls-tests.sql';
-checks.push([existsSync(suite), `${suite} present (RLS regression suite)`]);
-checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (schema v2 role matrix)']);
-checks.push([existsSync('supabase/licensing.sql'), 'supabase/licensing.sql present (schema v3 subscriptions)']);
-checks.push([existsSync('supabase/licensing-tests.sql'), 'supabase/licensing-tests.sql present (licence regression suite)']);
-checks.push([existsSync('supabase/branding.sql'), 'supabase/branding.sql present (schema v4 logos + size guards)']);
+const suite = 'supabase/schema-tests.sql';
+checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (single source of truth, schema v1-v4)']);
+checks.push([existsSync(suite), `${suite} present (role matrix + licensing regression suites)`]);
 checks.push([existsSync('src/lib/permissions.js'), 'client role matrix mirrors the policies']);
 checks.push([existsSync('src/lib/offline.js'), 'offline engine (scoped cache, TTL, outbox)']);
 
@@ -23,11 +20,12 @@ console.log(`
 Database checks (run against a SCRATCH project, never production):
 
   1. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
-  2. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing.sql
-  2b. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/branding.sql
-  3. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ${suite}
-  4. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing-tests.sql
-     -> every assertion prints PASS; the whole fixture set is rolled back
+     -> one file. Idempotent: re-running it upgrades any older database in place,
+        straight to schema v4 (see public.app_schema_version()).
+  2. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
+     -> every assertion prints PASS, ending in
+        "ALL RLS CHECKS COMPLETED" and "ALL LICENSING CHECKS COMPLETED";
+        the whole fixture set is rolled back, so a run leaves no trace.
 
 What the suites prove:
   · a new clinic starts on a 14-day Growth trial and cannot restart it

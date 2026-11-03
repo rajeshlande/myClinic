@@ -33,7 +33,7 @@ Please check those against your own project before reporting them as new.
 
 ```bash
 npm run test:security                 # prints the procedure + boundary checklist
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/rls-tests.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
 ```
 
 The RLS suite creates two dummy tenants and asserts the role matrix, tenant isolation,

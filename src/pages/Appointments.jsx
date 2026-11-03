@@ -82,8 +82,6 @@ export default function Appointments() {
   async function setApptStatus(appt, next, label) {
     try {
       await store.update('appointments', appt.id, { status: next });
-      // Cancelling or marking a no-show clears the slot on the board, so keep the
-      // booking to hand: one tap must be enough to put it back.
       setLastCleared(['cancelled', 'no-show'].includes(next) ? { ...appt, from: appt.status } : null);
       toast.success(label);
     } catch (e) { toast.error(e.message ?? 'Could not update.'); }
@@ -125,7 +123,7 @@ export default function Appointments() {
           <IconButton icon={ChevronRight} label="Next day" onClick={() => setDate(addDays(date, 1))} />
         </div>
 
-        <div className="row wrap" style={{ gap: 8 }}>
+        <div className="row wrap appt-cmd-row" style={{ gap: 8, marginTop: 10 }}>
           <Select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} style={{ minWidth: 148, maxWidth: 200 }} aria-label="Filter by doctor">
             <option value="all">All doctors</option>
             {store.doctors.map((d) => <option key={d.id} value={d.id}>{d.full_name}</option>)}
@@ -139,7 +137,7 @@ export default function Appointments() {
               { value: 'list', label: 'List', icon: List },
             ]}
           />
-          <Button variant="primary" icon={CalendarPlus} onClick={() => openNew()}>
+          <Button variant="primary" icon={CalendarPlus} onClick={() => openNew()} block>
             New
           </Button>
         </div>
@@ -184,7 +182,7 @@ export default function Appointments() {
 
       {/* ── filters ────────────────────────────────────────────────── */}
       {view !== 'week' ? (
-        <div className="row wrap" style={{ gap: 10 }}>
+        <div className="row wrap appt-filters" style={{ gap: 10 }}>
           <Tabs
             value={status} onChange={setStatus}
             tabs={[
@@ -242,7 +240,7 @@ export default function Appointments() {
       ) : null}
 
       {(view === 'list' || view === 'day') && (view === 'list' || query || status !== 'all') ? (
-        <Card>
+        <Card className="appt-list-card">
           <CardHead
             title={`${filtered.length} appointment${filtered.length === 1 ? '' : 's'}`}
             sub={formatDate(date, { weekday: true })}
@@ -267,7 +265,7 @@ export default function Appointments() {
                     <span className="tiny muted truncate" style={{ display: 'block' }}>{appt.kind} · {doctor?.full_name} · {appt.reason || 'no reason noted'}</span>
                   </button>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
-                  <div className="appt-actions no-print">
+                  <div className="appt-actions no-print row-actions">
                     {appt.status === 'booked' ? (
                       <>
                         <IconButton icon={LogIn} label="Check in" size={15} onClick={() => setApptStatus(appt, 'checked-in', 'Patient checked in.')} />
@@ -288,8 +286,7 @@ export default function Appointments() {
               <EmptyState
                 icon={Search} title="Nothing matches this filter"
                 description="Clear the search or switch back to All to see the whole day."
-                action={<Button size="sm" variant="subtle" onClick={() => { setQuery(''); setStatus('all'); }}>Clear filters</Button>}
-              />
+                action={<Button size="sm" variant="subtle" onClick={() => { setQuery(''); setStatus('all'); }}>Clear filters</Button>} />
             )}
           </div>
         </Card>

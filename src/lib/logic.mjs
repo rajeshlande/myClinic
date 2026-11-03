@@ -91,6 +91,76 @@ export function formatMoney(paise = 0, { compact = false, currency = 'INR' } = {
 const trim = (n) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 }).format(n);
 
 // ---------------------------------------------------------------------------
+// Money in words — printed on invoices, because a paper bill has to be readable
+// when the figure is disputed. Indian grouping: crore, lakh, thousand.
+// ---------------------------------------------------------------------------
+const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function twoDigitWords(n) {
+  if (n < 20) return ONES[n];
+  const t = Math.floor(n / 10);
+  const o = n % 10;
+  return `${TENS[t]}${o ? ` ${ONES[o]}` : ''}`;
+}
+
+function threeDigitWords(n) {
+  const h = Math.floor(n / 100);
+  const rest = n % 100;
+  return [h ? `${ONES[h]} Hundred` : '', rest ? twoDigitWords(rest) : ''].filter(Boolean).join(' ');
+}
+
+/**
+ * Indian grouping, recursively: thousand, lakh, crore. The crore group can
+ * itself exceed 999 (1000 crore), so it is not forced through threeDigitWords —
+ * that produced "Ten Hundred Crore".
+ */
+function rupeeGroups(n) {
+  if (n <= 0) return [];
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const rest = n % 1000;
+  return [
+    ...(crore ? [...rupeeGroups(crore).slice(0, -1), `${rupeeGroups(crore).slice(-1)[0]} Crore`] : []),
+    lakh ? `${threeDigitWords(lakh)} Lakh` : '',
+    thousand ? `${threeDigitWords(thousand)} Thousand` : '',
+    rest ? threeDigitWords(rest) : '',
+  ].filter(Boolean);
+}
+
+/** 65000 paise → "Rupees Six Hundred Fifty Only". */
+export function amountInWords(paise = 0, { currency = 'Rupees', subunit = 'Paise' } = {}) {
+  const total = Math.max(0, Math.round(Number(paise) || 0));
+  const rupees = Math.floor(total / 100);
+  const sub = total % 100;
+  if (!rupees && !sub) return `${currency} Zero Only`;
+
+  const parts = rupeeGroups(rupees);
+
+  const head = parts.length ? `${currency} ${parts.join(' ')}` : '';
+  const tail = sub ? `${head ? 'and ' : `${currency} `}${twoDigitWords(sub)} ${subunit}` : '';
+  return `${[head, tail].filter(Boolean).join(' ')} Only`.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * What a payment of `amountPaise` does to an invoice: the new paid figure, the
+ * status it lands in, and the balance that stays open. Kept here (not in a
+ * component) so the offline store and the UI can never disagree about it.
+ */
+export function applyPayment(invoice, amountPaise) {
+  const total = Math.max(0, Number(invoice?.total_paise) || 0);
+  const alreadyPaid = Math.max(0, Number(invoice?.paid_paise) || 0);
+  const requested = Math.max(0, Math.round(Number(amountPaise) || 0));
+  const balance = Math.max(0, total - alreadyPaid);
+  const applied = Math.min(requested, balance);
+  const paid = alreadyPaid + applied;
+  const status = paid >= total ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+  return { applied, paid, status, balance: total - paid, overshoot: requested - applied };
+}
+
+// ---------------------------------------------------------------------------
 // Dates & time
 // ---------------------------------------------------------------------------
 export function localISO(date = new Date()) {
@@ -197,7 +267,25 @@ export function invoiceNumber(seq, date = today()) {
   const fy = financialYear(date);
   return `INV/${fy}/${String(seq).padStart(4, '0')}`;
 }
-export function financialYear(iso = today()) {
+/** RX/26-27/0007 — the prescription's own number, independent of the invoice. */
+export function nextRxNumber(consultations = [], date = today()) {
+  const prefix = `RX/${financialYear(date)}/`;
+  let max = 0;
+  for (const visit of consultations) {
+    const value = String(visit?.rx_number ?? '');
+    if (!value.startsWith(prefix)) continue;
+    const seq = Number(value.slice(prefix.length));
+    if (Number.isFinite(seq) && seq > max) max = seq;
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
+}
+
+export function financialYear(value = today()) {
+  // Callers pass either a yyyy-mm-dd string or a Date; both must give the same
+  // financial year in local time (a Date near midnight must not shift a month).
+  const iso = value instanceof Date
+    ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+    : String(value ?? today());
   const [y, m] = iso.split('-').map(Number);
   const start = m >= 4 ? y : y - 1;
   return `${String(start).slice(2)}-${String(start + 1).slice(2)}`;
@@ -525,6 +613,11 @@ export const DEFAULT_CLINIC = {
   logo_square_url: null,
   logo_wide_url: null,
   logo_on_documents: true,
+  // UPI collection: the VPA printed as a QR on unpaid invoices. Empty means the
+  // clinic has not set one up yet and documents render without a QR block.
+  upi_id: 'sunrise.opd@okicici',
+  upi_payee_name: 'Sunrise Multispecialty OPD',
+  upi_qr_on_invoices: true,
 };
 
 export const DEFAULT_PREFERENCES = {

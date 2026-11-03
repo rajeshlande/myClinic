@@ -9,12 +9,14 @@ import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
 import { PWAStatus } from '../components/PWAWidgets.jsx';
 import { useToast, Badge, Button, Card, CardHead, Field, Input, Modal, Segmented, Select, Tabs } from '../components/ui.jsx';
+import UpiQr from '../components/UpiQr.jsx';
+import { UPI_APPS, buildUpiUri, isValidUpiId, normaliseVpa, upiPayeeName } from '../lib/upi.mjs';
 import { ACCENTS, applyDensity, applyTheme, readAccent, readTheme, saveAccent, saveTheme } from '../lib/theme.js';
 import { SyncCenter } from '../components/SyncCenter.jsx';
 import { BrandingFields, BrandMark } from '../components/Branding.jsx';
 import { APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION } from '../lib/version.js';
 import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
-import { CloudOff, GitBranch, History, Palette, RefreshCcw, Scale } from 'lucide-react';
+import { CloudOff, GitBranch, History, Palette, QrCode, RefreshCcw, Scale } from 'lucide-react';
 import {
   CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput,
   today, toCSV, patientSearch,
@@ -70,6 +72,10 @@ export default function Settings() {
         logo_square_url: clinic.logo_square_url ?? null,
         logo_wide_url: clinic.logo_wide_url ?? null,
         logo_on_documents: clinic.logo_on_documents !== false,
+        // UPI collection — the VPA printed as a QR on unpaid invoices.
+        upi_id: normaliseVpa(clinic.upi_id),
+        upi_payee_name: String(clinic.upi_payee_name ?? '').trim(),
+        upi_qr_on_invoices: clinic.upi_qr_on_invoices !== false,
       });
       toast.success('Clinic profile saved.');
     } catch (e) { toast.error(e.message ?? 'Could not save.'); } finally { setSaving(false); }
@@ -261,6 +267,67 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {tab === 'billing' ? (
+        <Card>
+          <CardHead title="Payments &amp; UPI" sub="How patients settle an unpaid invoice" icon={QrCode}
+            action={<Button size="sm" variant="primary" icon={Save} onClick={saveClinic} loading={saving}>Save</Button>} />
+          <div className="card-body stack" style={{ gap: 14 }}>
+            <div className="form-grid">
+              <Field label="Clinic UPI ID (VPA)" hint={clinic.upi_id && !isValidUpiId(clinic.upi_id) ? 'Does not look like a UPI ID — expected something like clinic@okhdfcbank' : 'Printed as a QR on every unpaid invoice, e.g. sunrise.opd@okicici'}>
+                <Input
+                  value={clinic.upi_id ?? ''}
+                  onChange={(e) => setClinic((c) => ({ ...c, upi_id: e.target.value }))}
+                  placeholder="clinic@okhdfcbank"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
+                />
+              </Field>
+              <Field label="Payee name shown in the UPI app" hint="Leave blank to use the clinic name">
+                <Input
+                  value={clinic.upi_payee_name ?? ''}
+                  onChange={(e) => setClinic((c) => ({ ...c, upi_payee_name: e.target.value }))}
+                  placeholder={clinic.name ?? 'Clinic name'}
+                  maxLength={60}
+                />
+              </Field>
+            </div>
+
+            <label className="check">
+              <input type="checkbox" checked={clinic.upi_qr_on_invoices !== false} onChange={(e) => setClinic((c) => ({ ...c, upi_qr_on_invoices: e.target.checked }))} />
+              <span>
+                <strong className="small">Print a UPI QR on unpaid invoices</strong>
+                <span className="tiny muted" style={{ display: 'block' }}>The QR carries the invoice number and the exact balance, so the patient cannot pay the wrong amount.</span>
+              </span>
+            </label>
+
+            {isValidUpiId(clinic.upi_id) ? (
+              <div className="settings-upi-preview">
+                <UpiQr
+                  value={buildUpiUri({ vpa: clinic.upi_id, name: upiPayeeName(clinic), amountPaise: 50000, note: 'Invoice preview' }) ?? ''}
+                  size={118}
+                  label="Preview of the invoice UPI QR code"
+                />
+                <div className="stack" style={{ gap: 4, minWidth: 0 }}>
+                  <span className="eyebrow">Preview · ₹500 invoice</span>
+                  <div className="strong small">{upiPayeeName(clinic)}</div>
+                  <div className="pay-vpa" style={{ margin: 0, pointerEvents: 'none' }}><span className="mono">{normaliseVpa(clinic.upi_id)}</span></div>
+                  <p className="tiny faint" style={{ margin: 0 }}>
+                    Works with {UPI_APPS.slice(0, 4).join(', ')} and any bank app. Scan it once with your own phone before the first real patient.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="row small" style={{ background: 'var(--surface-2)', padding: '10px 12px', borderRadius: 11, gap: 8 }}>
+                <ShieldCheck size={14} className="muted" />
+                <span className="muted">Money never passes through myClinic. The QR sends the payment straight to your bank account; you record it here afterwards.</span>
+              </div>
+            )}
           </div>
         </Card>
       ) : null}

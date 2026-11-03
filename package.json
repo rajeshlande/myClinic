@@ -1,7 +1,7 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.8.0",
   "type": "module",
   "description": "myClinic — OPD clinic management SaaS: appointments, token queue, patient records, consultations, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {
@@ -23,6 +23,7 @@
     "@fontsource-variable/manrope": "^5.3.0",
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^1.66.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router": "^8.5.1"

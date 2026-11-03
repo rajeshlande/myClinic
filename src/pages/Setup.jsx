@@ -178,11 +178,12 @@ export default function Setup() {
         {tab === 'db' ? (
           <div className="stack">
             <Card className="pad">
-              <div className="row" style={{ gap: 9, marginBottom: 8 }}><Database size={16} className="muted" /><strong>Run the schema once</strong></div>
+              <div className="row" style={{ gap: 9, marginBottom: 8 }}><Database size={16} className="muted" /><strong>Run one file</strong></div>
               <p className="small muted" style={{ marginBottom: 10 }}>
-                Open <strong>SQL Editor</strong> in Supabase and run these two files in order:
-                <code>supabase/schema.sql</code> (tables, roles, RLS) then <code>supabase/licensing.sql</code>
-                (subscriptions, seat limits, read-only gate). Both are idempotent and never delete clinical data.
+                Open <strong>SQL Editor</strong> in Supabase and run <code>supabase/schema.sql</code>.
+                It is the only SQL you need: tables, roles, RLS, subscriptions, seat limits and logos
+                all live in it, and re-running it upgrades an older database in place. It never deletes
+                clinical or billing records.
               </p>
               <div className="grid two" style={{ gap: 10 }}>
                 {[

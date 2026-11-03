@@ -275,6 +275,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .eyebrow { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.11em; font-weight: 700; color: var(--faint); }
 
 /* buttons */
+.btn-block { width: 100%; }
 .btn {
   --btn-bg: var(--surface); --btn-fg: var(--text); --btn-bd: var(--border-strong);
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
@@ -656,27 +657,370 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
 .preview-kpi b { font-family: var(--font-display); font-size: 0.95rem; display: block; }
 .preview-kpi span { font-size: 0.6rem; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; }
 
-/* print */
-@media print {
-  .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts { display: none !important; }
-  body { background: #fff; color: #111; }
-  .page { padding: 0; max-width: none; }
-  .card { box-shadow: none; border-color: #ddd; }
-  .print-sheet { border: 0 !important; box-shadow: none !important; }
+/* ==========================================================================
+   Documents — invoice & prescription
+   One vocabulary for both: a sheet, a header, party blocks, a table, a settle
+   row and a footer. Screen and paper share it, so what the front desk sees is
+   what the printer produces.
+   ========================================================================== */
+.doc-page { min-height: 100dvh; padding: clamp(12px, 3vw, 32px); }
+.doc-toolbar { max-width: 880px; margin: 0 auto 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.doc-actions { max-width: 880px; margin: 14px auto 0; }
+
+.print-sheet {
+  background: #fff; color: #14201d; border-radius: var(--radius-lg);
+  max-width: 880px; margin: 0 auto; padding: clamp(18px, 3vw, 38px);
+  border: 1px solid #e3ebe8;
 }
-.print-sheet { background: #fff; color: #14201d; border-radius: var(--radius-lg); }
 .print-sheet table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.print-sheet th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: #5a6b66; border-bottom: 1px solid #dfe8e4; padding: 8px 6px; }
-.print-sheet td { padding: 8px 6px; border-bottom: 1px solid #eef3f1; }
-/* Six money columns do not fit a 360px phone; scroll the table, never the page. */
+.print-sheet th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: #5a6b66; border-bottom: 1px solid #dfe8e4; padding: 8px 6px; }
+.print-sheet td { padding: 9px 6px; border-bottom: 1px solid #eef3f1; }
+.print-sheet .num { text-align: right; font-variant-numeric: tabular-nums; }
+.print-sheet .strong { font-weight: 700; }
+
+/* --- document header / title ---------------------------------------------- */
+.doc-head { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.doc-logo { object-fit: contain; flex: none; }
+.doc-head-text { flex: 1 1 220px; min-width: 0; }
+.doc-clinic { font-family: var(--font-display); font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+.doc-meta { font-size: 0.74rem; color: #5a6b66; line-height: 1.55; margin-top: 3px; }
+.doc-rule { height: 3px; border-radius: 3px; margin-top: 10px; width: 100%; opacity: 0.85; }
+.doc-head-right { margin-left: auto; }
+.doc-title-block { text-align: right; min-width: 150px; }
+.doc-kind { font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: #5a6b66; font-weight: 800; }
+.doc-number { font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; margin-top: 2px; letter-spacing: -0.01em; }
+.doc-date { font-size: 0.76rem; color: #5a6b66; }
+.doc-stamp {
+  display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  border: 1.5px solid currentColor;
+}
+.doc-stamp.paid { color: #0b7a5d; background: #eaf8f3; }
+.doc-stamp.due { color: #a8394a; background: #fdeef1; }
+
+/* --- party blocks ---------------------------------------------------------- */
+.inv-parties {
+  display: grid; grid-template-columns: 1.2fr 1fr 0.9fr; gap: 18px;
+  margin: 18px 0 16px; padding: 14px 0; border-top: 1px solid #eef3f1; border-bottom: 1px solid #eef3f1;
+}
+.doc-field { min-width: 0; }
+.doc-eyebrow {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.11em;
+  color: #7b8b86; font-weight: 800;
+}
+.doc-field-value { margin-top: 3px; font-size: 0.85rem; line-height: 1.5; }
+.doc-field-value strong { display: block; font-size: 0.92rem; }
+.doc-sub { display: block; font-size: 0.74rem; color: #5a6b66; line-height: 1.6; }
+
+/* --- line items ------------------------------------------------------------ */
+.doc-line-name { font-weight: 650; }
+.doc-line-meta { font-size: 0.72rem; color: #7b8b86; }
+
+/* --- line items on a phone: stacked, never scrolled sideways ---------------- */
+.doc-lines { display: none; }
+@media (max-width: 560px) {
+  .doc-table-wrap { display: none; }
+  .doc-lines { display: block; border-top: 1px solid #dfe8e4; }
+  .doc-line { padding: 9px 0; border-bottom: 1px solid #eef3f1; }
+  .doc-line-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .doc-line-amount { font-weight: 700; white-space: nowrap; }
+  .doc-line-meta { font-size: 0.72rem; color: #7b8b86; margin-top: 1px; }
+}
+
+/* --- settle: how to pay on the left, the money on the right ---------------- */
+.inv-settle { display: grid; grid-template-columns: 1fr minmax(240px, 320px); gap: 22px; margin-top: 16px; align-items: start; }
+.inv-pay { min-width: 0; }
+.inv-upi {
+  display: flex; gap: 14px; align-items: center;
+  border: 1px solid #d9e7e2; background: #f7fbf9; border-radius: 12px; padding: 12px;
+}
+.inv-upi-code { flex: none; border-radius: 6px; }
+.inv-upi-text { min-width: 0; }
+.inv-upi-amount { font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.inv-vpa {
+  display: inline-block; margin: 4px 0 2px; padding: 2px 8px; border-radius: 6px;
+  background: #fff; border: 1px dashed #c4d8d1; font-size: 0.78rem; font-weight: 700; word-break: break-all;
+}
+.inv-pay-note {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid #e3ebe8; border-radius: 12px; padding: 12px; background: #fafcfb;
+  color: #3d514c;
+}
+.inv-pay-note.paid { background: #f2fbf7; border-color: #cfe9df; color: #0b6b53; }
+.inv-notes { margin: 12px 0 0; font-size: 0.76rem; color: #5a6b66; }
+
+.inv-totals { width: 100%; }
+.inv-total-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 0.82rem; color: #5a6b66; padding: 4px 0;
+}
+.inv-total-row.grand {
+  border-top: 1px solid #dfe8e4; margin-top: 4px; padding-top: 8px;
+  color: #14201d; font-weight: 800; font-size: 0.95rem;
+}
+.inv-total-row.grand .mono { font-family: var(--font-display); font-size: 1.15rem; }
+.inv-total-row.due {
+  border-top: 1px dashed #e7bdc6; margin-top: 6px; padding-top: 7px;
+  color: #a8394a; font-weight: 800;
+}
+.inv-total-row.due-settled { color: #0b7a5d; font-weight: 700; }
+.inv-in-words {
+  margin: 10px 0 0; font-size: 0.72rem; color: #5a6b66; line-height: 1.5;
+  border-top: 1px solid #eef3f1; padding-top: 8px;
+}
+
+/* --- document footer ------------------------------------------------------- */
+.doc-foot {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px;
+  align-items: start;
+  margin-top: 22px; padding-top: 12px; border-top: 1px solid #eef3f1;
+  font-size: 0.7rem; color: #7b8b86;
+}
+.doc-foot > div { display: flex; flex-direction: column; gap: 1px; }
+.doc-foot strong { color: #29423b; font-size: 0.76rem; }
+.doc-foot-right { text-align: right; align-items: flex-end; }
+.doc-foot-fine { color: #93a5a0; }
+.print-foot { display: none; }
+
+/* --- print sheet on a phone ------------------------------------------------ */
 .doc-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .doc-table-wrap table { min-width: 100%; }
+/* 640px keeps the composed two-column settle row on A4 (≈703px of printable
+   width) and still collapses on a phone. */
+@media (max-width: 640px) {
+  .inv-parties { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .inv-parties > .doc-field:last-child { grid-column: 1 / -1; }
+  .inv-settle { grid-template-columns: 1fr; gap: 16px; }
+  .inv-totals { order: -1; }
+  .doc-foot { grid-template-columns: 1fr; }
+  .doc-foot-right { text-align: left; align-items: flex-start; }
+}
 @media (max-width: 460px) {
-  .print-sheet { padding: 16px !important; }
+  .print-sheet { padding: 16px !important; border-radius: 12px; }
   .doc-table-wrap { margin-inline: -6px; padding-inline: 6px; }
   .doc-table-wrap table { min-width: 420px; font-size: 0.78rem; }
+  .inv-parties { grid-template-columns: 1fr; }
+  .inv-upi { gap: 10px; padding: 10px; }
+  .inv-upi-code { width: 104px; height: 104px; }
+  .doc-head-right { margin-left: 0; width: 100%; }
+  .doc-title-block { text-align: left; }
 }
-.print-sheet .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   Payment sheet (CollectPayment)
+   ========================================================================== */
+.pay-balance {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px;
+}
+.pay-balance-figure {
+  font-family: var(--font-display); font-size: 1.6rem; font-weight: 800;
+  letter-spacing: -0.03em; line-height: 1.15; margin: 1px 0 2px;
+}
+.pay-settled {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--success-bg); color: var(--success);
+  border-radius: 12px; padding: 12px 14px;
+}
+.pay-upi {
+  display: flex; gap: 14px; align-items: center;
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  background: #fff;
+}
+.pay-upi-code { flex: none; border-radius: 8px; background: #fff; }
+.pay-upi-side { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pay-upi-amount { font-family: var(--font-display); font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; color: #14201d; line-height: 1.1; }
+.pay-upi-name { font-size: 0.8rem; color: #45564f; font-weight: 600; }
+.pay-vpa {
+  display: inline-flex; align-items: center; gap: 6px; margin: 3px 0 5px;
+  background: #f6faf8; border: 1px dashed #c4d8d1; border-radius: 8px;
+  padding: 4px 9px; font-size: 0.78rem; font-weight: 700; color: #0c655e;
+  cursor: pointer; max-width: 100%;
+}
+.pay-vpa span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pay-upi-side .tiny { color: #5a6b66; }
+.pay-hint {
+  display: flex; gap: 9px; align-items: flex-start;
+  background: var(--warn-bg); color: var(--warn);
+  border-radius: 11px; padding: 10px 12px; font-size: 0.78rem; line-height: 1.45;
+}
+@media (max-width: 460px) {
+  .pay-upi { flex-direction: column; align-items: flex-start; }
+  .pay-upi-code { align-self: center; }
+}
+
+/* ==========================================================================
+   Medicine master — typeahead, salt identity, safety panel
+   ========================================================================== */
+.med-picker { position: relative; }
+.med-picker-field { position: relative; }
+.med-picker-icon {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  color: var(--faint); pointer-events: none;
+}
+.med-picker-input { padding-left: 32px; }
+
+.med-picker-list {
+  position: absolute; z-index: 40; left: 0; top: calc(100% + 4px);
+  /* A drug name and its molecule need room; on a phone the field is only half the
+     row, so the list grows past it rather than truncating every option. */
+  min-width: min(19rem, calc(100vw - 2.5rem));
+  max-width: calc(100vw - 2.5rem);
+  margin: 0; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 12px; box-shadow: var(--shadow-lg);
+  max-height: 268px; overflow-y: auto; overscroll-behavior: contain;
+}
+.med-option {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  padding: 7px 9px; border-radius: 8px; cursor: pointer;
+}
+.med-option.active { background: var(--brand-50); }
+.med-option-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.med-option-brand {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 0.85rem; font-weight: 650; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.med-option-src { color: var(--brand-500); flex: none; }
+.med-option-salt {
+  font-size: 0.72rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.med-option-side { display: flex; align-items: center; gap: 6px; flex: none; }
+.med-option-enter { color: var(--brand-500); }
+.med-picker-empty {
+  margin: 5px 1px 0; font-size: 0.72rem; color: var(--muted);
+}
+
+/* dispensing schedule badge */
+.med-schedule {
+  display: inline-flex; align-items: center; padding: 1px 5px; border-radius: 4px;
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; line-height: 1.5;
+  border: 1px solid currentColor;
+}
+.med-schedule.otc { color: var(--success); }
+.med-schedule.h { color: var(--warn); }
+.med-schedule.h1, .med-schedule.x { color: var(--danger); }
+
+/* the composition under the drug name — the identity that matters clinically */
+.rx-salt-line {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 3px; font-size: 0.72rem; color: var(--muted);
+}
+
+/* safety findings */
+.rx-safety { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.rx-safety-item {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 9px 11px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.rx-safety-item.high { border-color: color-mix(in srgb, var(--danger) 34%, var(--border)); background: var(--danger-bg); }
+.rx-safety-item.moderate { border-color: color-mix(in srgb, var(--warn) 34%, var(--border)); background: var(--warn-bg); }
+.rx-safety-item.info { border-color: color-mix(in srgb, var(--info) 30%, var(--border)); background: var(--info-bg); }
+.rx-safety-item.acknowledged { opacity: 0.62; }
+.rx-safety-icon { flex: none; margin-top: 1px; }
+.rx-safety-item.high .rx-safety-icon { color: var(--danger); }
+.rx-safety-item.moderate .rx-safety-icon { color: var(--warn); }
+.rx-safety-item.info .rx-safety-icon { color: var(--info); }
+.rx-safety-body { min-width: 0; }
+.rx-safety-body p { color: var(--text-2); line-height: 1.45; }
+.rx-safety-ack {
+  display: flex; align-items: flex-start; gap: 6px; margin-top: 6px;
+  font-size: 0.72rem; color: var(--text-2); cursor: pointer;
+}
+.rx-safety-ack input { margin-top: 1px; flex: none; }
+.rx-safety-clear {
+  display: flex; align-items: center; gap: 6px; margin: 8px 0;
+  font-size: 0.74rem; color: var(--success);
+}
+
+/* --------------------------------------------------- patient chart next step */
+.flow-strip {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border-radius: 14px; padding: 12px 14px;
+  border: 1px solid var(--border); background: var(--surface);
+}
+.flow-strip.due {
+  border-color: color-mix(in srgb, var(--danger) 26%, var(--border));
+  background: color-mix(in srgb, var(--danger-bg) 55%, var(--surface));
+}
+.flow-strip.unbilled {
+  border-color: color-mix(in srgb, var(--warn) 30%, var(--border));
+  background: color-mix(in srgb, var(--warn-bg) 55%, var(--surface));
+}
+.flow-strip-icon {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px;
+  background: var(--surface); border: 1px solid var(--border); flex: none;
+}
+.flow-strip.due .flow-strip-icon { color: var(--danger); }
+.flow-strip.unbilled .flow-strip-icon { color: var(--warn); }
+.flow-strip-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+@media (max-width: 620px) {
+  .flow-strip { gap: 8px; padding: 11px 12px; }
+  .flow-strip-text { flex: 1 1 60%; }
+  .flow-strip > .btn { flex: 1 1 auto; justify-content: center; }
+  .flow-strip > .spacer { display: none; }
+}
+
+/* prescription patient strip: the name gets the room it deserves */
+.rx-patient-name { grid-column: span 2; }
+@media (max-width: 560px) { .rx-patient-name { grid-column: 1 / -1; } }
+
+/* Settings → Payments: live preview of the invoice QR */
+.settings-upi-preview {
+  display: flex; gap: 16px; align-items: center;
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  background: var(--surface-2);
+}
+.settings-upi-preview svg { flex: none; border-radius: 8px; background: #fff; }
+@media (max-width: 560px) {
+  .settings-upi-preview { flex-direction: column; align-items: flex-start; }
+  .settings-upi-preview svg { align-self: center; }
+}
+
+/* ==========================================================================
+   Print — A4 with a running footer
+   ========================================================================== */
+@page { size: A4; margin: 13mm 12mm 18mm; }
+
+@media print {
+  .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts, .syncbar { display: none !important; }
+  body { background: #fff; color: #111; }
+  body, body[data-printview], body[data-printview='true'] { background: #fff !important; }
+  .page, .doc-page { padding: 0 !important; max-width: none; min-height: 0; }
+  .card { box-shadow: none; border-color: #ddd; }
+
+  .print-sheet {
+    max-width: none !important; width: 100% !important;
+    margin: 0 !important; padding: 0 !important;
+    border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
+    /* Colour the QR, the stamp and the rule even on a greyscale printer setting */
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  /* Keep the pieces that carry meaning from splitting across a page break */
+  .inv-parties, .inv-settle, .inv-totals, .doc-foot, .inv-upi, .rx-sign, .rx-patient { break-inside: avoid; page-break-inside: avoid; }
+  .doc-table thead { display: table-header-group; }
+  .doc-table tr { break-inside: avoid; page-break-inside: avoid; }
+  .doc-rule { opacity: 1; }
+
+  /* A footer that repeats on every printed page */
+  .print-foot {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0;
+    justify-content: space-between; gap: 12px;
+    font-size: 8pt; color: #6b7c77;
+    border-top: 1px solid #dde7e3; padding-top: 4px;
+  }
+  .inv-upi-code { width: 118px; height: 118px; }
+  .doc-foot-fine { color: #8b9c97; }
+}
+
+/* Print view on screen keeps the app backdrop — but paper is always white, so the
+   print rules below must win. */
+@media screen { body[data-printview='true'] { background: var(--bg); } }
 
 /* ------------------------------------------------------------- sync & conflict */
 .syncbar {
@@ -742,6 +1086,7 @@ body[data-modal='true'] .syncbar { display: none; }
 .rx-sign { margin-top: 26px; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; font-size: 0.76rem; color: #4b5a57; }
 .rx-sign-line { border-top: 1px solid #9aa8a4; padding-top: 4px; min-width: 150px; text-align: center; }
 .rx-lang { font-size: 0.7rem; color: #6b7b77; }
+.rx-salt { font-size: 0.68rem; color: #8a9793; letter-spacing: 0.01em; margin-top: 1px; }
 .rx-eyebrow { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.1em; color: #7b8b86; font-weight: 800; }
 
 /* language chips on the prescription screen */
@@ -1012,4 +1357,162 @@ button.slot:hover .slot-icon { opacity: 1; }
 @media print {
   .doc-logo { max-height: 52px !important; }
   .doc-rule { opacity: 1; }
+}
+
+/* --------------------------------------------------------------- appointments responsive */
+.appt-cmd-row > .btn { width: auto; flex: 0 0 auto; white-space: nowrap; }
+.appt-list-card .appt-actions { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.appt-list-card .appt-actions .btn { flex: 0 0 auto; }
+
+@media (max-width: 620px) {
+  .sched-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .sched-kpis .kpi-tile > .tiny.faint:last-child { display: none; }
+  .appt-cmd-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'filters new' 'views views'; width: 100%; gap: 6px; }
+  .appt-cmd-row > select { grid-area: filters; min-width: 0; width: 100%; }
+  .appt-cmd-row > .btn { grid-area: new; white-space: nowrap; width: auto; }
+  .appt-cmd-row > .segmented { grid-area: views; width: 100%; display: flex; justify-content: stretch; }
+  .appt-cmd-row > .segmented button { flex: 1; text-align: center; padding: 6px 4px; font-size: 0.72rem; }
+  .appt-list-card .appt { flex-wrap: wrap; row-gap: 8px; }
+  .appt-list-card .who { order: 3; width: 100%; }
+  .appt-list-card .appt-actions { width: 100%; justify-content: flex-start; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 4px; }
+  .appt-list-card .appt-actions .btn { flex: 1 1 46%; margin-right: 4%; }
+  .appt-list-card .appt-actions .btn:last-child { margin-right: 0; }
+}
+
+/* --------------------------------------------------------------- consultation history */
+.patient-context {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  background: var(--surface-2); border-radius: 10px;
+  padding: 9px 11px; margin-bottom: 12px;
+}
+.patient-context .ctx-last { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.patient-context .ctx-history { margin-left: auto; flex: none; }
+
+.history-panel {
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); margin-bottom: 12px; overflow: hidden;
+}
+.history-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.history-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.history-visit { padding: 11px 12px; border-bottom: 1px solid var(--border); }
+.history-visit:last-child { border-bottom: 0; }
+.history-visit-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 5px; }
+.history-line {
+  display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+  margin: 3px 0; font-size: 0.8rem; color: var(--text); line-height: 1.45;
+}
+.history-key {
+  flex: none; min-width: 68px; font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+}
+.history-line .tag { font-size: 0.7rem; }
+
+@media (max-width: 620px) {
+  .patient-context { gap: 6px 8px; padding: 9px 10px; }
+  .patient-context .ctx-last { flex: 1 1 100%; order: 4; }
+  .patient-context .ctx-history { margin-left: 0; flex: 1 1 100%; order: 5; justify-content: center; }
+  .history-list { max-height: 46vh; }
+  .history-key { min-width: 0; flex: 1 1 100%; }
+  .history-line { gap: 2px; }
+}
+
+/* --------------------------------------------------------------- billing responsive */
+.invoice-row { align-items: center; gap: 12px; }
+.invoice-main {
+  display: flex; flex-direction: row; align-items: center; gap: 12px;
+  flex: 1 1 auto; min-width: 0;
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+}
+.invoice-main .li-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.invoice-meta { display: flex; align-items: center; gap: 8px; flex: none; }
+.invoice-meta .invoice-open { margin-left: 2px; }
+.invoice-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.invoice-actions:empty { display: none; }
+
+@media (max-width: 620px) {
+  .invoice-row { align-items: stretch; row-gap: 6px; }
+  .invoice-main { flex: 1 1 100%; width: 100%; flex-wrap: nowrap; align-items: flex-start; }
+  .invoice-main .li-sub { white-space: normal; }
+  .invoice-meta {
+    flex: 1 1 100%; width: 100%; justify-content: flex-start;
+  }
+  .invoice-meta .invoice-open { margin-left: auto; }
+  .invoice-actions {
+    flex: 1 1 100%; order: 3; width: 100%;
+    border-top: 1px dashed var(--border); padding-top: 8px;
+  }
+  .invoice-actions > .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+/* --------------------------------------------------------------- patients responsive */
+.patient-row { align-items: center; }
+.patient-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+
+@media (max-width: 620px) {
+  .patient-row { flex-wrap: wrap; align-items: flex-start; row-gap: 8px; }
+  .patient-row > button:first-child { flex: 1 1 100%; align-items: flex-start; }
+  .patient-row .li-main { width: 100%; min-width: 0; }
+  .patient-actions {
+    flex: 1 1 100%; order: 3; width: 100%; justify-content: flex-start;
+    border-top: 1px dashed var(--border); padding-top: 8px;
+  }
+  .patient-actions > .btn { width: auto; margin-right: auto; }
+  .patient-row .li-sub { column-gap: 8px; row-gap: 2px; }
+  .patient-row .li-sub .sep { display: none; }
+}
+
+/* --------------------------------------------------------------- consultations responsive */
+.cons-kpis {
+  display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 10px; flex: 1 1 420px; min-width: 0;
+}
+.cons-kpis .kpi { padding: 12px 14px; gap: 6px; }
+.cons-kpis .kpi .kpi-value { font-size: 1.4rem; }
+
+@media (max-width: 900px) { .cons-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 620px) {
+  .cons-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; flex: 1 1 100%; }
+  .cons-kpis .kpi { padding: 10px; gap: 4px; border-radius: 12px; }
+  .cons-kpis .kpi .kpi-icon { display: none; }
+  .cons-kpis .kpi .kpi-label { font-size: 0.7rem; line-height: 1.25; }
+  .cons-kpis .kpi .kpi-value { font-size: 1.15rem; }
+}
+
+.consult-list .list-item { align-items: center; }
+.consult-list .actions {
+  display: flex; flex-direction: row; flex-wrap: wrap;
+  align-items: center; justify-content: flex-end;
+  gap: 6px; flex: none;
+}
+.consult-list .actions > .btn { width: auto; }
+
+@media (max-width: 620px) {
+  .consult-list .list-item {
+    flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 10px;
+  }
+  .consult-list .who { flex: 1 1 60%; min-width: 0; order: 0; width: auto; }
+  .consult-list .actions {
+    order: 3; flex: 1 1 100%; width: 100%;
+    flex-direction: row; flex-wrap: wrap; justify-content: flex-start;
+    border-top: 1px dashed var(--border); padding-top: 8px;
+  }
+  .consult-list .actions > .btn { width: auto; flex: 0 0 auto; }
+  .cons-filters {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px; align-items: center; width: 100%;
+  }
+  .cons-filters > :nth-child(1) { grid-column: 1 / -1; grid-row: 1; min-width: 0 !important; }
+  .cons-filters > :nth-child(2) { grid-column: 1; grid-row: 2; min-width: 0; width: 100%; max-width: none !important; }
+  .cons-filters > :nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .cons-filters > :nth-child(4) { grid-column: 2; grid-row: 2; white-space: nowrap; }
+  .waiting-queue .appt { flex-direction: column; align-items: start; gap: 8px; }
+  .waiting-queue .who { order: 2; width: 100%; }
+  .waiting-queue > .btn { width: 100%; justify-content: center; }
+  .kpi .kpi-value { font-size: 1.3rem; }
+  .page-head h2 { font-size: 1.2rem; }
+  .modal.wide { width: 100%; max-width: 100%; }
 }

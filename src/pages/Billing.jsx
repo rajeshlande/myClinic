@@ -5,11 +5,12 @@ import {
   ChevronRight, HandCoins, FileText, Receipt, TrendingUp,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, Modal, SearchInput, Select, Tabs, Field, Input } from '../components/ui.jsx';
+import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, SearchInput, Select, Tabs } from '../components/ui.jsx';
+import CollectPayment from '../components/CollectPayment.jsx';
 import InvoiceForm from '../components/InvoiceForm.jsx';
 import {
   PAYMENT_METHODS, currentMonth, downloadFile, formatDate, formatMoney, invoiceBalance, invoiceStatus,
-  moneyToPaise, monthLabel, paiseToInput, sumBy, toCSV, today,
+  monthLabel, sumBy, toCSV, today,
 } from '../lib/logic.mjs';
 
 export default function Billing() {
@@ -23,7 +24,6 @@ export default function Billing() {
   const [formOpen, setFormOpen] = useState(params.get('new') === '1');
   const [editing, setEditing] = useState(null);
   const [payFor, setPayFor] = useState(null);
-  const [payAmount, setPayAmount] = useState('');
   const presetPatient = store.patients.find((p) => p.id === params.get('patient')) ?? null;
 
   // React Router reuses the component when only the query string changes, so this
@@ -64,24 +64,6 @@ export default function Billing() {
       })
       .sort((a, b) => `${b.issued_on}${b.created_at ?? ''}`.localeCompare(`${a.issued_on}${a.created_at ?? ''}`));
   }, [store.invoices, tab, method, query, month]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function recordPayment() {
-    if (!payFor) return;
-    let amount = 0;
-    try { amount = moneyToPaise(payAmount || paiseToInput(invoiceBalance(payFor))); } catch { toast.error('Enter a valid amount.'); return; }
-    const balance = invoiceBalance(payFor);
-    if (amount <= 0) { toast.error('Amount must be greater than zero.'); return; }
-    const paid = Math.min(Number(payFor.paid_paise) + amount, Number(payFor.total_paise));
-    try {
-      await store.update('invoices', payFor.id, {
-        paid_paise: paid,
-        status: paid >= Number(payFor.total_paise) ? 'paid' : 'partial',
-      });
-      toast.success(`${formatMoney(amount)} recorded against ${payFor.number}.`);
-      setPayFor(null);
-      setPayAmount('');
-    } catch (e) { toast.error(e.message ?? 'Could not record the payment.'); }
-  }
 
   const exportCsv = () => {
     const csv = toCSV(rows, [
@@ -145,21 +127,21 @@ export default function Billing() {
             const patient = patientOf(inv.patient_id);
             const meta = invoiceStatus(inv);
             return (
-              <div key={inv.id} className="list-item" style={{ cursor: 'default' }}>
-                <button className="li-main row" onClick={() => navigate(`/invoice/${inv.id}`)} style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left', gap: 12, alignItems: 'center' }}>
+              <div key={inv.id} className="list-item invoice-row" style={{ cursor: 'default' }}>
+                <button className="invoice-main" onClick={() => navigate(`/invoice/${inv.id}`)}>
                   <Avatar name={patient?.full_name ?? 'Patient'} size="sm" />
                   <span className="li-main">
                     <span className="li-title mono">{inv.number}</span>
                     <span className="li-sub">{patient?.full_name ?? 'Patient'} · {formatDate(inv.issued_on)} · {PAYMENT_METHODS.find((m) => m.id === inv.method)?.label ?? inv.method}</span>
                   </span>
                 </button>
-                <span className="stack" style={{ alignItems: 'flex-end', gap: 2, flex: 'none' }}>
+                <span className="invoice-meta">
                   <span className="strong mono small">{formatMoney(inv.total_paise)}</span>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
+                  <button className="icon-btn plain sm invoice-open" aria-label="Open invoice" onClick={() => navigate(`/invoice/${inv.id}`)}><ChevronRight size={15} /></button>
                 </span>
-                <div className="row no-print" style={{ gap: 4, flex: 'none' }}>
-                  {invoiceBalance(inv) > 0 ? <Button size="sm" variant="subtle" icon={HandCoins} onClick={() => { setPayFor(inv); setPayAmount(paiseToInput(invoiceBalance(inv))); }}>Collect</Button> : null}
-                  <button className="icon-btn plain sm" aria-label="Open invoice" onClick={() => navigate(`/invoice/${inv.id}`)}><ChevronRight size={15} /></button>
+                <div className="invoice-actions no-print">
+                  {invoiceBalance(inv) > 0 ? <Button size="sm" variant="subtle" icon={HandCoins} onClick={() => setPayFor(inv)}>Collect</Button> : null}
                 </div>
               </div>
             );
@@ -170,23 +152,24 @@ export default function Billing() {
         </div>
       </Card>
 
-      <InvoiceForm open={formOpen} onClose={() => { setFormOpen(false); if (params.get('patient')) { params.delete('patient'); params.delete('new'); setParams(params, { replace: true }); } }} invoice={editing} patient={presetPatient} />
-      <Modal open={Boolean(payFor)} onClose={() => setPayFor(null)} title="Record a payment" sub={payFor ? `${payFor.number} · balance ${formatMoney(invoiceBalance(payFor))}` : ''}
-        footer={<><Button variant="ghost" onClick={() => setPayFor(null)}>Cancel</Button><Button variant="primary" icon={HandCoins} onClick={recordPayment}>Record payment</Button></>}>
-        <div className="stack">
-          <Field label="Amount received ₹" hint="Payments never exceed the invoice total">
-            <Input value={payAmount} onChange={(e) => setPayAmount(e.target.value)} inputMode="decimal" autoFocus />
-          </Field>
-          <div className="row wrap" style={{ gap: 6 }}>
-            {[0.25, 0.5, 1].map((f) => (
-              <Button key={f} size="sm" variant="subtle" onClick={() => setPayAmount(paiseToInput(Math.round(invoiceBalance(payFor) * f)))}>{f === 1 ? 'Full balance' : `${f * 100}%`}</Button>
-            ))}
-          </div>
-          <div className="row small" style={{ background: 'var(--surface-2)', padding: '9px 11px', borderRadius: 10 }}>
-            <span className="muted">Invoice total</span><span className="spacer" /><span className="mono">{formatMoney(payFor?.total_paise ?? 0)}</span>
-          </div>
-        </div>
-      </Modal>
+      <InvoiceForm
+        open={formOpen}
+        invoice={editing}
+        patient={presetPatient}
+        onClose={() => { setFormOpen(false); if (params.get('patient')) { params.delete('patient'); params.delete('new'); setParams(params, { replace: true }); } }}
+        onCreated={(created) => {
+          // A brand-new invoice opens as a document: QR, totals and the collect
+          // button are all there, which is where the conversation continues.
+          if (created?.id && !editing) navigate(`/invoice/${created.id}`);
+          setEditing(null);
+        }}
+      />
+      <CollectPayment
+        invoice={payFor}
+        open={Boolean(payFor)}
+        onClose={() => setPayFor(null)}
+        onDone={() => setPayFor(null)}
+      />
     </div>
   );
 }

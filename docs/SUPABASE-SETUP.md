@@ -46,67 +46,53 @@ npm run dev                    # http://localhost:5173/#/setup
 
 ## 3. Apply the schema
 
-Open **SQL Editor**, paste all of `supabase/schema.sql`, run it once. It is idempotent:
-tables, RLS policies, triggers, the token/invoice generators and
-`app_schema_version()` are re-created safely. The last statement seeds
-`app_meta.schema_version = 2`.
+Open **SQL Editor**, paste all of `supabase/schema.sql`, and run it.
 
-Confirm it worked:
+**That is the whole database step.** The file is the single source of truth for every
+version — there are no per-release scripts to apply in order, and nothing to look up
+when a clinic's database "needs updating": re-run the same file.
+
+It is written to be safe from any starting point:
+
+| Starting point | What happens |
+| --- | --- |
+| Empty project | every table, policy, trigger and function is created; version set to 4 |
+| Already at the current version | no-op — guarded blocks see the version and skip |
+| An older database (v1, v2, v3) | the missing migrations apply in place, straight to v4; clinical and billing rows are never touched |
+| Interrupted half-way | the whole file is one transaction — either it fully applies or nothing changes |
+
+Nothing in the file drops a table or deletes a row. Re-running it can never be destructive.
+
+The version story lives inside the file itself:
 
 ```sql
-select public.app_schema_version();   -- must return 2
+select public.app_schema_version();   -- current version + the version this file expects
+select * from public.app_migrations(); -- one row per migration: version, name, applied_at
+select * from public.schema_migrations; -- the raw ledger the guards consult
 ```
 
-## 3b. Apply the licensing layer (schema v3)
+Expected output for a current database — `version = 4`, `expected = 4`, and four ledger
+rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`.
 
-Run `supabase/licensing.sql` in the same SQL Editor, after the schema. It adds:
+### What each migration added
 
-| Object | Purpose |
-| --- | --- |
-| `clinic_subscriptions` | plan, status, interval, trial end, current period end, billing details |
-| `plan_seat_limit()` / `plan_price_paise()` | one place for plan limits and prices |
-| `license_state(clinic)` | the view the app renders (`status`, `days_left`, `can_write`, seat usage) |
-| `change_plan()`, `renew_subscription()`, `start_trial()`, `set_license_status()` | owner-only RPCs |
-| `seat_guard` trigger | refuses a staff row beyond the plan's seats |
-| `subscription_write_guard` trigger | blocks writes while read-only, keeps reads working |
+| Version | Section | Contents |
+| --- | --- | --- |
+| 1 | §1 | `clinics`, `staff`, `profiles`, `patients`, `appointments`, `consultations`, `invoices`, RLS policies, `create_clinic()`, `issue_token()` |
+| 2 | §2 | role helpers, invitation flow, offline/replay support columns |
+| 3 | §3 | `clinic_subscriptions`, `plan_seat_limit()`, `plan_price_paise()`, `license_state()`, `change_plan()`, `renew_subscription()`, `start_trial()`, `set_license_status()`, `seat_guard`, `subscription_write_guard` |
+| 4 | §4 | `logo_square_url`, `logo_wide_url`, `logo_on_documents` with size/format guards |
 
-Confirm:
+Confirm the licensing and branding objects exist:
 
 ```sql
-select public.app_schema_version();                     -- must return 3
-select public.license_state('<your-clinic-uuid>'::uuid); -- status, plan, seats, can_write
+select public.license_state('<your-clinic-uuid>'::uuid);  -- status, plan, seats, can_write
+select logo_square_url, logo_wide_url from public.clinics limit 1;
 ```
-
-Then optionally prove it end to end with the rolled-back suite:
-
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/licensing-tests.sql
-# expect notices: PASS … ALL LICENSING CHECKS COMPLETED
-```
-
----
-
-
-## 3c. Apply the branding columns (schema v4)
-
-Run `supabase/branding.sql` after the licensing layer. A **fresh** install already has
-these columns from `schema.sql`, so this file is only for databases created before v1.5.0.
-
-| Column | Purpose |
-| --- | --- |
-| `logo_square_url` | 1:1 logo — sidebar mark, app icon, WhatsApp Business profile photo |
-| `logo_wide_url` | up to 4:1 logo — prescription and invoice header, email signature |
-| `logo_on_documents` | print toggle, for clinics whose letterhead already carries a logo |
 
 Both logo columns only accept `data:image/…` URLs and are capped at 700 KB / 900 KB, so a
 clinic row (and the offline snapshot that carries it) stays small. Logos are uploaded in
 **Settings → Logos & branding**, resized in the browser before they are saved.
-
-Confirm:
-
-```sql
-select public.app_schema_version();   -- must return 4
-```
 
 ## 4. Configure authentication
 
@@ -169,7 +155,7 @@ Visit `https://rajeshlande.github.io/myClinic/#/setup` and press **Run test** in
 | Project URL is HTTPS | the URL starts with `https://` |
 | Base path matches deployment | assets are relative (`./`) or the base equals the Pages sub-path |
 | REST API reachable with this key | `GET /rest/v1/` with the key returns 2xx (not 401/403) |
-| Database schema version | `app_schema_version()` equals the version this build needs (2) |
+| Database schema version | `app_schema_version()` equals the version this build needs (6) |
 
 All green means: sign-up, sign-in, tenant isolation and cloud sync are wired.
 Any red check names the exact thing to fix — no key material is ever displayed.
@@ -180,9 +166,11 @@ Any red check names the exact thing to fix — no key material is ever displayed
 npm run test:security    # operator instructions for the RLS suite
 ```
 
-Then run `supabase/rls-tests.sql` in the SQL Editor. It creates two dummy tenants in a
-rolled-back transaction and asserts the role matrix, tenant isolation, token issuance
-and invoice guards. See [`docs/SECURITY.md`](SECURITY.md) for the full audit summary.
+Then run `supabase/schema-tests.sql` in the SQL Editor. It creates two dummy tenants in a
+rolled-back transaction and asserts the role matrix, tenant isolation, token issuance,
+invoice guards, seat limits, grace/read-only licensing and plan changes — ending in
+`ALL RLS CHECKS COMPLETED` and `ALL LICENSING CHECKS COMPLETED`. **Development projects
+only**; it rolls itself back, but never point it at real patient data. See [`docs/SECURITY.md`](SECURITY.md) for the full audit summary.
 
 ## Troubleshooting
 
@@ -191,6 +179,6 @@ and invoice guards. See [`docs/SECURITY.md`](SECURITY.md) for the full audit sum
 | Setup page says **Demo mode** after deploying | secrets missing in the repo, or the workflow ran before they were added | add the secrets, re-run the Pages workflow |
 | REST check returns **401 / 403** | wrong or truncated key; or the legacy anon key was disabled | re-copy the key from Project settings → API |
 | REST check says **unreachable** | project paused, wrong ref, or a proxy blocking the request | resume the project, re-check the URL |
-| Schema check says **re-run schema.sql** | `app_meta` still reports v1 | run the whole `supabase/schema.sql` again |
+| Schema check says **re-run schema.sql** | `app_meta` reports an older version | run the whole `supabase/schema.sql` again — it upgrades in place |
 | Login loops back to the sign-in page | redirect URL not allow-listed | add the exact hash URL from §4 |
 | "Email not confirmed" | confirmation mail not clicked / SMTP rate-limited | confirm manually in Authentication → Users, or add SMTP |

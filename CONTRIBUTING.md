@@ -17,7 +17,7 @@ To exercise the live paths you need a **scratch** Supabase project:
 ```bash
 cp .env.example .env.local     # add VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
 # paste supabase/schema.sql into the SQL editor, then:
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/rls-tests.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
 ```
 
 ## Before you open a PR
@@ -35,7 +35,7 @@ CI runs the same commands on Node 22 and 26, plus a build from a repository sub-
 - `supabase/schema.sql` must stay **re-runnable** — guard everything with
   `create ... if not exists` / `create or replace` / `drop policy if exists`.
 - Bump `SCHEMA_VERSION` in `src/lib/version.js` and add a `CHANGELOG` entry.
-- Add an assertion to `supabase/rls-tests.sql` for every new policy. The suite runs
+- Add an assertion to `supabase/schema-tests.sql` for every new policy. The suite runs
   inside a transaction and rolls back, so it is safe to re-run.
 - Every `security definer` function must re-authorise **each id it accepts**, not just
   the clinic. `issue_token()` is the reference implementation.

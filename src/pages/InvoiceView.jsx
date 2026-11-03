@@ -1,14 +1,28 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, Printer, Download, CheckCircle2, HandCoins } from 'lucide-react';
+import {
+  ArrowLeft, CheckCircle2, Copy, Download, HandCoins, Printer, ShieldCheck, Wallet,
+} from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, EmptyState } from '../components/ui.jsx';
 import {
-  PAYMENT_METHODS, downloadFile, formatDate, formatMoney, invoiceBalance, invoiceStatus,
-  toCSV, today,
+  PAYMENT_METHODS, amountInWords, downloadFile, formatDate, formatMoney, invoiceBalance, invoiceStatus, toCSV,
 } from '../lib/logic.mjs';
 import { DocumentHeader } from '../components/Branding.jsx';
 import { logoOnDocuments } from '../lib/branding.mjs';
+import { UPI_APPS, invoiceUpiLink, isValidUpiId, normaliseVpa, upiPayeeName } from '../lib/upi.mjs';
+import UpiQr from '../components/UpiQr.jsx';
+import CollectPayment from '../components/CollectPayment.jsx';
+
+/** A labelled block used across the document: uppercase eyebrow over a value. */
+function DocField({ label, children, align = 'left' }) {
+  return (
+    <div className="doc-field" style={{ textAlign: align }}>
+      <span className="doc-eyebrow">{label}</span>
+      <div className="doc-field-value">{children}</div>
+    </div>
+  );
+}
 
 export default function InvoiceView() {
   useEffect(() => {
@@ -20,6 +34,7 @@ export default function InvoiceView() {
   const store = useStore();
   const navigate = useNavigate();
   const toast = useToast();
+  const [collectOpen, setCollectOpen] = useState(false);
   const invoice = store.invoices.find((i) => i.id === id);
 
   if (!invoice) {
@@ -30,10 +45,16 @@ export default function InvoiceView() {
   const doctor = store.doctors.find((d) => d.id === invoice.doctor_id);
   const clinic = store.clinic ?? {};
   const meta = invoiceStatus(invoice);
+  const balance = invoiceBalance(invoice);
+  const settled = balance <= 0;
+  const upiConfigured = isValidUpiId(clinic.upi_id);
+  const showQr = !settled && clinic.upi_qr_on_invoices !== false && upiConfigured;
+  const upiLink = showQr ? invoiceUpiLink(invoice, clinic, balance) : null;
+  const methodLabel = PAYMENT_METHODS.find((m) => m.id === invoice.method)?.label ?? invoice.method;
 
-  const exportPdfHint = () => {
+  const printSheet = () => {
     toast.info('Use your browser’s “Save as PDF” in the print dialog.');
-    setTimeout(() => window.print(), 300);
+    setTimeout(() => window.print(), 250);
   };
 
   const exportCsv = () => {
@@ -48,129 +69,243 @@ export default function InvoiceView() {
     downloadFile(`${invoice.number.replace(/\//g, '-')}.csv`, csv);
   };
 
+  const copySummary = async () => {
+    const lines = [
+      `${clinic.name ?? 'Clinic'} · Tax invoice ${invoice.number}`,
+      `Patient: ${patient?.full_name ?? ''}${patient?.code ? ` (${patient.code})` : ''}`,
+      `Date: ${formatDate(invoice.issued_on)}`,
+      '',
+      ...(invoice.lines ?? []).map((l) => `${l.name} × ${l.qty} — ${formatMoney(l.total)}`),
+      '',
+      `Total: ${formatMoney(invoice.total_paise)}`,
+      `Paid: ${formatMoney(invoice.paid_paise)}`,
+      settled ? 'Status: paid in full' : `Balance due: ${formatMoney(balance)}`,
+      !settled && upiConfigured ? `Pay by UPI: ${normaliseVpa(clinic.upi_id)} (${upiPayeeName(clinic)})` : '',
+    ].filter((l) => l !== '');
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast.success('Invoice summary copied — paste it into WhatsApp.');
+    } catch { toast.error('Could not copy on this device.'); }
+  };
+
   return (
-    <div style={{ minHeight: '100dvh', padding: 'clamp(12px, 3vw, 32px)' }}>
-      <div className="no-print" style={{ maxWidth: 860, margin: '0 auto 14px' }} >
-        <div className="row wrap" style={{ gap: 8 }}>
-          <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={() => navigate('/app/billing')}>Billing</Button>
-          <span className="spacer" />
-          <Badge tone={meta.tone}>{meta.label}</Badge>
-          <Button size="sm" variant="subtle" icon={Download} onClick={exportCsv}>CSV</Button>
-          <Button size="sm" variant="primary" icon={Printer} onClick={exportPdfHint}>Print / PDF</Button>
-        </div>
+    <div className="doc-page">
+      {/* ------------------------------------------------------------ toolbar */}
+      <div className="doc-toolbar no-print">
+        <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={() => navigate('/app/billing')}>Billing</Button>
+        <span className="spacer" />
+        <Badge tone={meta.tone}>{meta.label}</Badge>
+        <Button size="sm" variant="ghost" icon={Copy} onClick={copySummary}>Copy</Button>
+        <Button size="sm" variant="subtle" icon={Download} onClick={exportCsv}>CSV</Button>
+        <Button size="sm" variant="primary" icon={Printer} onClick={printSheet}>Print / PDF</Button>
       </div>
 
-      <div className="print-sheet card" style={{ maxWidth: 860, margin: '0 auto', padding: 'clamp(18px, 3vw, 38px)' }}>
+      {/* ------------------------------------------------------------- sheet */}
+      <article className="print-sheet invoice-sheet">
         <DocumentHeader
           clinic={clinic}
           logo={logoOnDocuments(clinic)}
           accent={clinic.brand_color}
           right={(
-            <div style={{ textAlign: 'right', minWidth: 190 }}>
-              <div style={{ fontSize: '0.72rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#5a6b66', fontWeight: 700 }}>Tax invoice</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 800, marginTop: 2 }}>{invoice.number}</div>
-              <div style={{ fontSize: '0.78rem', color: '#5a6b66' }}>{formatDate(invoice.issued_on)}</div>
+            <div className="doc-title-block">
+              <div className="doc-kind">Tax invoice</div>
+              <div className="doc-number mono">{invoice.number}</div>
+              <div className="doc-date">{formatDate(invoice.issued_on)}</div>
+              <span className={`doc-stamp ${settled ? 'paid' : 'due'}`}>
+                {invoice.status === 'void' ? 'Void' : settled ? 'Paid in full' : meta.label}
+              </span>
             </div>
           )}
         />
 
-        <div className="row wrap" style={{ gap: 26, margin: '16px 0' }}>
-          <div style={{ flex: 1, minWidth: 210 }}>
-            <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#7b8b86', fontWeight: 700 }}>Billed to</div>
-            <div style={{ fontWeight: 700, marginTop: 3 }}>{patient?.full_name ?? 'Patient'}</div>
-            <div style={{ fontSize: '0.78rem', color: '#5a6b66', lineHeight: 1.6 }}>
-              {patient?.code}{patient?.phone ? ` · ${patient.phone}` : ''}<br />
-              {patient?.address || patient?.city || ''}
-            </div>
-          </div>
-          <div style={{ minWidth: 190 }}>
-            <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#7b8b86', fontWeight: 700 }}>Consulting doctor</div>
-            <div style={{ fontWeight: 700, marginTop: 3 }}>{doctor?.full_name ?? '—'}</div>
-            <div style={{ fontSize: '0.78rem', color: '#5a6b66', lineHeight: 1.6 }}>
-              {doctor?.qualification ?? ''}<br />
-              {doctor?.registration_no ? `Reg. ${doctor.registration_no}` : ''}
-            </div>
-          </div>
+        {/* who / what — one row on paper, stacked on a phone */}
+        <div className="inv-parties">
+          <DocField label="Billed to">
+            <strong>{patient?.full_name ?? 'Patient'}</strong>
+            <span className="doc-sub">
+              {patient?.code}{patient?.phone ? ` · ${patient.phone}` : ''}
+              {patient?.address ? <><br />{patient.address}</> : null}
+            </span>
+          </DocField>
+          <DocField label="Consulting doctor">
+            <strong>{doctor?.full_name ?? '—'}</strong>
+            <span className="doc-sub">
+              {doctor?.qualification || '—'}
+              {doctor?.registration_no ? <><br />Reg. {doctor.registration_no}</> : null}
+            </span>
+          </DocField>
+          <DocField label="Payment">
+            <strong>{methodLabel}</strong>
+            <span className="doc-sub">
+              {settled
+                ? `Settled${invoice.paid_on ? ` on ${formatDate(invoice.paid_on)}` : ''}`
+                : `Due ${formatMoney(balance)}`}
+              {invoice.payment_ref ? <><br />Ref {invoice.payment_ref}</> : null}
+            </span>
+          </DocField>
         </div>
 
+        {/* ------------------------------------------------------------- lines */}
         <div className="doc-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: '46%' }}>Service</th>
-              <th className="num">Qty</th>
-              <th className="num">Rate</th>
-              <th className="num">Disc.</th>
-              <th className="num">GST</th>
-              <th className="num">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(invoice.lines ?? []).map((line, i) => (
-              <tr key={i}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{line.name}</div>
-                  <div style={{ fontSize: '0.72rem', color: '#7b8b86' }}>{line.category}</div>
-                </td>
-                <td className="num">{line.qty}</td>
-                <td className="num">{formatMoney(line.rate_paise)}</td>
-                <td className="num">{line.discount ? formatMoney(line.discount) : '—'}</td>
-                <td className="num">{line.tax_rate ? `${line.tax_rate}%` : '—'}</td>
-                <td className="num" style={{ fontWeight: 600 }}>{formatMoney(line.total)}</td>
+          <table className="doc-table">
+            <thead>
+              <tr>
+                <th style={{ width: '46%' }}>Service</th>
+                <th className="num">Qty</th>
+                <th className="num">Rate</th>
+                <th className="num">Disc.</th>
+                <th className="num">GST</th>
+                <th className="num">Amount</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(invoice.lines ?? []).map((line, i) => (
+                <tr key={i}>
+                  <td>
+                    <div className="doc-line-name">{line.name}</div>
+                    <div className="doc-line-meta">{line.category}</div>
+                  </td>
+                  <td className="num">{line.qty}</td>
+                  <td className="num">{formatMoney(line.rate_paise)}</td>
+                  <td className="num">{line.discount ? formatMoney(line.discount) : '—'}</td>
+                  <td className="num">{line.tax_rate ? `${line.tax_rate}%` : '—'}</td>
+                  <td className="num strong">{formatMoney(line.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
-          <div style={{ minWidth: 260, width: 'min(320px, 100%)' }}>
+        {/* phones: the same lines, stacked — a six-column table cannot be read
+            on a 390px screen and horizontal scrolling inside a bill is worse
+            than a taller one. */}
+        <div className="doc-lines">
+          {(invoice.lines ?? []).map((line, i) => (
+            <div key={i} className="doc-line">
+              <div className="doc-line-head">
+                <span className="doc-line-name">{line.name}</span>
+                <span className="doc-line-amount mono">{formatMoney(line.total)}</span>
+              </div>
+              <div className="doc-line-meta">
+                {[
+                  line.category,
+                  `${line.qty} × ${formatMoney(line.rate_paise)}`,
+                  line.discount ? `−${formatMoney(line.discount)}` : null,
+                  line.tax_rate ? `GST ${line.tax_rate}%` : null,
+                ].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ------------------------------------------------- totals + payment */}
+        <div className="inv-settle">
+          {/* left: how to pay (only while money is owed) */}
+          <div className="inv-pay">
+            {!settled && showQr && upiLink ? (
+              <div className="inv-upi">
+                <UpiQr value={upiLink} size={132} className="inv-upi-code" label={`Scan to pay ${formatMoney(balance)} to ${upiPayeeName(clinic)}`} />
+                <div className="inv-upi-text">
+                  <span className="doc-eyebrow">Scan to pay</span>
+                  <div className="inv-upi-amount mono">{formatMoney(balance)}</div>
+                  <div className="tiny">{upiPayeeName(clinic)}</div>
+                  <div className="inv-vpa mono">{normaliseVpa(clinic.upi_id)}</div>
+                  <div className="tiny faint">{UPI_APPS.slice(0, 4).join(' · ')}</div>
+                </div>
+              </div>
+            ) : !settled ? (
+              <div className="inv-pay-note">
+                <Wallet size={15} />
+                <div>
+                  <strong className="small">Pay at the front desk</strong>
+                  <div className="tiny faint">
+                    {upiConfigured ? 'Ask the front desk to open this invoice and show the QR.' : 'Cash, card and UPI accepted at the counter.'}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="inv-pay-note paid">
+                <CheckCircle2 size={15} />
+                <div>
+                  <strong className="small">Paid in full — thank you</strong>
+                  <div className="tiny faint">
+                    {methodLabel}{invoice.paid_on ? ` · ${formatDate(invoice.paid_on)}` : ''}{invoice.payment_ref ? ` · Ref ${invoice.payment_ref}` : ''}
+                  </div>
+                </div>
+              </div>
+            )}
+            {invoice.notes ? <p className="inv-notes"><strong>Notes:</strong> {invoice.notes}</p> : null}
+          </div>
+
+          {/* right: the money */}
+          <div className="inv-totals">
             {[
               ['Subtotal', invoice.subtotal_paise],
               ...(invoice.discount_paise ? [['Discount', -invoice.discount_paise]] : []),
               ...(invoice.tax_paise ? [['GST', invoice.tax_paise]] : []),
             ].map(([label, value]) => (
-              <div key={label} className="row" style={{ fontSize: '0.84rem', padding: '3px 0', color: '#5a6b66' }}>
-                <span>{label}</span><span className="spacer" />
-                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{value < 0 ? '−' : ''}{formatMoney(Math.abs(value))}</span>
+              <div key={label} className="inv-total-row">
+                <span>{label}</span>
+                <span className="mono">{value < 0 ? '−' : ''}{formatMoney(Math.abs(value))}</span>
               </div>
             ))}
-            <div className="row" style={{ borderTop: '1px solid #dfe8e4', marginTop: 6, paddingTop: 8 }}>
-              <strong>Total</strong><span className="spacer" />
-              <strong style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem' }}>{formatMoney(invoice.total_paise)}</strong>
+            <div className="inv-total-row grand">
+              <span>Total</span>
+              <span className="mono">{formatMoney(invoice.total_paise)}</span>
             </div>
-            <div className="row" style={{ fontSize: '0.84rem', padding: '3px 0', color: '#5a6b66' }}>
-              <span>Paid · {PAYMENT_METHODS.find((m) => m.id === invoice.method)?.label ?? invoice.method}</span><span className="spacer" />
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMoney(invoice.paid_paise)}</span>
+            <div className="inv-total-row">
+              <span>Paid · {methodLabel}</span>
+              <span className="mono">{formatMoney(invoice.paid_paise)}</span>
             </div>
-            {invoiceBalance(invoice) > 0 ? (
-              <div className="row" style={{ fontSize: '0.88rem', color: '#b23b4e', fontWeight: 700 }}>
-                <span>Balance due</span><span className="spacer" /><span>{formatMoney(invoiceBalance(invoice))}</span>
-              </div>
-            ) : (
-              <div className="row" style={{ gap: 6, color: '#0f7d63', fontSize: '0.82rem', fontWeight: 700 }}>
-                <CheckCircle2 size={13} /> Paid in full — thank you
-              </div>
-            )}
+            <div className={`inv-total-row ${settled ? 'due-settled' : 'due'}`}>
+              <span>{settled ? 'Balance' : 'Balance due'}</span>
+              <span className="mono">{formatMoney(balance)}</span>
+            </div>
+            <p className="inv-in-words">{amountInWords(invoice.total_paise)}</p>
           </div>
         </div>
 
-        {invoice.notes ? <p style={{ marginTop: 18, fontSize: '0.78rem', color: '#5a6b66' }}><strong>Notes:</strong> {invoice.notes}</p> : null}
+        {/* ------------------------------------------------------------ footer */}
+        <footer className="doc-foot">
+          <div>
+            <strong>{clinic.name ?? 'Clinic'}</strong>
+            {clinic.address ? <span>{clinic.address}</span> : null}
+            <span>{[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
+          </div>
+          <div className="doc-foot-right">
+            {clinic.gstin ? <span>GSTIN {clinic.gstin}</span> : null}
+            <span>Invoice {invoice.number} · {formatDate(invoice.issued_on)}</span>
+            <span className="doc-foot-fine">Computer-generated invoice · amounts in INR · retain for insurance claims</span>
+          </div>
+        </footer>
 
-        <div style={{ marginTop: 22, borderTop: '1px solid #eef3f1', paddingTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'space-between', fontSize: '0.7rem', color: '#7b8b86' }}>
-          <span>Computer-generated invoice · myClinic</span>
-          <span>Amounts in INR. Retain this invoice for insurance claims.</span>
+        {/* repeating footer for printed pages */}
+        <div className="print-foot">
+          <span>{clinic.name ?? 'Clinic'} · {[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
+          <span>{invoice.number}</span>
         </div>
-      </div>
+      </article>
 
-      <div className="no-print" style={{ maxWidth: 860, margin: '14px auto 0' }}>
+      {/* ------------------------------------------------------- on-screen actions */}
+      <div className="doc-actions no-print">
         <Card className="pad" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span className="small muted">Recorded {formatDate(invoice.issued_on)} · generated by {clinic.name}</span>
+          <span className="small muted">
+            {settled ? 'Settled' : `${formatMoney(balance)} outstanding`} · issued {formatDate(invoice.issued_on)}
+          </span>
           <span className="spacer" />
-          {invoiceBalance(invoice) > 0 ? <Button size="sm" variant="primary" icon={HandCoins} onClick={() => navigate('/app/billing')}>Collect balance</Button> : null}
-          <Button size="sm" variant="subtle" onClick={() => navigate(`/app/patients/${invoice.patient_id}`)}>Open patient chart</Button>
+          {!settled && invoice.status !== 'void' ? (
+            <Button size="sm" variant="primary" icon={HandCoins} onClick={() => setCollectOpen(true)}>Collect payment</Button>
+          ) : null}
+          <Button size="sm" variant="subtle" icon={ShieldCheck} onClick={() => navigate(`/app/patients/${invoice.patient_id}`)}>Patient chart</Button>
         </Card>
       </div>
+
+      <CollectPayment
+        invoice={invoice}
+        open={collectOpen}
+        onClose={() => setCollectOpen(false)}
+        onDone={() => setCollectOpen(false)}
+      />
     </div>
   );
 }

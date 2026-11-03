@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import {
   ArrowLeft, CalendarPlus, CreditCard, FileText, Pencil, Phone, Mail, MapPin, ShieldAlert,
   Stethoscope, Trash2, Activity, Pill, Printer, ChevronRight, HeartPulse, Wallet, Clock, Download,
+  HandCoins, Receipt,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, Modal, Tabs, Progress } from '../components/ui.jsx';
@@ -10,6 +11,7 @@ import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import InvoiceForm from '../components/InvoiceForm.jsx';
+import CollectPayment from '../components/CollectPayment.jsx';
 import {
   ageFromDOB, ageLabel, formatDate, formatMoney, formatTime, invoiceBalance, invoiceStatus,
   patientVisits, relativeDay, today,
@@ -25,6 +27,7 @@ export default function PatientDetail() {
   const [apptOpen, setApptOpen] = useState(false);
   const [consultOpen, setConsultOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [payFor, setPayFor] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const patient = store.patients.find((p) => p.id === id);
@@ -34,6 +37,13 @@ export default function PatientDetail() {
   const dues = invoices.filter((i) => i.status !== 'void').reduce((s, i) => s + invoiceBalance(i), 0);
   const lifetime = invoices.filter((i) => i.status !== 'void').reduce((s, i) => s + Number(i.total_paise || 0), 0);
   const upcoming = appts.filter((a) => a.scheduled_on >= today() && ['booked', 'checked-in'].includes(a.status)).sort((a, b) => a.scheduled_on.localeCompare(b.scheduled_on));
+  // Money still owed, oldest first — the front desk collects the oldest first.
+  const openInvoices = invoices.filter((i) => i.status !== 'void' && invoiceBalance(i) > 0)
+    .sort((a, b) => a.issued_on.localeCompare(b.issued_on));
+  // A consultation that never produced a bill is the commonest leak in a clinic.
+  const invoiceForVisit = (visit) => invoices.find((i) => i.status !== 'void'
+    && ((visit.appointment_id && i.appointment_id === visit.appointment_id) || i.issued_on === visit.visited_on));
+  const unbilledVisits = visits.filter((v) => !invoiceForVisit(v));
 
   if (!patient) {
     return (
@@ -109,6 +119,41 @@ export default function PatientDetail() {
           ))}
         </div>
       </Card>
+
+      {/* The one thing to do next with this patient: settle money, or bill a visit
+          that was never invoiced. Everything else is a tab away. */}
+      {openInvoices.length || unbilledVisits.length ? (
+        <div className={`flow-strip ${openInvoices.length ? 'due' : 'unbilled'}`}>
+          <span className="flow-strip-icon">{openInvoices.length ? <Wallet size={16} /> : <Receipt size={16} />}</span>
+          <div className="flow-strip-text">
+            {openInvoices.length ? (
+              <>
+                <strong>{formatMoney(dues)} outstanding</strong>
+                <span className="tiny faint">
+                  Oldest unpaid: {openInvoices[0].number} · {formatDate(openInvoices[0].issued_on)}
+                  {openInvoices.length > 1 ? ` · ${openInvoices.length} invoices open` : ''}
+                </span>
+              </>
+            ) : (
+              <>
+                <strong>{unbilledVisits.length} visit{unbilledVisits.length === 1 ? '' : 's'} not billed</strong>
+                <span className="tiny faint">
+                  Last consultation {formatDate(unbilledVisits[0].visited_on)} has no invoice yet
+                </span>
+              </>
+            )}
+          </div>
+          <span className="spacer" />
+          {openInvoices.length ? (
+            <>
+              <Button size="sm" variant="subtle" onClick={() => setTab('billing')}>Invoices</Button>
+              <Button size="sm" variant="primary" icon={HandCoins} onClick={() => setPayFor(openInvoices[0])}>Collect {formatMoney(invoiceBalance(openInvoices[0]))}</Button>
+            </>
+          ) : (
+            <Button size="sm" variant="primary" icon={CreditCard} onClick={() => setInvoiceOpen(true)}>Raise invoice</Button>
+          )}
+        </div>
+      ) : null}
 
       {upcoming.length ? (
         <div className="row wrap small" style={{ background: 'var(--brand-50)', color: 'var(--brand-600)', padding: '10px 14px', borderRadius: 12, gap: 8 }}>
@@ -231,7 +276,14 @@ export default function PatientDetail() {
           {visits.length ? visits.map((visit) => (
             <Card key={visit.id}>
               <CardHead title={formatDate(visit.visited_on, { weekday: true })} sub={`${doctorOf(visit.doctor_id)?.full_name ?? 'Doctor'} · ${(visit.diagnoses ?? []).join(', ') || 'no diagnosis'}`} icon={Stethoscope}
-                action={<Button size="sm" variant="subtle" icon={Printer} onClick={() => navigate(`/prescription/${visit.id}`)}>Prescription</Button>} />
+                action={(
+                  <div className="row wrap no-print" style={{ gap: 6 }}>
+                    <Button size="sm" variant="subtle" icon={Printer} onClick={() => navigate(`/prescription/${visit.id}`)}>Prescription</Button>
+                    {invoiceForVisit(visit)
+                      ? <Button size="sm" variant="ghost" icon={Receipt} onClick={() => navigate(`/invoice/${invoiceForVisit(visit).id}`)}>Invoice</Button>
+                      : <Button size="sm" variant="ghost" icon={CreditCard} onClick={() => setInvoiceOpen(true)}>Bill this visit</Button>}
+                  </div>
+                )} />
               <div className="card-body stack" style={{ gap: 10, paddingTop: 12 }}>
                 <div><span className="eyebrow">Complaint</span><p className="small">{visit.complaint}</p></div>
                 {visit.examination ? <div><span className="eyebrow">Examination</span><p className="small">{visit.examination}</p></div> : null}
@@ -297,7 +349,12 @@ export default function PatientDetail() {
                     <span className="strong mono small">{formatMoney(inv.total_paise)}</span>
                     <Badge tone={meta.tone}>{meta.label}</Badge>
                   </span>
-                  <ChevronRight size={14} className="faint" />
+                  <div className="row no-print" style={{ gap: 4, flex: 'none' }}>
+                    {invoiceBalance(inv) > 0 && inv.status !== 'void'
+                      ? <Button size="sm" variant="subtle" icon={HandCoins} onClick={() => setPayFor(inv)}>Collect</Button>
+                      : null}
+                    <ChevronRight size={14} className="faint" />
+                  </div>
                 </div>
               );
             }) : <EmptyState icon={CreditCard} title="No invoices yet" description="Raise the first invoice for this patient." action={<Button size="sm" variant="primary" onClick={() => setInvoiceOpen(true)}>Raise invoice</Button>} />}
@@ -326,8 +383,25 @@ export default function PatientDetail() {
 
       <PatientForm open={editOpen} onClose={() => setEditOpen(false)} patient={patient} />
       <AppointmentForm open={apptOpen} onClose={() => setApptOpen(false)} defaults={{ patient_id: patient.id }} />
-      <ConsultationForm open={consultOpen} onClose={() => setConsultOpen(false)} patient={patient} appointment={upcoming[0] ?? null} onSaved={() => setConsultOpen(false)} />
+      <ConsultationForm
+        open={consultOpen}
+        onClose={() => setConsultOpen(false)}
+        patient={patient}
+        appointment={upcoming[0] ?? null}
+        onSaved={(_visit, raised) => {
+          setConsultOpen(false);
+          // Saving with “Save & bill” raises an invoice — walk the front desk
+          // straight into it so the consultation ends with money collected.
+          if (raised?.id) navigate(`/invoice/${raised.id}`);
+        }}
+      />
       <InvoiceForm open={invoiceOpen} onClose={() => setInvoiceOpen(false)} patient={patient} />
+      <CollectPayment
+        invoice={payFor}
+        open={Boolean(payFor)}
+        onClose={() => setPayFor(null)}
+        onDone={() => setPayFor(null)}
+      />
       <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Archive this patient?"
         footer={<><Button variant="ghost" onClick={() => setDeleteOpen(false)}>Keep record</Button><Button variant="danger" onClick={archive}>Archive</Button></>}>
         <p className="small muted">

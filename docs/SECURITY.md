@@ -12,8 +12,10 @@ layer.
 
 ```bash
 # 1. apply supabase/schema.sql to a SCRATCH project, then:
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/rls-tests.sql
-# → a clean run means every RLS assertion passed; all fixtures are rolled back
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
+# → a clean run means every RLS and licensing assertion passed (it prints
+#   ALL RLS CHECKS COMPLETED / ALL LICENSING CHECKS COMPLETED); all fixtures
+#   are rolled back, so the scratch project is left exactly as it was
 
 # 2. the client-side role matrix and sync engine:
 npm test
@@ -25,7 +27,7 @@ npm test
 
 **Coverage**: 12 units in `coverage-ledger.json` — 8 covered, 3 blocked on hosted configuration, 1 not applicable. No prior run exists for this repository, so this is **partial coverage by construction**, not a clean bill of health.
 
-**Execution**: no target code was executed. PostgreSQL/Supabase is unavailable in this sandbox, so the SQL candidates are source-traced and their reproduction steps are the exact statements an operator runs. `supabase/rls-tests.sql` is the runnable proof for the RLS findings once a scratch project exists.
+**Execution**: no target code was executed. PostgreSQL/Supabase is unavailable in this sandbox, so the SQL candidates are source-traced and their reproduction steps are the exact statements an operator runs. `supabase/schema-tests.sql` is the runnable proof for the RLS findings once a scratch project exists.
 
 ## Summary
 

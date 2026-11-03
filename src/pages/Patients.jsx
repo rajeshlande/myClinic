@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   Archive, ArrowUpDown, CalendarPlus, Download, Phone, Plus, Users, UserRound,
-  ChevronRight, ShieldAlert, Wallet, Filter,
+  ChevronRight, ShieldAlert, Wallet, Filter, MoreHorizontal,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, SearchInput, Select, Tabs, Segmented } from '../components/ui.jsx';
+import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, SearchInput, Select, Tabs, Segmented } from '../components/ui.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import {
@@ -112,7 +112,7 @@ export default function Patients() {
             {rows.length ? rows.map((patient) => {
               const due = dues.get(patient.id) ?? 0;
               return (
-                <div key={patient.id} className="list-item" style={{ cursor: 'default' }}>
+                <div key={patient.id} className="list-item patient-row" style={{ cursor: 'default' }}>
                   <button onClick={() => navigate(`/app/patients/${patient.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
                     <Avatar name={patient.full_name} />
                     <span className="li-main">
@@ -123,20 +123,21 @@ export default function Patients() {
                       </span>
                       <span className="li-sub">
                         <span className="mono">{patient.code}</span>
-                        <span>·</span>
+                        <span className="sep" aria-hidden="true">·</span>
                         <span>{ageLabel(patient)}</span>
-                        <span>·</span>
+                        <span className="sep" aria-hidden="true">·</span>
                         <span>{patient.phone || 'no phone'}</span>
-                        {patient._last ? <><span>·</span><span>last seen {formatDate(patient._last.visited_on, { withYear: false })}</span></> : <><span>·</span><span className="faint">never visited</span></>}
+                        {patient._last ? <><span className="sep" aria-hidden="true">·</span><span>last seen {formatDate(patient._last.visited_on, { withYear: false })}</span></> : <><span className="sep" aria-hidden="true">·</span><span className="faint">never visited</span></>}
                       </span>
                     </span>
                     <span className="stack" style={{ alignItems: 'flex-end', gap: 3, flex: 'none' }}>
                       {due ? <Badge tone="danger"><Wallet size={10} /> {formatMoney(due)}</Badge> : <span className="tiny faint">{patient._visits} visits</span>}
                     </span>
                   </button>
-                  <div className="row no-print" style={{ gap: 4, flex: 'none' }}>
+                  <div className="patient-actions row no-print" style={{ gap: 4, flex: 'none' }}>
                     <Button size="sm" variant="ghost" icon={CalendarPlus} onClick={() => setApptFor({ patient_id: patient.id })}>Book</Button>
                     <button className="icon-btn plain sm" aria-label="Open chart" onClick={() => navigate(`/app/patients/${patient.id}`)}><ChevronRight size={15} /></button>
+                    <IconButton icon={MoreHorizontal} label="More actions" size={16} className="plain sm" style={{ color: 'var(--muted)' }} />
                   </div>
                 </div>
               );
