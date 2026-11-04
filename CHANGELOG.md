@@ -3,6 +3,38 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.7] — 2026-11-04 · schema 10
+
+A clinic on the yearly plan was shown as monthly, quoted the monthly price, and —
+the part that costs money — **renewed for one month when it had paid for twelve**.
+The payment reference it had just recorded disappeared from the screen a moment
+after it was saved.
+
+**The licence view was dropping what it needed.** `licenseState()` returned
+status, plan, days left and a period end, but not `interval` or `collection_ref`.
+Every screen that asked for them got `undefined`: the status card fell back to
+"Monthly", prices were quoted monthly, the CSV export wrote `monthly`, and the
+renewal dialog passed `months: 1` to a database that would otherwise have used the
+row's own interval. The view now carries both, and a test pins them.
+
+**A payment buys the subscription's term.** Renewal reads the saved interval
+(`billingPeriod`) rather than the dialog's price toggle, so browsing monthly and
+then recording a payment on a yearly plan still buys a year. The demo workspace,
+which added a hard-coded 30 days whatever the plan, now extends by the term paid
+for — calendar months, matching `renew_subscription()` in Postgres.
+
+**Two smaller things.** The sidebar offers "Manage subscription" only to a seat
+that can open it (owner); everyone else sees the plan, the status and who to ask.
+And paise print in pairs: `₹23,990.40`, never `₹23,990.4`.
+
+**The README is rebuilt** as a project front page: what the app is, the role
+table, plans and the subscription lifecycle, tech stack, project layout, local
+setup, database and migration rules, testing gates, deployment, troubleshooting,
+and the documentation index. A `.markdownlint.json` keeps it lint-clean.
+
+**Upgrading.** No database change — schema 10 covers this build. If you have not
+run `supabase/schema.sql` since v1.11.6, run it once.
+
 ## [1.11.6] — 2026-11-04 · schema 10
 
 The Team page has always described three seats: the owner holds *billing, plans,
