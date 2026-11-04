@@ -195,6 +195,8 @@ export default function Setup() {
                   ['consultations', 'Vitals, diagnoses, prescription JSON, follow-up date.'],
                   ['invoices', 'Paise amounts, GST, payment method, immutable numbering.'],
                   ['clinic_subscriptions', 'Plan, status, trial and period end — enforced in triggers.'],
+                  ['day_closes', 'One frozen day sheet per clinic per day, with counted cash and variance.'],
+                  ['reminders', 'What the desk sent, on which channel, and when — the recall trail.'],
                 ].map(([table, body]) => (
                   <div key={table} className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
                     <Badge tone="brand">{table}</Badge>

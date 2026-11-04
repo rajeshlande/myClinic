@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
   CalendarDays, ClipboardList, CreditCard, LayoutDashboard, Menu, MoonStar,
   Plus, Search, Settings as SettingsIcon, Sparkles, Stethoscope, Sun, Users, UserRound,
-  ArrowRightLeft, BarChart3, X, BellRing, LogOut, ShieldCheck, CircleUser, Ticket,
+  ArrowRightLeft, BarChart3, X, BellRing, LogOut, ShieldCheck, CircleUser, Ticket, Sunset,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -27,6 +27,7 @@ const NAV = [
   { group: 'Records & money', items: [
     { to: '/app/patients', label: 'Patients', icon: Users },
     { to: '/app/billing', label: 'Billing', icon: CreditCard },
+    { to: '/app/day-close', label: 'Day close', icon: Sunset },
     { to: '/app/reports', label: 'Reports', icon: BarChart3, capability: 'clinic:reports' },
   ] },
   { group: 'Clinic setup', items: [
@@ -52,6 +53,7 @@ function pageTitle(pathname) {
     ['/app/patients', 'Patients', 'Registration and clinical records'],
     ['/app/consultations', 'Consultations', 'Notes, vitals and prescriptions'],
     ['/app/billing', 'Billing', 'Invoices, payments and outstanding dues'],
+    ['/app/day-close', 'Day close', 'Count the drawer, catch missed charges, close the day'],
     ['/app/follow-ups', 'Follow-ups', 'Recalls and reminders due'],
     ['/app/reports', 'Reports', 'Revenue, footfall and doctor performance'],
     ['/app/team', 'Doctors & staff', 'Who can access this clinic'],

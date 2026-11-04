@@ -111,19 +111,22 @@ no branch table; and "no per-user fee" is already true in code but never stated 
 
 | Release | Scope | Done means |
 |---|---|---|
-| **R1 · Collect & recall** | Reminder drafts + send log · day-close session with per-method totals and uncollected list · missed-charge detector (completed visit without an invoice) | A solo doctor can close the day and chase yesterday's follow-ups without leaving the app |
+| **R1 · Collect & recall** ✅ *shipped 1.10.0* | Reminder drafts + send log · day-close session with per-method totals and uncollected list · missed-charge detector (completed visit without an invoice) | A solo doctor can close the day and chase yesterday's follow-ups without leaving the app |
 | **R2 · Fill the diary from outside** | Public booking page on the clinic slug · slot locking against the same engine · patient confirmation + cancel link · "booked from" source on appointments (lead-source analytics) | A patient can book at 11 pm; the doctor sees it in the morning with the source recorded |
 | **R3 · Prescribe safely** ✅ *shipped 1.8.0* | Medicine master (brand/generic/salt) with offline fallback · dose defaults per form · interaction warnings with logged override · prescription numbering + immutable version | A repeat prescription is three taps and cannot silently contain a wrong salt |
 
 Compliance pack slots in as **R4** once R1–R3 have made the daily loop sticky; it is the
 easiest thing to *demonstrate*, but the hardest to sell before the product saves time.
 
-> **Status (1.8.0, schema 6):** R3 is built and verified — offline formulary of ~50 brands with
-> dose defaults, duplicate-molecule/class detection, curated interactions, allergy-vs-prescription
-> checks, H1 register notice, high-severity acknowledgement recorded in `consultations.rx_safety`,
-> and `RX/<fy>/<seq>` prescription numbers independent of invoices. R1 and R2 are still open; the
-> reminder card in Settings still has no delivery channel, which remains the single largest gap
-> for the *Starter* promise.
+> **Status (1.10.0, schema 7):** R3 shipped in 1.8.0 — offline formulary of ~50 brands with dose
+> defaults, duplicate-molecule/class detection, curated interactions, allergy-vs-prescription checks,
+> H1 register notice, high-severity acknowledgement recorded in `consultations.rx_safety`, and
+> `RX/<fy>/<seq>` prescription numbers independent of invoices. R1 shipped in 1.10.0: day close with
+> per-method collections, cash reconciliation and a frozen snapshot (`day_closes`); a missed-charge
+> detector (seen-not-billed, open bills today, dues older than a week); and a reminder queue with a
+> send log (`reminders`) that honours quiet hours and never re-chases the same patient twice.
+> **Automatic delivery is still absent by design** — the queue drafts, the desk sends on its own
+> WhatsApp number, and the log records what it did. R2 (public booking) is the remaining release.
 
 ---
 

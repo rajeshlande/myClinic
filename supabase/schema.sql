@@ -17,6 +17,8 @@
 --   §3  subscriptions and licensing      trial → active → grace → read-only
 --   §4  clinic branding                  logos on documents and messages
 --   §5  helper functions                 tokens, invoice numbers, provisioning
+--   §6  prescription numbering           RX series + safety acknowledgement log
+--   §7  day close + reminder log         cash reconciliation + what was sent
 --
 -- ── Versioning ───────────────────────────────────────────────────────────────
 --   `public.app_schema_version()` reports this schema. The app compares it with
@@ -32,6 +34,9 @@
 --     2  role matrix, offline sync       v1.2.0
 --     3  subscriptions and licensing     v1.3.0
 --     4  clinic branding (logos)         v1.5.0
+--     5  UPI collection                  v1.7.0
+--     6  prescription numbering          v1.8.0
+--     7  day close + reminder log        v1.10.0
 --
 -- To add a migration: append a numbered block inside its migration's guard,
 -- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
@@ -1245,6 +1250,134 @@ begin
   update public.app_meta
      set schema_version = 6, applied_at = now(), notes = 'prescription numbering'
    where schema_version < 6;
+end $migration$;
+
+-- =============================================================================
+-- §7 · DAY CLOSE & REMINDER LOG                     migration 7 · app v1.10.0
+-- =============================================================================
+-- Two records the clinic needs in order to finish a day inside the app:
+--
+--   day_closes  one row per clinic per day. The totals are a snapshot taken at
+--               closing time, not a query re-run later — a printed day sheet and
+--               the app must agree even after tomorrow's invoices arrive. The
+--               counted cash and the variance sit beside the snapshot because
+--               that difference is the thing an accountant asks about.
+--
+--   reminders   what the front desk actually did about a recall: the draft it
+--               worked from (`draft_key`), the channel, and a status that never
+--               claims more than it can prove — copied, opened, sent, skipped.
+--               It is append-only evidence, so a patient is not messaged twice.
+--
+-- Neither table may ever be needed for the app to open: the client reads them
+-- tolerantly, so a database at schema 6 still runs every other screen.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 7 then
+    raise notice 'schema 7 (day close) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 7 (day close and reminder log)';
+
+  execute $sql$
+  -- ---------------------------------------------------------------- day close
+  create table if not exists public.day_closes (
+    id uuid primary key default gen_random_uuid(),
+    clinic_id uuid not null references public.clinics(id) on delete cascade,
+    closed_on date not null,
+    -- The frozen day: money, visits, payment split. jsonb so a new figure can be
+    -- added to the sheet without a migration.
+    totals jsonb not null default '{}'::jsonb,
+    expected_cash_paise bigint not null default 0 check (expected_cash_paise >= 0),
+    counted_cash_paise bigint check (counted_cash_paise is null or counted_cash_paise >= 0),
+    variance_paise bigint,
+    note text not null default '' check (char_length(note) <= 500),
+    status text not null default 'closed' check (status in ('closed','reopened')),
+    closed_by uuid references public.staff(id) on delete set null,
+    closed_at timestamptz not null default now(),
+    client_id uuid,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    -- One close per day. Re-closing updates that row instead of stacking a second.
+    unique (clinic_id, closed_on)
+  );
+  create index if not exists day_closes_clinic_idx on public.day_closes(clinic_id, closed_on desc);
+  drop trigger if exists day_closes_touch on public.day_closes;
+  create trigger day_closes_touch before update on public.day_closes for each row execute function public.touch_updated_at();
+
+  -- ---------------------------------------------------------------- reminders
+  create table if not exists public.reminders (
+    id uuid primary key default gen_random_uuid(),
+    clinic_id uuid not null references public.clinics(id) on delete cascade,
+    patient_id uuid references public.patients(id) on delete cascade,
+    -- "appointment:<uuid>" / "follow-up:<uuid>" / "balance:<invoice uuid>".
+    -- One idempotency key per thing being chased.
+    draft_key text not null check (char_length(draft_key) between 3 and 120),
+    kind text not null check (kind in ('appointment','follow-up','balance')),
+    ref_id uuid,
+    channel text not null default 'whatsapp' check (channel in ('whatsapp','sms','call','copy')),
+    -- Deliberately conservative: "sent" is a person saying they sent it.
+    status text not null default 'copied' check (status in ('copied','opened','sent','skipped')),
+    body text not null default '' check (char_length(body) <= 1200),
+    logged_on date not null default current_date,
+    sent_at timestamptz,
+    sent_by uuid references public.staff(id) on delete set null,
+    client_id uuid,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  create index if not exists reminders_clinic_day_idx on public.reminders(clinic_id, logged_on desc);
+  create index if not exists reminders_key_idx on public.reminders(clinic_id, draft_key, logged_on desc);
+  drop trigger if exists reminders_touch on public.reminders;
+  create trigger reminders_touch before update on public.reminders for each row execute function public.touch_updated_at();
+
+  -- ---------------------------------------------------------------- RLS
+  alter table public.day_closes enable row level security;
+  alter table public.reminders enable row level security;
+
+  -- The day sheet is money: everyone in the clinic may read it, the owner and the
+  -- front desk write it. A close is never deleted — it is reopened, which keeps
+  -- the audit trail honest.
+  drop policy if exists day_closes_read on public.day_closes;
+  create policy day_closes_read on public.day_closes for select to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+
+  drop policy if exists day_closes_write on public.day_closes;
+  create policy day_closes_write on public.day_closes for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','frontdesk']));
+
+  drop policy if exists day_closes_update on public.day_closes;
+  create policy day_closes_update on public.day_closes for update to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk']))
+    with check (public.has_role(clinic_id, array['owner','frontdesk']));
+
+  -- Everyone who speaks to a patient may log a reminder; only an owner may erase
+  -- one from the log.
+  drop policy if exists reminders_read on public.reminders;
+  create policy reminders_read on public.reminders for select to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+
+  drop policy if exists reminders_write on public.reminders;
+  create policy reminders_write on public.reminders for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+
+  drop policy if exists reminders_update on public.reminders;
+  create policy reminders_update on public.reminders for update to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk']))
+    with check (public.has_role(clinic_id, array['owner','frontdesk']));
+
+  drop policy if exists reminders_delete on public.reminders;
+  create policy reminders_delete on public.reminders for delete to authenticated
+    using (public.is_clinic_owner(clinic_id));
+  $sql$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (7, 'day-close', '1.10.0', 'day close snapshot with cash reconciliation, reminder send log')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 7, applied_at = now(), notes = 'day close and reminder log'
+   where schema_version < 7;
 end $migration$;
 
 -- ---------------------------------------------------------------- onboarding

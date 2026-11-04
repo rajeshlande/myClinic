@@ -26,7 +26,7 @@
  *    `conflicts` and surfaced in the UI with both versions.
  */
 
-export const TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices'];
+export const TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices', 'day_closes', 'reminders'];
 
 /** Fields where an automatic merge is never acceptable. */
 export const MANUAL_FIELDS = {
@@ -35,6 +35,10 @@ export const MANUAL_FIELDS = {
   consultations: ['diagnoses', 'prescription'],
   patients: ['code'],
   staff: ['role', 'clinic_id', 'user_id'],
+  // A day is closed once: the snapshot and the count must not be merged by halves.
+  day_closes: ['totals', 'closed_on', 'counted_cash_paise', 'variance_paise'],
+  // The send log is evidence, so it is appended, never merged.
+  reminders: ['draft_key', 'status', 'channel', 'body'],
 };
 
 /** Fields the server always owns once a row exists. */

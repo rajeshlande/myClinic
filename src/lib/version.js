@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.9.0';
-export const SCHEMA_VERSION = 6;
+export const APP_VERSION = '1.10.0';
+export const SCHEMA_VERSION = 7;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,17 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.10.0', date: '2026-11-04', schema: 7,
+    highlights: [
+      'Day close: one screen with the money that came in, split by how it was paid, against the cash you count in the drawer — with the difference written down before you close.',
+      'Closing the day stores a snapshot, so the sheet you printed at 9pm still matches tomorrow after new invoices arrive. Reopen it to amend, never to overwrite silently.',
+      'Missed charges are found for you: a patient seen but never billed, a bill still open from today, and dues that have been owed longer than a week.',
+      'A reminder queue drafts one privacy-safe message per patient — tomorrow\'s appointments, recalls that are due, and balances older than a week — with copy, WhatsApp and a send log.',
+      'The send log records what actually happened (copied, opened, sent, skipped) so the same patient is never messaged twice for the same thing.',
+      'Your quiet hours and reminder lead time from Settings are respected: drafts made overnight are waiting for the morning.',
+    ],
+  },
   {
     version: '1.9.0', date: '2026-11-04', schema: 6,
     highlights: [

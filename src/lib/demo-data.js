@@ -322,6 +322,28 @@ export function makeDemoWorkspace() {
     });
   });
 
+  // One patient seen at the end of the morning whose bill was never raised. The
+  // day-close view exists to catch exactly this, so the demo has to contain one.
+  const gapPatient = patients[7];
+  const gapApptId = 'apt-today-unbilled';
+  appointments.push({
+    id: gapApptId, clinic_id: clinic.id, patient_id: gapPatient.id, doctor_id: doctors[0].id,
+    scheduled_on: t, scheduled_at: '10:45', duration_minutes: 15,
+    kind: 'New consultation', status: 'completed', reason: 'Review of thyroid report',
+    notes: '', source: 'walk-in', token_no: 8,
+    created_at: new Date(Date.now() - 52 * 60000).toISOString(),
+  });
+  consultations.push({
+    id: 'con-today-unbilled', clinic_id: clinic.id, patient_id: gapPatient.id, doctor_id: doctors[0].id,
+    appointment_id: gapApptId, visited_on: t,
+    vitals: { temperature_c: 98.2, pulse_bpm: 78, bp_systolic: 118, bp_diastolic: 76, spo2: 99, weight_kg: 64 },
+    complaint: 'Review of thyroid report', examination: 'No goitre. No tremor.',
+    diagnoses: ['Hypothyroidism'], advice: 'Continue the same dose. Repeat TSH in 8 weeks.',
+    prescription: [{ drug: 'Levothyroxine 50mcg', dose: '1 tablet', frequency: 'Once daily', duration: '60 days', instructions: 'Empty stomach' }],
+    follow_up_on: addDays(t, 21), follow_up_done: false,
+    created_at: new Date(Date.now() - 43 * 60000).toISOString(),
+  });
+
   return {
     mode: 'demo',
     clinic,
@@ -331,6 +353,11 @@ export function makeDemoWorkspace() {
     appointments,
     consultations,
     invoices,
+    // Added in 1.10.0. An empty log is honest: nothing has been sent from this
+    // browser yet.
+    day_closes: [],
+    reminders: [],
+    schemaReady: true,
     serviceCatalogue: [],
     loadedAt: new Date().toISOString(),
     version: 1,

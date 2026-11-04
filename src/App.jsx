@@ -21,6 +21,7 @@ import PatientDetail from './pages/PatientDetail.jsx';
 import Consultations from './pages/Consultations.jsx';
 import Billing from './pages/Billing.jsx';
 import FollowUps from './pages/FollowUps.jsx';
+import DayClose from './pages/DayClose.jsx';
 import Team from './pages/Team.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="patients/:id" element={<PatientDetail />} />
           <Route path="consultations" element={<RequireCapability capability="consultation:read"><Consultations /></RequireCapability>} />
           <Route path="billing" element={<Billing />} />
+          <Route path="day-close" element={<RequireCapability capability="invoice:read"><DayClose /></RequireCapability>} />
           <Route path="follow-ups" element={<RequireCapability capability="consultation:read"><FollowUps /></RequireCapability>} />
           <Route path="team" element={<RequireCapability capability="team:read"><Team /></RequireCapability>} />
           <Route path="reports" element={<RequireCapability capability="clinic:reports"><Reports /></RequireCapability>} />

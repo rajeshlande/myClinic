@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import {
   ArrowUpRight, BellRing, CalendarPlus, CheckCircle2, ChevronRight, Clock, CreditCard,
   IndianRupee, LogIn, PlayCircle, Stethoscope, TrendingUp, UserPlus, Users, Wallet, AlertTriangle,
-  Ticket, Volume2,
+  Ticket, Volume2, Sunset,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, CardHead, Kpi, EmptyState, Avatar, Modal } from '../components/ui.jsx';
@@ -96,6 +96,7 @@ export default function Dashboard() {
         <div className="row wrap hero-actions" style={{ gap: 8 }}>
           <Button variant="subtle" icon={UserPlus} onClick={() => setPatientOpen(true)}>Register patient</Button>
           <Button variant="subtle" icon={CalendarPlus} onClick={() => setApptOpen(true)}>Book appointment</Button>
+          <Button variant="ghost" icon={Sunset} onClick={() => navigate('/app/day-close')}>Day close</Button>
           <Button variant="primary" icon={Ticket} onClick={() => setTokenOpen(true)}>Issue token</Button>
         </div>
       </div>

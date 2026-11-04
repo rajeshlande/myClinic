@@ -12,8 +12,11 @@ import {
 const DEMO_KEY = 'myclinic.demo.v1';
 const StoreContext = createContext(null);
 
-const emptyState = { clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [], invoices: [], subscription: null };
-const STATE_TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices'];
+const emptyState = {
+  clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [],
+  invoices: [], day_closes: [], reminders: [], subscription: null,
+};
+const STATE_TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices', 'day_closes', 'reminders'];
 
 function readDemo() {
   try {
@@ -95,12 +98,23 @@ export function StoreProvider({ children, session }) {
       const { data: clinic, error: cErr } = await supabase.from('clinics').select('*').eq('id', mine.clinic_id).single();
       if (cErr) throw cErr;
 
+      // Tables added by a later schema are read tolerantly: a database that has
+      // not been migrated yet must not blank the clinic, it just has no rows.
+      const optional = async (query) => {
+        const result = await query;
+        const missing = result.error && (result.error.code === '42P01'
+          || /relation .* does not exist/i.test(result.error.message ?? ''));
+        return missing ? { data: [], error: null, missing: true } : result;
+      };
+
       const results = await Promise.all([
         supabase.from('staff').select('*').eq('clinic_id', clinic.id).order('created_at'),
         supabase.from('patients').select('*').eq('clinic_id', clinic.id).order('created_at', { ascending: false }),
         supabase.from('appointments').select('*').eq('clinic_id', clinic.id).order('scheduled_on'),
         supabase.from('consultations').select('*').eq('clinic_id', clinic.id).order('visited_on', { ascending: false }),
         supabase.from('invoices').select('*').eq('clinic_id', clinic.id).order('issued_on', { ascending: false }),
+        optional(supabase.from('day_closes').select('*').eq('clinic_id', clinic.id).order('closed_on', { ascending: false })),
+        optional(supabase.from('reminders').select('*').eq('clinic_id', clinic.id).order('logged_on', { ascending: false })),
       ]);
       const failure = results.find((r) => r.error);
       if (failure) throw failure.error;
@@ -117,6 +131,11 @@ export function StoreProvider({ children, session }) {
         appointments: results[2].data ?? [],
         consultations: results[3].data ?? [],
         invoices: results[4].data ?? [],
+        day_closes: results[5].data ?? [],
+        reminders: results[6].data ?? [],
+        // schema 7 is what day close and the reminder log need; without it the
+        // pages explain themselves instead of failing a write.
+        schemaReady: !(results[5].missing || results[6].missing),
         subscription: licenseRow ?? null,
       };
       setState(next);

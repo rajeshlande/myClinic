@@ -16,7 +16,8 @@ Built by adapting the technical foundation of the supplied [`mycar`](https://git
 | **Patients** | Registration with auto patient IDs, clinical flags (chronic conditions, allergies), full chart: timeline, vitals, prescriptions, invoices, appointments. |
 | **Consultations** | Vitals, complaint, examination, diagnoses, prescription lines, advice, follow-up date — "Save & bill" creates the invoice in one step. The drug field is a **medicine master typeahead** (brand / molecule / symptom) that fills dose, frequency, duration and food relation, and runs **safety checks** on every prescription. |
 | **Billing** | GST-ready invoices with line items, discounts, part payments, payer method (cash/UPI/card/insurance/credit), outstanding dues per patient, printable invoice. Unpaid invoices carry a scannable **UPI QR** with the exact balance pre-filled — set the clinic VPA in Settings → Billing & invoices → Payments & UPI. |
-| **Follow-ups** | Overdue / due-today / next-7-days recall lists, closed-loop "mark done", gone-quiet cohort, privacy-safe reminder copy. |
+| **Follow-ups** | Overdue / due-today / next-7-days recall lists, closed-loop "mark done", gone-quiet cohort, and a **reminder queue**: one privacy-safe message per patient for booked appointments, due recalls and week-old balances, with copy / WhatsApp actions and a send log that stops the same patient being chased twice. |
+| **Day close** | The day's collections split by payment method, cash counted against cash expected with the variance written down, the missed charges found for you (seen but never billed, bills still open, dues older than a week), and a **frozen snapshot** per day — reopen to amend, never overwrite silently. Shareable as text or CSV. |
 | **Reports** | Month picker, revenue trend, payer mix, revenue by category, footfall, doctor performance table, top diagnoses, appointment outcomes, utilisation, daily collection. |
 | **Doctors & staff** | Doctors with their own hours, slot length, fees and calendar colour; front-desk seats; role matrix; seat count against plan. |
 | **Settings** | Clinic profile, billing/GST, account, appearance (theme + density), reminders, plan, data export. |
@@ -41,7 +42,7 @@ Live demo data: the app boots into **Sunrise Multispecialty OPD** with six month
 ```bash
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 45 unit tests (domain, offline replay, readiness)
+npm test             # 150 unit tests (domain, day book, offline replay, readiness)
 npm run build        # production bundle in dist/
 ```
 

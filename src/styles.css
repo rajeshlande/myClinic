@@ -1516,6 +1516,72 @@ button.slot:hover .slot-icon { opacity: 1; }
 }
 
 /* ==========================================================================
+   DAY BOOK · day close and the reminder queue (v1.10.0)
+   --------------------------------------------------------------------------
+   Two shapes only: an inline notice (a sentence with a coloured edge) and a
+   figure strip. Everything else reuses the list and card vocabulary.
+   ========================================================================== */
+.notice {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-2);
+}
+.notice .small { color: var(--text); }
+.notice .tiny { color: var(--muted); }
+.notice.success { background: var(--success-bg); border-left-color: var(--success); }
+.notice.warn { background: var(--warn-bg); border-left-color: var(--warn); }
+.notice.danger { background: var(--danger-bg); border-left-color: var(--danger); }
+.notice.info { background: var(--info-bg); border-left-color: var(--info); }
+
+/* One row per thing the clinic can fix today. */
+.leak-list { display: grid; }
+.leak-list > .list-item + .list-item { border-top: 1px solid var(--border); }
+.leak-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--faint);
+}
+.leak-dot.danger { background: var(--danger); }
+.leak-dot.warn { background: var(--warn); }
+.leak-dot.info { background: var(--info); }
+.leak-summary { margin-bottom: 10px; }
+.reminder-list { display: grid; }
+.reminder-list > .reminder-row + .reminder-row { border-top: 1px solid var(--border); }
+
+/* Counted vs expected, as a chip that cannot be mistaken for a total. */
+.variance-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+  border: 1px solid var(--border);
+}
+.variance-chip.match { background: var(--success-bg); color: var(--success); border-color: transparent; }
+.variance-chip.short { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.variance-chip.over { background: var(--info-bg); color: var(--info); border-color: transparent; }
+
+.day-picker { flex: 0 0 auto; }
+.day-picker .input { min-width: 150px; }
+
+.day-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.day-figure {
+  display: grid; gap: 2px; padding: 10px 12px;
+  background: var(--surface-2); border-radius: var(--radius-sm);
+}
+.day-figure .kpi-icon { margin-bottom: 4px; }
+.day-figure strong { font-size: 1.15rem; line-height: 1.1; }
+
+/* The reminder log is evidence, so it starts folded and out of the way. */
+.reminder-log { border-top: 1px solid var(--border); padding-top: 10px; }
+.reminder-log > summary { cursor: pointer; list-style: none; }
+.reminder-log > summary::-webkit-details-marker { display: none; }
+.reminder-log > summary::before { content: '▸ '; }
+.reminder-log[open] > summary::before { content: '▾ '; }
+.reminder-log .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* ==========================================================================
    MOBILE PASS · phones (≤700px)
    --------------------------------------------------------------------------
    Desktop is unchanged. These rules re-purpose the same markup for a thumb:
@@ -1835,4 +1901,29 @@ button.slot:hover .slot-icon { opacity: 1; }
   .sched-kpis .kpi-num { font-size: 1.15rem; }
   .sched-kpis .kpi-label, .sched-kpis .kpi-tile > span:last-child { font-size: 0.64rem; }
   .weekstrip { grid-auto-columns: minmax(52px, 1fr); }
+}
+
+/* -- day close on a phone: rows, not columns -------------------------------- */
+@media (max-width: 700px) {
+  .day-picker { flex: 0 0 auto; }
+  .day-picker .input { width: 100%; }
+  .day-picker > label { margin-bottom: 2px; }
+  /* three money columns fit a phone without a horizontal scroll */
+  .table-wrap > table.data.compact { min-width: 0; }
+  .table-wrap > table.data.compact th, .table-wrap > table.data.compact td { padding: 9px 6px; }
+  .table-wrap > table.data.compact th:last-child, .table-wrap > table.data.compact td:last-child { padding-right: 10px; }
+  .leak-list > .list-item { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; grid-template-areas: 'dot main amount' 'dot actions actions'; gap: 2px 8px; align-items: center; }
+  .leak-list > .list-item > .leak-dot { grid-area: dot; align-self: start; margin-top: 9px; }
+  .leak-list > .list-item > .li-main { grid-area: main; }
+  .leak-list > .list-item > .mono { grid-area: amount; }
+  .leak-list > .list-item > .row-actions { grid-area: actions; justify-content: stretch; }
+  .leak-list > .list-item > .row-actions > .btn { flex: 1; }
+  .reminder-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: 'avatar main badge' 'actions actions actions'; gap: 6px 8px; align-items: center; }
+  .reminder-row > .avatar { grid-area: avatar; }
+  .reminder-row > .li-main { grid-area: main; }
+  .reminder-row > .badge { grid-area: badge; }
+  .reminder-row > .row-actions { grid-area: actions; display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; justify-content: stretch; }
+  .reminder-row > .row-actions > .btn { width: 100%; }
+  .day-figures { gap: 8px; }
+  .variance-chip { border-radius: var(--radius-sm); }
 }

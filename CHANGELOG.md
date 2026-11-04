@@ -3,6 +3,52 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.10.0] — 2026-11-04 · schema 7
+
+The end of the day, inside the app. Until now the front desk closed the day on a
+notebook: cash counted against a total read off the billing screen, and the visits
+that were never billed found later — usually by the accountant, usually a month on.
+Day close does both jobs in one pass, and keeps the receipts.
+
+### Added
+- **Day close** (`/app/day-close`). Money in for any day, split by payment method,
+  including part payments collected today against older bills. Cash expected in the
+  drawer, cash counted, and the variance — short, over or matching — with a note.
+- **A close is a snapshot, not a query.** Closing writes `day_closes` (one row per
+  clinic per day) with the totals frozen at that moment, so a sheet printed at 9pm
+  still agrees with the app after tomorrow's invoices arrive. A closed day can be
+  reopened and re-closed; the row is updated, never stacked or deleted.
+- **Missed-charge detector.** Every charge the day leaked, with the patient, the
+  amount and the way to fix it: a patient marked completed with no invoice, notes
+  saved with no bill, a bill from today still open (part paid or untouched), and
+  dues older than a week, aged in days.
+- **Reminder queue** on Follow-ups. One privacy-safe message per patient, drafted
+  from three sources: booked appointments inside the reminder lead time, recalls
+  that are due or overdue, and balances owed for longer than a week. Balances for
+  one patient are totalled into a single message.
+- **A send log** (`reminders`). Copy, open WhatsApp, mark sent or skip — the log
+  records which, on which channel, when, and by whom. It is deliberately honest:
+  nothing claims delivery it cannot prove. Anything logged inside its window
+  (1 day for an appointment, 3 for a recall, 7 for a balance) drops out of the
+  queue, so a patient is never chased twice for the same thing.
+- **Quiet hours and lead time are honoured** from Settings → Reminders. Drafts made
+  overnight are held for the morning rather than pretended to be sent.
+- Day sheet as text for the clinic group, and as CSV for the accountant.
+
+### Changed
+- The per-recall "Remind" message and the queue now share one message builder, so
+  every reminder carries the clinic, the doctor, the date and the time — never a
+  diagnosis, a drug or a reason for the visit.
+- The day's own navigation gains **Day close** under Records & money, and a way in
+  from the dashboard header.
+
+### Notes
+- Schema 7 adds `day_closes` and `reminders` with RLS: everyone in the clinic reads
+  the day sheet, the owner and front desk write it; the send log is append-only for
+  staff and deletable only by an owner. The client reads both tables tolerantly, so
+  a database still at schema 6 runs every other screen and says which migration is
+  missing.
+
 ## [1.9.0] — 2026-11-04 · schema 6
 
 A phone pass over the whole app. Desktop is untouched — every rule lives inside a
