@@ -56,9 +56,9 @@ It is written to be safe from any starting point:
 
 | Starting point | What happens |
 | --- | --- |
-| Empty project | every table, policy, trigger and function is created; version set to 4 |
+| Empty project | every table, policy, trigger and function is created; version set to 8 |
 | Already at the current version | no-op — guarded blocks see the version and skip |
-| An older database (v1, v2, v3) | the missing migrations apply in place, straight to v4; clinical and billing rows are never touched |
+| An older database (v1 … v7) | the missing migrations apply in place, straight to v8; clinical and billing rows are never touched |
 | Interrupted half-way | the whole file is one transaction — either it fully applies or nothing changes |
 
 Nothing in the file drops a table or deletes a row. Re-running it can never be destructive.
@@ -71,8 +71,9 @@ select * from public.app_migrations(); -- one row per migration: version, name, 
 select * from public.schema_migrations; -- the raw ledger the guards consult
 ```
 
-Expected output for a current database — `version = 4`, `expected = 4`, and four ledger
-rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`.
+Expected output for a current database — `version = 8`, `expected = 8`, and eight ledger
+rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`, `5 upi`, `6 rx`,
+`7 day-close`, `8 public-booking`.
 
 ### What each migration added
 
@@ -82,6 +83,10 @@ rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`.
 | 2 | §2 | role helpers, invitation flow, offline/replay support columns |
 | 3 | §3 | `clinic_subscriptions`, `plan_seat_limit()`, `plan_price_paise()`, `license_state()`, `change_plan()`, `renew_subscription()`, `start_trial()`, `set_license_status()`, `seat_guard`, `subscription_write_guard` |
 | 4 | §4 | `logo_square_url`, `logo_wide_url`, `logo_on_documents` with size/format guards |
+| 5 | §5 | UPI collection: `upi_id`, `upi_payee_name`, `upi_qr_on_invoices`, plan gate |
+| 6 | §6 | prescription numbering (`rx_number`, `rx_version`, `rx_safety`), per-clinic unique |
+| 7 | §7 | `day_closes` (frozen day snapshot, cash reconciliation) and `reminders` (append-only send log) |
+| 8 | §8 | public booking: `clinics.booking_*`, `appointments.booking_ref` / `cancelled_at`, live-slot partial unique index, five `anon`-granted RPCs |
 
 Confirm the licensing and branding objects exist:
 
@@ -93,6 +98,19 @@ select logo_square_url, logo_wide_url from public.clinics limit 1;
 Both logo columns only accept `data:image/…` URLs and are capped at 700 KB / 900 KB, so a
 clinic row (and the offline snapshot that carries it) stays small. Logos are uploaded in
 **Settings → Logos & branding**, resized in the browser before they are saved.
+
+Check the public booking surface once, from outside the clinic (schema 8):
+
+```sql
+set role anon;
+select public.public_clinic_profile('<your-clinic-slug>');   -- name, address, doctors
+select count(*) from public.patients;                        -- permission denied
+reset role;
+```
+
+The first statement answering and the second refusing is the whole design: a patient's
+browser can call five named functions, and read no table at all. Turn the page off per
+clinic in **Settings → Clinic → Public booking**.
 
 ## 4. Configure authentication
 
@@ -155,7 +173,7 @@ Visit `https://rajeshlande.github.io/myClinic/#/setup` and press **Run test** in
 | Project URL is HTTPS | the URL starts with `https://` |
 | Base path matches deployment | assets are relative (`./`) or the base equals the Pages sub-path |
 | REST API reachable with this key | `GET /rest/v1/` with the key returns 2xx (not 401/403) |
-| Database schema version | `app_schema_version()` equals the version this build needs (6) |
+| Database schema version | `app_schema_version()` equals the version this build needs (8) |
 
 All green means: sign-up, sign-in, tenant isolation and cloud sync are wired.
 Any red check names the exact thing to fix — no key material is ever displayed.
