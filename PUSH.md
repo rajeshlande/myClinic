@@ -6,39 +6,37 @@ Your clone stays a normal clone; `git bundle verify` reports it as a complete
 source of history.
 
 Current state of <https://github.com/rajeshlande/myClinic.git>: `main` at
-`e4f7f5f` *"docs: PUSH.md for the v1.10.0 bundles"*, tags `v1.2.1 … v1.10.0`.
-Everything after that is in the bundles below — and there are **six releases in
-them, because nothing has been pushed since 1.10.0**: the landing patch (v1.10.1),
-**1.11.0, public booking, schema 8**, **1.11.1, the staff-invitation fix**,
-**1.11.2, the responsive pass**, **1.11.3, the schema fix**, and **1.11.4, the
-offline-sync fix**. One push delivers all six.
+`e417a41` *"docs: PUSH.md points at the v1.11.2 commit"*, tags `v1.10.0 …
+v1.11.2`. Everything after that is in the bundles below — **three releases, one
+push**: **1.11.3, the schema fix**, **1.11.4, the offline-sync fix**, and
+**1.11.5, the booking link**, which is the first release to ask for schema **9**.
 
 Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.11.4.bundle` | ~93 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
-| `myClinic-full-v1.11.4.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.11.5.bundle` | ~45 KB | You already have the repo on GitHub or on disk at `e417a41` (v1.11.2 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-full-v1.11.5.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` and the six tags GitHub does not have yet — `v1.10.1`, `v1.11.0`,
-`v1.11.1`, `v1.11.2`, `v1.11.3` and `v1.11.4` — plus every earlier tag.
+Both carry `main` and the three tags GitHub does not have yet — `v1.11.3`,
+`v1.11.4` and `v1.11.5` — plus every earlier tag.
 
 ## Route A · update an existing clone, then push (recommended)
 
-The update bundle declares `e4f7f5f` as its prerequisite, so it applies to your
-existing clone as-is — no re-download of ten rounds of history. It lands **six**
-commits of product (`a49747e`, `7ec613b`, `755fafa`, the responsive pass, the schema
-fix, and the offline-sync fix) plus a docs commit.
+The update bundle declares `e417a41` as its prerequisite, so it applies to your
+existing clone as-is — no re-download of the history you already pushed. It lands
+**three** commits of product (`436efe2` the schema fix, `b7c64cd` the offline-sync
+fix, and the two commits that make up 1.11.5) plus three docs commits.
 
 ```bash
 git clone https://github.com/rajeshlande/myClinic.git myClinic   # skip if already cloned
 cd myClinic
-git fetch /path/to/myClinic-update-to-v1.11.4.bundle \
+git fetch /path/to/myClinic-update-to-v1.11.5.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
-git push origin refs/tags/v1.10.1 refs/tags/v1.11.0 refs/tags/v1.11.1 refs/tags/v1.11.2 refs/tags/v1.11.3 refs/tags/v1.11.4
+git push origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -52,19 +50,19 @@ the old tag moved onto this history, do it deliberately:
 `git push --force origin refs/tags/v1.2.1` (only if nothing references it).
 
 Verified from this sandbox against the live repository: `git clone` of
-github.com/rajeshlande/myClinic (lands on `e4f7f5f`) → fetch the bundle →
-`git merge --ff-only` lands on the v1.11.4 commit, exit code 0, working tree
-clean, **240/240 tests** pass, `npm run build` and `npm run check:pages` clean,
-tags `v1.3.0 … v1.11.4` present and `v1.2.1` untouched.
+github.com/rajeshlande/myClinic (lands on `e417a41`) → fetch the bundle →
+`git merge --ff-only` lands on the v1.11.5 commit, exit code 0, working tree
+clean, **252/252 tests** pass, `npm run build` and `npm run check:pages` clean,
+tags `v1.11.3 … v1.11.5` present and `v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.11.4.bundle myClinic
+git clone -b main myClinic-full-v1.11.5.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
-git push origin refs/tags/v1.10.1 refs/tags/v1.11.0 refs/tags/v1.11.1 refs/tags/v1.11.2 refs/tags/v1.11.3 refs/tags/v1.11.4
+git push origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5
 ```
 
 (A fresh clone *can* be pushed with `--follow-tags`; the explicit tag list above
@@ -74,6 +72,8 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 
 | Commit | Release | Scope |
 |---|---|---|
+| `7145671` | **1.11.5** · schema 9 | The booking link works from the moment a clinic is created. Settings shows the address the database answers on (Copy/Open disabled until one exists) instead of the sample clinic's `sunrise-opd`, a renamed link says "patients stay on /book/old-name until you save", and `/book/:slug` renders outside `<StoreProvider>` so a patient no longer watches "Opening your clinic…". **Run `supabase/schema.sql` again — it lands schema 9.** |
+| `d007bb7` | **1.11.5** · schema 9 | `create_clinic()` never set `slug`, so a clinic onboarded after schema 8 had no public address and its link 404'd. Schema 9 mints one at provisioning (`next_clinic_slug()`), backfills and repairs every existing clinic (capitals, punctuation, over-length), adds a `clinics_slug_format` check, and adds `set_clinic_slug()` — owner-only, revoked from anon, collision-safe. Suite E follows one link from provisioning to the anon profile. |
 | `b7c64cd` | **1.11.4** · schema 8 | Offline sync stopped dead after a staff edit: the replay stamped `client_updated_at` and sent `client_id` to tables that have neither (`staff`, `invoices`), so PostgREST answered 400 / PGRST204 forever and every write behind it waited. The client now mirrors the schema (`OFFLINE_COLUMNS`, guarded by a test), a missing column is dropped and the write retried, and a change the server keeps refusing goes to the sync centre after five attempts instead of blocking the queue. No schema change. |
 | `436efe2` | **1.11.3** · schema 8 | `schema.sql` could not be applied to a new project: schema 8 stopped at `syntax error at or near "both"` (`btrim(both '-' from …)` — that is `trim`, not `btrim`), and `public_book()` would then have failed for every new patient because a local variable was named `code`. The slug rule is now `public.clinic_slug(name)`, the variable is `patient_code`, schema 8 re-applies itself when its functions are missing, and two new rolled-back SQL suites plus 10 `npm test` guards cover both. **Run `supabase/schema.sql` again — no re-paste in parts.** |
 | `5ffade1` | **1.11.2** · schema 8 | Responsive pass. One set of breakpoints (`src/lib/responsive.mjs`); the marketing footer rebuilt as a real footer that stacks 3 → 2 → 1 columns; the closing CTA stacks instead of squeezing its heading to one word a line; the nav folds into a menu below 900px, the twelve feature cards into tap-to-read rows and the three plans behind a tab switch on a phone — 2200px less scrolling at 390px with nothing removed. No schema change. |
@@ -89,9 +89,9 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.11.4.bundle    # refs + required base
-git bundle verify myClinic-full-v1.11.4.bundle         # "complete history"
-git clone -b main myClinic-full-v1.11.4.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.11.5.bundle    # refs + required base (e417a41)
+git bundle verify myClinic-full-v1.11.5.bundle         # "complete history"
+git clone -b main myClinic-full-v1.11.5.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
@@ -105,19 +105,40 @@ cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 4. Site: <https://rajeshlande.github.io/myClinic/> · self-test: `/#/setup`.
    The sample clinic's booking page is at `/#/book/sunrise-opd`.
 5. **Run the database migration**: paste `supabase/schema.sql` into the Supabase SQL
-   editor once. It is idempotent and lands the project at schema **8** — the version
-   this build expects. (Coming from schema 7 it applies just the schema 8 block.) Until it is run, the public booking page says "Online booking
-   needs schema 8" instead of booking, and every other screen works exactly as before.
+   editor once — the whole file, no parts. It is idempotent and lands the project at
+   schema **9**, the version this build expects; coming from schema 8 it applies just
+   the schema 9 block, from schema 7 the 8 and 9 blocks.
+   Until it is run, booking still works but a *newly created* clinic has no public
+   address (the app falls back to a plain row write), so **clinic creation needs
+   schema 9 to hand out a working link**. Nothing else is affected.
+6. **Existing clinic has no link?** Open Settings → Clinic → Public booking and press
+   “Save booking settings” once: either schema 9's backfill already gave it an address
+   (it runs when the file is applied) or the save mints one.
 
-### What schema 8 changes
+### What schema 9 changes
 
-Everything is additive except one constraint swap, and the whole block only runs
-when `app_schema_version() < 8`.
+Everything is additive and the block only runs when `app_schema_version() < 9`.
+
+- `public.next_clinic_slug(name, exclude)` — a clinic name turned into a URL
+  address nobody else holds (`dr-mehta-clinic`, `dr-mehta-clinic-1`, …).
+- `create_clinic()` now inserts `slug` (minted with that function) and no longer
+  fails when the owner's full name was left blank.
+- A row-by-row backfill gives every clinic an address and rewrites any the public
+  lookup could never match: capitals (the lookup lowercases what a patient typed),
+  punctuation, an empty slug, or one past 40 characters.
+- `clinics_slug_format` — `^[a-z0-9][a-z0-9-]*$`, 1–40 characters.
+- `public.set_clinic_slug(clinic, slug)` — owner-only, revoked from `PUBLIC` and
+  unavailable to `anon`, normalises what was typed, steps aside on a collision,
+  falls back to the clinic's name when the field is cleared, and returns the
+  address that is now live so the app can display exactly that.
+
+Verified on PostgreSQL 17 as a fresh install **and** as an upgrade from schema 8,
+both followed by `supabase/schema-tests.sql` (five suites, rollbacks only).
+
+### What schema 8 changed (v1.11.0 onward — already applied if you have been pushing)
 
 - `clinics` gains `booking_enabled` (default true), `booking_horizon_days`
-  (default 14, 1–60) and `booking_note` (≤120 chars). A clinic that never had a
-  `slug` — the column arrived in migration 4 for branding and was left empty — is
-  given one derived from its name, stepping around collisions.
+  (default 14, 1–60) and `booking_note` (≤120 chars).
 - `appointments` gains `booking_ref` (unique per clinic where not null) and
   `cancelled_at`.
 - **One constraint is replaced, not added:** the full
