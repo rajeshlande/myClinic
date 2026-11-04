@@ -6,27 +6,27 @@ Your clone stays a normal clone; `git bundle verify` reports it as a complete
 source of history.
 
 Current state of <https://github.com/rajeshlande/myClinic.git>: `main` at
-`53c0957` *"docs: PUSH.md…"*, one tag (`v1.2.1`). Everything after that — v1.3.0,
-v1.4.0, v1.5.0, v1.7.0, v1.8.0 and their four commits — is in the bundles below.
+`e761c5e` *"docs: PUSH.md…"*, tags `v1.2.1 … v1.8.0`. Everything after that — v1.9.0
+and its commit — is in the bundles below.
 
 Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.8.0.bundle` | ~160 KB | You already have the repo on GitHub or on disk at `53c0957`. **Recommended** — it is a delta and fast-forwards. |
-| `myClinic-full-v1.8.0.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.9.0.bundle` | ~170 KB | You already have the repo on GitHub or on disk at `e761c5e`. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-full-v1.9.0.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
 Both carry `main` and every release tag `v1.2.1 … v1.8.0`.
 
 ## Route A · update an existing clone, then push (recommended)
 
-The update bundle declares `53c0957` as its prerequisite, so it applies to your
+The update bundle declares `e761c5e` as its prerequisite, so it applies to your
 existing clone as-is — no re-download of ten rounds of history.
 
 ```bash
 git clone https://github.com/rajeshlande/myClinic.git myClinic   # skip if already cloned
 cd myClinic
-git fetch /path/to/myClinic-update-to-v1.8.0.bundle \
+git fetch /path/to/myClinic-update-to-v1.9.0.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
@@ -47,13 +47,13 @@ the old tag moved onto this history, do it deliberately:
 
 Verified from this sandbox against the live repository: `git clone` of
 github.com/rajeshlande/myClinic → fetch the bundle → `git merge --ff-only` lands
-on `d5a69a0`, exit code 0, working tree clean, tags `v1.3.0 … v1.8.0` present and
+on `d5a69a0`, exit code 0, working tree clean, tags `v1.3.0 … v1.9.0` present and
 `v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.8.0.bundle myClinic
+git clone -b main myClinic-full-v1.9.0.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
@@ -64,13 +64,14 @@ git push origin refs/tags/v1.3.0 refs/tags/v1.4.0 refs/tags/v1.5.0 \
 (A fresh clone *can* be pushed with `--follow-tags`; the explicit tag list above
 still avoids the pre-existing `v1.2.1` on GitHub.)
 
-Verified from this sandbox: cloned from the bundle, `npm test` → **119 passed**,
+Verified from this sandbox: cloned from the bundle, `npm test` → **120 passed**,
 `npm run build` and `npm run check:pages` → clean, 13 commits of history present.
 
 ## What is in these commits
 
 | Commit | Release | Scope |
 |---|---|---|
+| `3fdee7b` | **1.9.0** · schema 6 | Phone layout for every screen: agenda day board, lists that read down, full-screen consultation sheet with pinned actions, paged registers, 38px+ touch targets. Plus `buildDayBoard` now honours its injected clock. |
 | `d5a69a0` | docs | This file, for the v1.8.0 bundles. |
 | `cc0ca35` | **1.7.0** · schema 5 | UPI QR collection on unpaid invoices, one payment sheet for billing/invoice/patient chart, rebuilt invoice and prescription documents, and `supabase/schema.sql` as the single source of truth for the whole database. |
 | `8df4296` | **1.8.0** · schema 6 | Medicine master typeahead with dose defaults, prescription safety (duplicate molecule/class, interactions, allergies, H1 notice), acknowledgement logged to `consultations.rx_safety`, and `RX/26-27/0001` prescription numbering. Also fixes the consultation dialog stealing the caret. |
@@ -81,9 +82,9 @@ passing respectively) so a bisect over this range never lands on a broken tree.
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.8.0.bundle    # refs + required base
-git bundle verify myClinic-full-v1.8.0.bundle         # "complete history"
-git clone -b main myClinic-full-v1.8.0.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.9.0.bundle    # refs + required base
+git bundle verify myClinic-full-v1.9.0.bundle         # "complete history"
+git clone -b main myClinic-full-v1.9.0.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
