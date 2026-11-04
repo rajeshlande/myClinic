@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.10';
-export const SCHEMA_VERSION = 10;
+export const APP_VERSION = '1.12.0';
+export const SCHEMA_VERSION = 11;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.12.0', date: '2026-11-04', schema: 11,
+    highlights: [
+      'The token, the appointment, the bill and the slip can now be sent to the patient on WhatsApp from the clinic\'s own number — one composer, the exact text visible before it goes, and a log entry for every message.',
+      'The token message carries the number, the doctor and how many patients are ahead; the appointment carries the date, the time, the doctor and the address; the bill carries the total, what was paid, what is left and the clinic\'s UPI id; the slip carries the medicines and the directions in the language the doctor chose.',
+      'A patient can now be marked as opted out of WhatsApp, and the composer refuses with the reason instead of quietly doing nothing. Opt-out is a column (schema 11), not a note in the paper file.',
+      'Token, invoice and prescription messages join the reminder log, so "was this patient sent their bill?" has an answer. A message already sent today is flagged before it is sent twice.',
+    ],
+  },
   {
     version: '1.11.10', date: '2026-11-04', schema: 10,
     highlights: [

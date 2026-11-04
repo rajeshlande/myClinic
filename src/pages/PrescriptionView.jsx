@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, Printer, Stethoscope, ShieldAlert, Languages, Pill, CalendarClock, Copy, Check, FileText } from 'lucide-react';
+import { ArrowLeft, Printer, Stethoscope, ShieldAlert, Languages, Pill, CalendarClock, MessageSquare, FileText } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, EmptyState, Segmented } from '../components/ui.jsx';
 import { ageLabel, formatDate } from '../lib/logic.mjs';
 import { RX_LANGUAGES, patientInstruction, rxSheet, fontStackFor, durationParts } from '../lib/rx-language.js';
 import { DocumentHeader } from '../components/Branding.jsx';
 import { logoOnDocuments } from '../lib/branding.mjs';
+import { prescriptionMessage } from '../lib/messages.mjs';
+import MessageSheet from '../components/MessageSheet.jsx';
 
 export default function PrescriptionView() {
   const { id } = useParams();
@@ -15,7 +17,7 @@ export default function PrescriptionView() {
   const toast = useToast();
   const visit = store.consultations.find((c) => c.id === id);
   const [lang, setLang] = useState(visit?.rx_language ?? 'en');
-  const [copied, setCopied] = useState(false);
+  const [msgOpen, setMsgOpen] = useState(false);
 
   // A print sheet is the whole screen: hide the install prompt and sync bar so
   // they never sit on top of a patient's prescription.
@@ -44,26 +46,16 @@ export default function PrescriptionView() {
   // "None reported" is a finding, not an allergy — don't print a red alert for it.
   const hasAllergy = Boolean(patient?.allergies && !/^none\b|^nil\b|^no known/i.test(String(patient.allergies).trim()));
 
-  /** Plain-text version for WhatsApp / SMS to the patient. */
-  const shareText = () => {
-    const lines = [
-      `${clinic.name ?? 'Clinic'} — ${sheet.languageLabel}`,
-      `${d.patient}: ${patient?.full_name ?? ''} (${patient?.code ?? ''})`,
-      `${formatDate(visit.visited_on)} · ${doctor?.full_name ?? ''}`,
-      '',
-      `${d.medicines}:`,
-      ...(visit.prescription ?? []).map((rx, i) => `${i + 1}. ${rx.drug} — ${patientInstruction(rx, lang)}`),
-      '',
-      visit.advice ? `${d.advice}: ${visit.advice}` : '',
-      visit.follow_up_on ? `${d.followup}: ${formatDate(visit.follow_up_on)}` : '',
-      '',
-      sheet.footer,
-    ].filter(Boolean);
-    const text = lines.join('\n');
-    navigator.clipboard?.writeText(text)
-      .then(() => { setCopied(true); toast.success('Prescription copied — paste it into WhatsApp.'); setTimeout(() => setCopied(false), 2500); })
-      .catch(() => toast.error('Could not copy on this device.'));
-  };
+  // The slip goes to the patient: medicines and directions in the language the
+  // doctor chose, never the diagnosis. Built by messages.mjs, logged on send.
+  const message = prescriptionMessage({
+    clinic,
+    doctor,
+    patient,
+    visit,
+    languageLabel: sheet.languageLabel,
+    instructionFor: (rx) => patientInstruction(rx, lang),
+  });
 
   return (
     <div style={{ minHeight: '100dvh', padding: 'clamp(12px, 3vw, 32px)' }}>
@@ -71,7 +63,7 @@ export default function PrescriptionView() {
         <div className="row wrap" style={{ gap: 8 }}>
           <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={() => navigate(`/app/patients/${visit.patient_id}`)}>Patient chart</Button>
           <span className="spacer" />
-          <Button size="sm" variant="subtle" icon={copied ? Check : Copy} onClick={shareText}>{copied ? 'Copied' : 'Copy for WhatsApp'}</Button>
+          <Button size="sm" variant="subtle" icon={MessageSquare} onClick={() => setMsgOpen(true)}>WhatsApp</Button>
           <Button size="sm" variant="primary" icon={Printer} onClick={() => window.print()}>Print / PDF</Button>
         </div>
 
@@ -262,6 +254,13 @@ export default function PrescriptionView() {
           <span className="tiny faint">Print sheet is A4-friendly · browser print dialog → Save as PDF</span>
         </div>
       </div>
+
+      <MessageSheet
+        open={msgOpen}
+        onClose={() => setMsgOpen(false)}
+        patient={patient}
+        message={message}
+      />
     </div>
   );
 }

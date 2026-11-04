@@ -3,6 +3,43 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.12.0] — 2026-11-04 · schema 11
+
+**Four more things reach the patient's phone.** The clinic already messaged patients
+by hand from its own WhatsApp. It could not send a **token**, the **appointment
+details**, the **bill** or the **slip** — the first two did not exist as messages, and
+the last two were "copy this and paste it somewhere".
+
+One composer now builds all of them (`src/lib/messages.mjs`), previews the exact text,
+opens `wa.me` from the clinic's own number, and writes what happened to the log:
+
+- **Token** — the number, the doctor, how many patients are ahead and roughly how long,
+  the time they were given, and the clinic's number to call.
+- **Appointment** — date, time, doctor, address, "arrive 10 minutes early".
+- **Bill** — number, total, paid, balance, and the clinic's UPI id when it has one.
+- **Prescription** — the medicines and the directions in the language the doctor chose.
+- Reminders already existed and are unchanged.
+
+**Consent is a column.** A patient can be marked opted out of WhatsApp, with the date
+it was asked for; the composer then refuses in a sentence instead of doing nothing. The
+opt-out is on the patient card. No channel is auto-enrolled: every existing patient
+defaults to opted-in, because the clinic was already messaging them.
+
+**One log for every message.** Token, invoice and prescription rows join the reminder
+log, so "was this patient sent their bill?" is answerable, and a message already sent
+today is flagged before it goes twice. Nothing is sent automatically — this is still a
+person pressing send, and the log records a person, not a guess.
+
+Schema 11 is additive: `patients.wa_opt_in`, `patients.wa_opt_out_at`, and a widened
+CHECK on `reminders.kind`. Verified on PostgreSQL 17 as a fresh install and as a
+10 → 11 upgrade, each followed by `supabase/schema-tests.sql` — seven suites, rollbacks
+only, including the new suite G for consent and the log.
+
+`docs/WHATSAPP-SHARING.md` is the plan this came from, including why click-to-send is
+the transport today and what a Cloud API worker would change.
+
+305 tests in 14 suites.
+
 ## [1.11.10] — 2026-11-04 · schema 10
 
 **The demo door opens the demo.** On the published site — the one deployment with

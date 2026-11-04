@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
-  ArrowLeft, CheckCircle2, Copy, Download, HandCoins, Printer, ShieldCheck, Wallet,
+  ArrowLeft, CheckCircle2, Download, HandCoins, MessageSquare, Printer, ShieldCheck, Wallet,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, EmptyState } from '../components/ui.jsx';
@@ -11,6 +11,8 @@ import {
 import { DocumentHeader } from '../components/Branding.jsx';
 import { logoOnDocuments } from '../lib/branding.mjs';
 import { UPI_APPS, invoiceUpiLink, isValidUpiId, normaliseVpa, upiPayeeName } from '../lib/upi.mjs';
+import { invoiceMessage } from '../lib/messages.mjs';
+import MessageSheet from '../components/MessageSheet.jsx';
 import UpiQr from '../components/UpiQr.jsx';
 import CollectPayment from '../components/CollectPayment.jsx';
 
@@ -35,6 +37,7 @@ export default function InvoiceView() {
   const navigate = useNavigate();
   const toast = useToast();
   const [collectOpen, setCollectOpen] = useState(false);
+  const [msgOpen, setMsgOpen] = useState(false);
   const invoice = store.invoices.find((i) => i.id === id);
 
   if (!invoice) {
@@ -69,24 +72,10 @@ export default function InvoiceView() {
     downloadFile(`${invoice.number.replace(/\//g, '-')}.csv`, csv);
   };
 
-  const copySummary = async () => {
-    const lines = [
-      `${clinic.name ?? 'Clinic'} · Tax invoice ${invoice.number}`,
-      `Patient: ${patient?.full_name ?? ''}${patient?.code ? ` (${patient.code})` : ''}`,
-      `Date: ${formatDate(invoice.issued_on)}`,
-      '',
-      ...(invoice.lines ?? []).map((l) => `${l.name} × ${l.qty} — ${formatMoney(l.total)}`),
-      '',
-      `Total: ${formatMoney(invoice.total_paise)}`,
-      `Paid: ${formatMoney(invoice.paid_paise)}`,
-      settled ? 'Status: paid in full' : `Balance due: ${formatMoney(balance)}`,
-      !settled && upiConfigured ? `Pay by UPI: ${normaliseVpa(clinic.upi_id)} (${upiPayeeName(clinic)})` : '',
-    ].filter((l) => l !== '');
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'));
-      toast.success('Invoice summary copied — paste it into WhatsApp.');
-    } catch { toast.error('Could not copy on this device.'); }
-  };
+  // The bill goes to the patient on WhatsApp: number, total, what is still owed
+  // and the clinic's UPI id. Built by messages.mjs so the wording lives in one
+  // place and the send log records it like every other patient message.
+  const message = invoiceMessage({ clinic, patient, invoice, balancePaise: balance });
 
   return (
     <div className="doc-page">
@@ -95,7 +84,7 @@ export default function InvoiceView() {
         <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={() => navigate('/app/billing')}>Billing</Button>
         <span className="spacer" />
         <Badge tone={meta.tone}>{meta.label}</Badge>
-        <Button size="sm" variant="ghost" icon={Copy} onClick={copySummary}>Copy</Button>
+        <Button size="sm" variant="ghost" icon={MessageSquare} onClick={() => setMsgOpen(true)}>WhatsApp</Button>
         <Button size="sm" variant="subtle" icon={Download} onClick={exportCsv}>CSV</Button>
         <Button size="sm" variant="primary" icon={Printer} onClick={printSheet}>Print / PDF</Button>
       </div>
@@ -299,6 +288,13 @@ export default function InvoiceView() {
           <Button size="sm" variant="subtle" icon={ShieldCheck} onClick={() => navigate(`/app/patients/${invoice.patient_id}`)}>Patient chart</Button>
         </Card>
       </div>
+
+      <MessageSheet
+        open={msgOpen}
+        onClose={() => setMsgOpen(false)}
+        patient={patient}
+        message={message}
+      />
 
       <CollectPayment
         invoice={invoice}

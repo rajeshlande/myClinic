@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  ArrowRight, BellRing, CheckCircle2, Clock, CreditCard, Phone, PlayCircle, Printer,
+  ArrowRight, BellRing, CheckCircle2, Clock, CreditCard, MessageSquare, Phone, PlayCircle, Printer,
   RotateCcw, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
@@ -9,6 +9,8 @@ import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, Modal
 import TokenForm from '../components/TokenForm.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
+import MessageSheet from '../components/MessageSheet.jsx';
+import { tokenMessage } from '../lib/messages.mjs';
 import {
   addDays, averageWait, formatDate, formatMoney, formatTime, humanWait, nextTokenNo, queueBoard,
   queueState, relativeDay, tokenLabel, today, waitedMinutes,
@@ -23,6 +25,7 @@ export default function Queue() {
   const [tokenOpen, setTokenOpen] = useState(false);
   const [patientOpen, setPatientOpen] = useState(false);
   const [consultFor, setConsultFor] = useState(null);
+  const [msgFor, setMsgFor] = useState(null); // { patient, message }
   const [displayOpen, setDisplayOpen] = useState(false);
   const [feeFor, setFeeFor] = useState(null);
 
@@ -196,6 +199,32 @@ export default function Queue() {
                               {appt.status === 'checked-in' ? <Button size="sm" variant="primary" onClick={() => setStatus(appt, 'in-consult', 'Called in.')}>Call in</Button> : null}
                               {appt.status === 'in-consult' ? <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(appt)}>Consult</Button> : null}
                               {appt.status === 'completed' ? <Button size="sm" variant="ghost" icon={CreditCard} onClick={() => setFeeFor(appt)}>Bill</Button> : null}
+                              {appt.token_no ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  icon={MessageSquare}
+                                  aria-label="Send the token on WhatsApp"
+                                  onClick={() => {
+                                    const waiting = row.waiting ?? [];
+                                    const idx = waiting.findIndex((a) => a.id === appt.id);
+                                    const ahead = idx >= 0 ? idx : 0;
+                                    const slot = Number(row.doctor?.slot_minutes ?? store.clinic?.slot_minutes ?? 15);
+                                    setMsgFor({
+                                      patient,
+                                      message: tokenMessage({
+                                        clinic: store.clinic,
+                                        doctor: row.doctor,
+                                        patient,
+                                        appointment: appt,
+                                        ahead,
+                                        etaMinutes: ahead * slot,
+                                        at: appt.scheduled_at ? String(appt.scheduled_at).slice(0, 5) : '',
+                                      }),
+                                    });
+                                  }}
+                                >Token</Button>
+                              ) : null}
                               {['booked', 'checked-in'].includes(appt.status)
                                 ? <Button size="sm" variant="ghost" icon={UserX} onClick={() => setStatus(appt, 'no-show', 'Marked as no show.')}>No show</Button>
                                 : null}
@@ -266,6 +295,13 @@ export default function Queue() {
       <Modal open={displayOpen} onClose={() => setDisplayOpen(false)} title="Waiting-room display" sub="Show this on the lounge TV or a tablet at reception">
         <WaitingDisplay board={board} patientOf={patientOf} />
       </Modal>
+
+      <MessageSheet
+        open={Boolean(msgFor)}
+        onClose={() => setMsgFor(null)}
+        patient={msgFor?.patient}
+        message={msgFor?.message}
+      />
     </div>
   );
 }

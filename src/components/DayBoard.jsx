@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import {
-  CalendarPlus, CheckCircle2, Clock, LogIn, Pencil, PlayCircle, UserX, X,
+  CalendarPlus, CheckCircle2, Clock, LogIn, MessageSquare, Pencil, PlayCircle, UserX, X,
 } from 'lucide-react';
 import { Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton } from './ui.jsx';
 import {
@@ -22,7 +22,7 @@ const STATE_STYLE = {
  */
 export function DayBoard({
   doctors, appointments, iso, duration = 15, now = new Date(),
-  onNew, onEdit, onStatus, onConsult, onCancel, onPatient,
+  onNew, onEdit, onStatus, onConsult, onCancel, onPatient, onMessage,
 }) {
   const board = useMemo(
     () => buildDayBoard({ doctors, appointments, iso, now, duration }),
@@ -83,6 +83,7 @@ export function DayBoard({
                   onEdit={onEdit}
                   onStatus={onStatus}
                   onConsult={onConsult}
+                  onMessage={onMessage}
                   onCancel={onCancel}
                   onPatient={onPatient}
                 />
@@ -95,7 +96,7 @@ export function DayBoard({
                 {column.offGrid.map((appt) => (
                   <OffGridRow
                     key={appt.id} appt={appt} doctor={column.doctor}
-                    onEdit={onEdit} onStatus={onStatus} onConsult={onConsult} onCancel={onCancel} onPatient={onPatient}
+                    onEdit={onEdit} onStatus={onStatus} onConsult={onConsult} onCancel={onCancel} onPatient={onPatient} onMessage={onMessage}
                   />
                 ))}
               </div>
@@ -121,7 +122,7 @@ export function DayBoard({
   );
 }
 
-function SlotCell({ slot, iso, nowM, doctor, onNew, onEdit, onStatus, onConsult, onCancel, onPatient }) {
+function SlotCell({ slot, iso, nowM, doctor, onNew, onEdit, onStatus, onConsult, onCancel, onPatient, onMessage }) {
   const style = STATE_STYLE[slot.state] ?? STATE_STYLE.free;
   const span = Math.max(1, Math.round(intervalOf(slot.appointment ?? { duration_minutes: 15 }).duration / 15));
 
@@ -175,6 +176,9 @@ function SlotCell({ slot, iso, nowM, doctor, onNew, onEdit, onStatus, onConsult,
           <Button size="sm" variant="subtle" onClick={() => onConsult(appt)}>Open note</Button>
         ) : null}
         <span className="spacer" />
+        {onMessage ? (
+          <IconButton icon={MessageSquare} label="Send on WhatsApp" size={12} className="plain sm" onClick={() => onMessage(appt)} />
+        ) : null}
         <IconButton icon={Pencil} label="Reschedule" size={12} className="plain sm" onClick={() => onEdit(appt)} />
         {!DEAD_STATUSES.includes(appt.status) && appt.status !== 'completed'
           ? <IconButton icon={X} label="Cancel" size={12} className="plain sm" onClick={() => onCancel(appt)} />

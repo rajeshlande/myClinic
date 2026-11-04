@@ -7,7 +7,7 @@
   <p>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg" alt="Deploy" /></a>
-    <img src="https://img.shields.io/badge/schema-10-blue.svg" alt="schema 10" />
+    <img src="https://img.shields.io/badge/schema-11-blue.svg" alt="schema 11" />
     <img src="https://img.shields.io/badge/node-26.13.0-brightgreen.svg" alt="node 26" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
   </p>
@@ -103,7 +103,9 @@ Requirements: **Node 26 LTS** (pinned in `.nvmrc`; anything ≥ 22.22 works) and
 week load and next-free suggestion; patient registration with auto codes
 (`PT-00001`), phone-digit dedupe and clinical flags; GST-ready invoices with line
 items, discounts, part payments and a scannable **UPI QR** on every unpaid bill;
-reminders with a send log that honours quiet hours.
+reminders with a send log that honours quiet hours; and **WhatsApp on the desk's own
+number** — token, appointment, bill and prescription — from one composer that shows the
+exact text, respects a patient's opt-out, and writes what was sent to the log.
 
 **Doctor** — consultations with vitals, examination, diagnoses and advice; a
 medicine master typeahead that fills dose, frequency and duration and runs safety
@@ -124,7 +126,7 @@ bottom tab bar on phones; installable PWA.
 ## Roles and permissions
 
 Three seats, one table — printed on the Team page, enforced by the nav, the
-routes, the screens **and** the database (schema 10).
+routes, the screens **and** the database (schema 11).
 
 | Capability | Owner | Doctor | Front desk |
 | --- | :--: | :--: | :--:|
@@ -132,6 +134,7 @@ routes, the screens **and** the database (schema 10).
 | Patient charts | ✓ | ✓ | ✓ |
 | Consultations & prescriptions | ✓ | ✓ | — |
 | Billing & payments | ✓ | — | ✓ |
+| Message a patient on WhatsApp | ✓ | ✓ | ✓ |
 | Day close & reconciliation | ✓ | — | — |
 | Staff roster | ✓ | ✓ | — |
 | Clinic settings, plan & staff changes | ✓ | — | — |
@@ -271,6 +274,8 @@ build expects.
 |---|---|
 | Pushed to `main`, no deploy ran | GitHub Actions was degraded, or the run was never created. **Actions → Deploy to GitHub Pages → Run workflow**; check `githubstatus.com`. |
 | The app says the schema is behind | Paste `supabase/schema.sql` into the SQL editor, whole file. It is additive; nothing is lost. |
+| `WhatsApp` is greyed out for one patient | They are marked as opted out (schema 11) or the number is unusable — the composer says which. The opt-out is on the patient card. |
+| A message went twice | The composer flags "already sent today" from the log but does not block it; the log is the record. |
 | A doctor cannot open Billing, or the desk cannot open Consultations | Intended since schema 10 — see [Roles and permissions](#roles-and-permissions). Move the person to the seat that owns the job. |
 | The front desk has no Day close or Doctors & staff | Also intended: those are the owner's reconciliation and roster screens. Only the owner sees the plan panel. |
 | Booking link 404s | The clinic has no slug. Schema 9 backfills it; **Settings → Clinic → Public booking → Save** mints one. |

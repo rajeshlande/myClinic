@@ -992,3 +992,100 @@ begin
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+
+-- =============================================================================
+-- SUITE G · WHATSAPP CONSENT AND THE MESSAGE LOG
+-- =============================================================================
+-- The clinic messages patients by hand today. Schema 11 makes "do not message
+-- me" a column the composer can refuse on, and widens the send log so the token,
+-- the bill and the slip are recorded in the same trail as the reminder. This
+-- suite holds the database to both halves: the default is opted-in (no patient
+-- silently loses their reminders), an opt-out survives a round trip, and the log
+-- takes the three new kinds while still refusing a kind it does not know.
+begin;
+
+do $$
+declare
+  owner_g uuid := gen_random_uuid();
+  desk_g  uuid := gen_random_uuid();
+  clinic uuid;
+  patient uuid;
+  n integer;
+  flag boolean;
+  stamp timestamptz;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values
+    (owner_g, 'wa-owner@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (desk_g,  'wa-desk@test.local',  crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  insert into public.clinics (name) values ('WhatsApp Clinic') returning id into clinic;
+  insert into public.staff (clinic_id, user_id, full_name, role) values (clinic, owner_g, 'WA Owner', 'owner');
+  insert into public.staff (clinic_id, user_id, full_name, role) values (clinic, desk_g, 'WA Desk', 'frontdesk');
+
+  -- ------------------------------------------------- 1. opted in by default
+  insert into public.patients (clinic_id, code, full_name, phone)
+    values (clinic, 'WA-00001', 'Default Patient', '9000000222') returning id into patient;
+
+  select wa_opt_in into flag from public.patients where id = patient;
+  if flag is not true then
+    raise exception 'FAIL: a new patient is not messaged by default (%)', flag using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a patient is opted in until they say otherwise';
+
+  -- ------------------------------------------------------- 2. the opt-out
+  -- The front desk is the seat that answers the phone, so it is the seat that
+  -- records the request. It must land, and it must stay landed.
+  perform set_config('request.jwt.claims', json_build_object('sub', desk_g, 'role', 'authenticated', 'email', 'wa-desk@test.local')::text, true);
+  set local role authenticated;
+
+  update public.patients
+     set wa_opt_in = false, wa_opt_out_at = now()
+   where id = patient;
+
+  select wa_opt_in, wa_opt_out_at into flag, stamp from public.patients where id = patient;
+  if flag is not false or stamp is null then
+    raise exception 'FAIL: the opt-out did not stick (%)', flag using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the front desk records an opt-out and it sticks';
+
+  -- ----------------------------------------------------- 3. the send log
+  -- Token, bill and slip are the three messages the desk now sends; the log
+  -- takes them all, with the channel and the status the composer writes.
+  insert into public.reminders (clinic_id, patient_id, draft_key, kind, channel, status, body, logged_on)
+  values
+    (clinic, patient, 'token:appt-1',        'token',        'whatsapp', 'opened', 'Your token today is T-14.', current_date),
+    (clinic, patient, 'invoice:inv-1',       'invoice',      'whatsapp', 'sent',   'Bill INV/2526/0001 - balance 500.00', current_date),
+    (clinic, patient, 'prescription:visit-1','prescription', 'copy',     'copied', 'Take one tablet twice a day.', current_date);
+
+  select count(*) into n from public.reminders where patient_id = patient;
+  if n <> 3 then
+    raise exception 'FAIL: the log took % of the 3 message kinds', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the log records a token, a bill and a slip';
+  reset role;
+
+  -- --------------------------------------------- 4. a kind it does not know
+  begin
+    insert into public.reminders (clinic_id, patient_id, draft_key, kind, status, body)
+      values (clinic, patient, 'telegram:1', 'telegram', 'sent', 'nope');
+    raise exception 'FAIL: the log accepted an unknown kind' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: the log refuses a message kind it does not know';
+  end;
+
+  -- ------------------------------------- 5. a message body stays printable
+  begin
+    insert into public.reminders (clinic_id, patient_id, draft_key, kind, status, body)
+      values (clinic, patient, 'token:appt-2', 'token', 'sent', repeat('x', 1201));
+    raise exception 'FAIL: the log accepted a 1201-character body' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: a message body is capped at 1200 characters';
+  end;
+
+  raise notice 'ALL WHATSAPP CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run

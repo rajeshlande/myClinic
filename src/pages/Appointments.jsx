@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   CalendarDays, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Clock, LayoutGrid,
-  List, LogIn, Pencil, PlayCircle, RotateCcw, Search, Sparkles, UserX, X,
+  List, LogIn, MessageSquare, Pencil, PlayCircle, RotateCcw, Search, Sparkles, UserX, X,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import {
@@ -13,6 +13,8 @@ import AppointmentForm from '../components/AppointmentForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import { DayBoard, WeekGrid } from '../components/DayBoard.jsx';
+import MessageSheet from '../components/MessageSheet.jsx';
+import { appointmentMessage } from '../lib/messages.mjs';
 import {
   addDays, appointmentMatchesQuery, appointmentsForDate, formatDate, formatSlotRange, relativeDay,
   statusMeta, today,
@@ -27,6 +29,7 @@ export default function Appointments() {
   const [date, setDate] = useState(params.get('date') || today());
   const [doctorId, setDoctorId] = useState('all');
   const [view, setView] = useState('day');
+  const [msgFor, setMsgFor] = useState(null); // { patient, message }
   const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
   const [formOpen, setFormOpen] = useState(params.get('new') === '1');
@@ -227,6 +230,12 @@ export default function Appointments() {
           onConsult={(a) => setConsultFor(a)}
           onCancel={(a) => setCancelFor(a)}
           onPatient={(id) => navigate(`/app/patients/${id}`)}
+          onMessage={(a) => setMsgFor({
+            patient: patientOf(a.patient_id),
+            message: appointmentMessage({
+              clinic: store.clinic, doctor: doctorOf(a.doctor_id), patient: patientOf(a.patient_id), appointment: a,
+            }),
+          })}
         />
       ) : null}
 
@@ -266,6 +275,15 @@ export default function Appointments() {
                   </button>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                   <div className="appt-actions no-print row-actions">
+                    <IconButton
+                      icon={MessageSquare}
+                      label="Send the appointment on WhatsApp"
+                      size={15}
+                      onClick={() => setMsgFor({
+                        patient,
+                        message: appointmentMessage({ clinic: store.clinic, doctor, patient, appointment: appt }),
+                      })}
+                    />
                     {appt.status === 'booked' ? (
                       <>
                         <IconButton icon={LogIn} label="Check in" size={15} onClick={() => setApptStatus(appt, 'checked-in', 'Patient checked in.')} />
@@ -305,6 +323,13 @@ export default function Appointments() {
       {consultFor ? (
         <ConsultationForm open onClose={() => setConsultFor(null)} appointment={consultFor} patient={patientOf(consultFor.patient_id)} onSaved={() => setConsultFor(null)} />
       ) : null}
+
+      <MessageSheet
+        open={Boolean(msgFor)}
+        onClose={() => setMsgFor(null)}
+        patient={msgFor?.patient}
+        message={msgFor?.message}
+      />
 
       <Modal
         open={Boolean(cancelFor)} onClose={() => setCancelFor(null)} title="Cancel this appointment?"

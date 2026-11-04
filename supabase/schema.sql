@@ -2153,4 +2153,56 @@ begin
    where schema_version < 10;
 end $migration$;
 
+-- =============================================================================
+-- Schema 11 · WhatsApp consent, and a send log that can hold every message
+--
+-- The clinic already messages patients by hand. Two things were missing for it
+-- to be a feature rather than a habit:
+--
+--   1. Consent. "Do not message me" lived in the paper file, so a reminder could
+--      go to a patient who had asked not to be messaged. It is a column now, and
+--      the composer refuses with a sentence the desk can act on.
+--   2. One log for every message. The reminder queue's log knew three kinds
+--      (appointment, follow-up, balance); the token, the bill and the slip had
+--      nowhere to be recorded, so "was this patient sent their bill?" was a
+--      question nobody could answer.
+--
+-- Additive only: two columns and one CHECK widened. No row is touched, so every
+-- existing patient defaults to opted-in — they were being messaged before this
+-- column existed.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 11 then
+    raise notice 'schema 11 (whatsapp consent) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 11 (whatsapp consent)';
+
+  execute $sql$
+
+  -- Opt-out is a fact, with the date it happened. wa_opt_in defaults to true so
+  -- the column lands without rewriting history.
+  alter table public.patients
+    add column if not exists wa_opt_in boolean not null default true,
+    add column if not exists wa_opt_out_at timestamptz;
+
+  -- The log already has the interesting columns: draft_key (one row per thing),
+  -- channel, status, body, sent_at, sent_by. It only refused three of the five
+  -- kinds. Widening a CHECK drops no data.
+  alter table public.reminders drop constraint if exists reminders_kind_check;
+  alter table public.reminders add constraint reminders_kind_check
+    check (kind in ('appointment','follow-up','balance','token','invoice','prescription'));
+  $sql$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (11, 'whatsapp-consent', '1.12.0',
+          'patients.wa_opt_in + wa_opt_out_at; the message log accepts token, invoice and prescription rows')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 11, applied_at = now(), notes = 'whatsapp consent and message log'
+   where schema_version < 11;
+end $migration$;
+
 commit;

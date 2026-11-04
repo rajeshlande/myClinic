@@ -6,6 +6,7 @@ import { BLOOD_GROUPS, CHRONIC_TAGS, GENDERS, ageLabel, patientCode, validatePat
 const blank = {
   full_name: '', phone: '', email: '', gender: 'Female', dob: '', age_years: '',
   blood_group: '', address: '', city: '', emergency_contact: '', tags: [], allergies: '', notes: '',
+  wa_opt_in: true, wa_opt_out_at: null,
 };
 
 export default function PatientForm({ open, onClose, patient, onCreated }) {
@@ -47,6 +48,12 @@ export default function PatientForm({ open, onClose, patient, onCreated }) {
         allergies: draft.allergies.trim(),
         notes: draft.notes.trim(),
         archived: false,
+        // Consent is stamped when it is withdrawn, and cleared if the patient
+        // changes their mind — the date is what makes the log defensible.
+        wa_opt_in: draft.wa_opt_in !== false,
+        wa_opt_out_at: draft.wa_opt_in === false
+          ? (draft.wa_opt_out_at || new Date().toISOString())
+          : null,
       };
       let saved;
       if (patient) {
@@ -81,6 +88,16 @@ export default function PatientForm({ open, onClose, patient, onCreated }) {
           </Field>
           <Field label="Mobile number" error={errors.phone} hint="Used for reminders and recalls">
             <Input value={draft.phone} onChange={set('phone')} placeholder="+91 98200 00000" inputMode="tel" error={errors.phone} />
+          </Field>
+          <Field label="WhatsApp" hint="Off means no token, bill, slip or reminder is offered for this patient">
+            <label className="row small" style={{ gap: 8, alignItems: 'center', minHeight: 38 }}>
+              <input
+                type="checkbox"
+                checked={draft.wa_opt_in !== false}
+                onChange={(e) => setDraft((d) => ({ ...d, wa_opt_in: e.target.checked }))}
+              />
+              <span>{draft.wa_opt_in === false ? 'Opted out — call instead' : 'Happy to receive messages'}</span>
+            </label>
           </Field>
           <Field label="Email" error={errors.email}>
             <Input value={draft.email} onChange={set('email')} placeholder="name@example.com" type="email" error={errors.email} />
