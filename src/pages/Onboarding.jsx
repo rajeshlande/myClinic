@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowRight, Building2, Check, Clock, Stethoscope, TriangleAlert, UserRound } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
 import { Button, Field, Input, Select, Badge, Progress } from '../components/ui.jsx';
 import { CLINIC_TYPES, moneyToPaise, paiseToInput } from '../lib/logic.mjs';
+import { recallInviteError, rememberInviteError } from '../lib/invites.mjs';
 
 const STEPS = [
   { id: 'clinic', title: 'Clinic details', icon: Building2 },
@@ -18,6 +19,10 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [error, setError] = useState('');
+  // If an invitation was refused on the way in, say why here — this screen is the
+  // first thing the person sees, and otherwise it reads as if nothing happened.
+  const [inviteError] = useState(() => recallInviteError());
+  useEffect(() => { rememberInviteError(''); }, []);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: store.clinic?.name?.startsWith('Sunrise') ? '' : store.clinic?.name ?? '',
@@ -87,6 +92,16 @@ export default function Onboarding() {
         </div>
 
         <div style={{ padding: 22 }} className="stack">
+          {inviteError ? (
+            <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 12, alignItems: 'flex-start' }}>
+              <TriangleAlert size={15} style={{ flex: 'none', marginTop: 2 }} />
+              <span className="small">
+                <strong style={{ display: 'block' }}>Your invitation could not be accepted</strong>
+                {inviteError}. Ask the clinic’s owner to re-invite you — or set up a clinic of your own below.
+              </span>
+            </div>
+          ) : null}
+
           {error ? (
             <div className="row" style={{ gap: 8, background: 'var(--danger-bg)', color: 'var(--danger)', padding: '10px 12px', borderRadius: 12 }}>
               <TriangleAlert size={15} /><span className="small">{error}</span>

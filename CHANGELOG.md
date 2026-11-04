@@ -3,6 +3,44 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.1] — 2026-11-04 · schema 8
+
+Inviting a front-desk seat or another doctor did not work. In a live clinic the
+invitation was written but never claimed — the invited person signed up, found no
+membership, and was asked to create a clinic of their own. In the demo it created a
+half-built person (named after their email, no hours, ₹0 fees) and quietly demoted
+the demo user from owner to doctor, because the role was read from `staff[0]` —
+whichever seat was added most recently.
+
+### Added
+- **Pending invitations** in Doctors & staff: who is waiting, their role, days left
+  before the offer lapses, the link to send, and a way to withdraw it.
+- The invitation carries a name, and — for a doctor — a specialty and a
+  qualification, which `accept_invite()` copies onto the seat. The client writes the
+  invite row directly (the same owner-only policy `invite_staff()` uses), because
+  the RPC carries no specialty.
+
+### Fixed
+- **The seat is claimed on first sign-in.** `accept_invite()` is now called from
+  `loadLive()` when an account has no membership, so an invited front-desk member or
+  doctor lands inside the clinic instead of being pushed to onboarding.
+- **The invitation link carries its token** (`#/signup?invite=<token>`), kept in
+  sessionStorage across sign-up and email confirmation, and passed back to
+  `accept_invite()`. The signup page recognises it: it says "You have been invited",
+  hides the clinic-name field and creates the account directly into the clinic.
+- **A refused claim is explained.** If the plan has no seat left, the invitation was
+  withdrawn, or the address does not match, the reason is shown on the next screen —
+  not swallowed by an empty catch.
+- **Email confirmation lands in the app** (`#/app/dashboard`) rather than on
+  onboarding, so a new owner is routed correctly and an invitee's seat is claimed
+  before anything else happens.
+- **The demo invite creates a complete seat**: a readable name (`priya@…` → Priya,
+  `dr.new@…` → Dr. New), the clinic's hours, slot length and fees for a doctor, and a
+  calendar colour no one else is using. It no longer demotes the demo owner to
+  doctor afterwards.
+- The clinic role and current member are read from the owner row, not from
+  `staff[0]`.
+
 ## [1.11.0] — 2026-11-04 · schema 8
 
 Patients could not book themselves. Every appointment started with a phone call the

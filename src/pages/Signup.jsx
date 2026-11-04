@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { ArrowRight, Check, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Check, TriangleAlert, UserPlus } from 'lucide-react';
 import AuthShell from '../components/AuthShell.jsx';
 import { Button, Field, Input } from '../components/ui.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
+import { readInviteToken, rememberInviteToken } from '../lib/invites.mjs';
 
 export default function Signup() {
   const { signUp, configured, error, clearError } = useAuth();
@@ -12,17 +13,31 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [localError, setLocalError] = useState('');
+  // Someone arriving from an invitation is joining a clinic, not creating one.
+  const [inviteToken, setInviteToken] = useState('');
+
+  useEffect(() => {
+    const token = readInviteToken(window.location.hash) || readInviteToken(window.location.search);
+    if (!token) return;
+    setInviteToken(token);
+    rememberInviteToken(token);   // survives the email-confirmation round trip
+  }, []);
 
   const set = (k) => (e) => { clearError(); setLocalError(''); setForm((f) => ({ ...f, [k]: e.target.value })); };
 
   async function submit(e) {
     e.preventDefault();
     if (form.password.length < 8) { setLocalError('Use a password with at least 8 characters.'); return; }
-    if (!form.fullName.trim()) { setLocalError('Tell us the doctor’s or owner’s name.'); return; }
+    if (!form.fullName.trim()) {
+      setLocalError(inviteToken ? 'Tell us your name.' : 'Tell us the doctor’s or owner’s name.');
+      return;
+    }
     setBusy(true);
     try {
       const data = await signUp(form.email.trim(), form.password, form.fullName.trim());
-      if (data?.session) navigate('/onboarding');
+      // Both paths end at the app: a new owner is redirected to onboarding by the
+      // router, while an invitee has their seat granted on the first load.
+      if (data?.session) navigate('/app/dashboard');
       else setSent(true);
     } catch { /* surfaced via context */ } finally { setBusy(false); }
   }
@@ -33,7 +48,9 @@ export default function Signup() {
         <div className="card pad" style={{ background: 'var(--success-bg)', border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)' }}>
           <div className="row" style={{ gap: 9, color: 'var(--success)' }}><Check size={16} /><strong>Almost there</strong></div>
           <p className="small" style={{ marginTop: 6, color: 'var(--text-2)' }}>
-            Open the link in the same browser. You will land on clinic setup, where you name your clinic and add the first doctor.
+            {inviteToken
+              ? 'Open the link in the same browser. Your seat in the clinic is granted the moment you sign in — there is no clinic to set up.'
+              : 'Open the link in the same browser. You will land on clinic setup, where you name your clinic and add the first doctor.'}
           </p>
         </div>
         <Button variant="subtle" className="block" onClick={() => navigate('/login')}>Back to sign in</Button>
@@ -43,11 +60,26 @@ export default function Signup() {
 
   return (
     <AuthShell
-      title="Create your clinic account"
-      sub="Fourteen days on Growth, no card. Set up the clinic in about two minutes."
-      aside={{ heading: 'Start with one doctor. Grow to a polyclinic.', body: 'Solo and multi-doctor clinics run the same workflow — you just add seats later.' }}
+      title={inviteToken ? 'Join your clinic' : 'Create your clinic account'}
+      sub={inviteToken
+        ? 'Sign up with the address the invitation was sent to — your seat is granted on the first sign-in.'
+        : 'Fourteen days on Growth, no card. Set up the clinic in about two minutes.'}
+      aside={inviteToken
+        ? { heading: 'Your seat is already reserved.', body: 'Use the same email the clinic used to invite you; the app matches the invitation to your verified address, not to a link anyone could forward.' }
+        : { heading: 'Start with one doctor. Grow to a polyclinic.', body: 'Solo and multi-doctor clinics run the same workflow — you just add seats later.' }}
       footer={<p className="small muted center">Already have an account? <Link to="/login">Sign in</Link></p>}
     >
+      {inviteToken ? (
+        <div className="row" style={{ gap: 9, background: 'var(--brand-50)', color: 'var(--brand-700)', padding: '11px 12px', borderRadius: 12, alignItems: 'flex-start' }}>
+          <UserPlus size={15} style={{ marginTop: 2, flex: 'none' }} />
+          <div className="tiny">
+            <strong style={{ display: 'block', marginBottom: 2 }}>You have been invited</strong>
+            Sign up with the email the invitation was sent to. Your seat in the clinic is granted
+            automatically — you do not need to create a clinic of your own.
+          </div>
+        </div>
+      ) : null}
+
       {!configured ? (
         <div className="row" style={{ gap: 9, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '11px 12px', borderRadius: 12, alignItems: 'flex-start' }}>
           <TriangleAlert size={15} style={{ marginTop: 2, flex: 'none' }} />
@@ -67,9 +99,11 @@ export default function Signup() {
         <Field label="Your name" htmlFor="fullName" hint="Shown to staff as the clinic owner">
           <Input id="fullName" value={form.fullName} onChange={set('fullName')} placeholder="Dr. Anita Rao" autoComplete="name" disabled={!configured} />
         </Field>
-        <Field label="Clinic name" htmlFor="clinicName">
-          <Input id="clinicName" value={form.clinicName} onChange={set('clinicName')} placeholder="Sunrise Multispecialty OPD" autoComplete="organization" disabled={!configured} />
-        </Field>
+        {inviteToken ? null : (
+          <Field label="Clinic name" htmlFor="clinicName">
+            <Input id="clinicName" value={form.clinicName} onChange={set('clinicName')} placeholder="Sunrise Multispecialty OPD" autoComplete="organization" disabled={!configured} />
+          </Field>
+        )}
         <Field label="Work email" htmlFor="signup-email">
           <Input id="signup-email" type="email" value={form.email} onChange={set('email')} placeholder="you@clinic.in" autoComplete="email" disabled={!configured} />
         </Field>
@@ -77,7 +111,7 @@ export default function Signup() {
           <Input id="signup-password" type="password" value={form.password} onChange={set('password')} placeholder="••••••••" autoComplete="new-password" disabled={!configured} />
         </Field>
         <Button type="submit" variant="primary" size="lg" className="block" loading={busy} disabled={!configured} icon={ArrowRight}>
-          Create clinic account
+          {inviteToken ? 'Create account and join' : 'Create clinic account'}
         </Button>
         <p className="tiny faint">
           By continuing you agree to keep patient data accurate and share only with authorised staff. myClinic never sells clinic or patient data.

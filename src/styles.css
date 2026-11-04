@@ -2092,3 +2092,28 @@ button.slot:hover .slot-icon { opacity: 1; }
   .pub-ref-code { font-size: 1.16rem; }
   .pub-doc-avatar { width: 34px; height: 34px; }
 }
+
+/* -- staff invitations: one row per open seat offer ------------------------- */
+.invite-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.invite-row > .row:last-child { justify-content: flex-end; }
+
+@media (max-width: 620px) {
+  .invite-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'avatar main' 'actions actions';
+    align-items: start;
+  }
+  .invite-row > .avatar { grid-area: avatar; }
+  .invite-row > .stack { grid-area: main; }
+  .invite-row > .row:last-child { grid-area: actions; justify-content: stretch; }
+  .invite-row > .row:last-child > .btn { flex: 1; }
+}

@@ -7,19 +7,20 @@ source of history.
 
 Current state of <https://github.com/rajeshlande/myClinic.git>: `main` at
 `e4f7f5f` *"docs: PUSH.md for the v1.10.0 bundles"*, tags `v1.2.1 … v1.10.0`.
-Everything after that is in the bundles below — and there are **two releases in
-them, because 1.10.1 was never pushed**: the landing patch (v1.10.1) and
-**1.11.0, public booking, schema 8**. One push delivers both.
+Everything after that is in the bundles below — and there are **three releases in
+them, because nothing has been pushed since 1.10.0**: the landing patch (v1.10.1),
+**1.11.0, public booking, schema 8**, and **1.11.1, the staff-invitation fix**. One
+push delivers all three.
 
 Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.11.0.bundle` | ~40 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
-| `myClinic-full-v1.11.0.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.11.1.bundle` | ~48 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-full-v1.11.1.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` and the two tags GitHub does not have yet — `v1.10.1` and `v1.11.0` —
-plus every earlier tag.
+Both carry `main` and the three tags GitHub does not have yet — `v1.10.1`, `v1.11.0`
+and `v1.11.1` — plus every earlier tag.
 
 ## Route A · update an existing clone, then push (recommended)
 
@@ -30,12 +31,12 @@ commits of product (`a49747e`, `7ec613b`) plus the docs commit.
 ```bash
 git clone https://github.com/rajeshlande/myClinic.git myClinic   # skip if already cloned
 cd myClinic
-git fetch /path/to/myClinic-update-to-v1.11.0.bundle \
+git fetch /path/to/myClinic-update-to-v1.11.1.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
-git push origin refs/tags/v1.10.1 refs/tags/v1.11.0
+git push origin refs/tags/v1.10.1 refs/tags/v1.11.0 refs/tags/v1.11.1
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -50,18 +51,18 @@ the old tag moved onto this history, do it deliberately:
 
 Verified from this sandbox against the live repository: `git clone` of
 github.com/rajeshlande/myClinic (lands on `e4f7f5f`) → fetch the bundle →
-`git merge --ff-only` lands on the v1.11.0 commit, exit code 0, working tree
-clean, **186/186 tests** pass, `npm run build` and `npm run check:pages` clean,
+`git merge --ff-only` lands on the v1.11.1 commit, exit code 0, working tree
+clean, **200/200 tests** pass, `npm run build` and `npm run check:pages` clean,
 tags `v1.3.0 … v1.11.0` present and `v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.11.0.bundle myClinic
+git clone -b main myClinic-full-v1.11.1.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
-git push origin refs/tags/v1.10.1 refs/tags/v1.11.0
+git push origin refs/tags/v1.10.1 refs/tags/v1.11.0 refs/tags/v1.11.1
 ```
 
 (A fresh clone *can* be pushed with `--follow-tags`; the explicit tag list above
@@ -71,8 +72,8 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 
 | Commit | Release | Scope |
 |---|---|---|
+| `31f0e4a` | **1.11.1** · schema 8 | Staff invitations actually work: the invite row carries name/role/specialty, `accept_invite()` is claimed on first sign-in instead of leaving the invitee to create their own clinic, Pending invitations lists and can withdraw an offer, and the demo invite no longer creates a half-built doctor or demote the owner. No schema change. |
 | `7ec613b` | **1.11.0** · schema 8 | Public booking. `/#/book/<slug>` books a real slot with no account; `/#/booking/<ref>` looks it up and cancels it. Five `anon`-granted RPCs, booking references, a partial unique index so a cancelled slot can be re-sold, `source='online'` carried to Reports, and the booking settings in Settings → Clinic. Plus a landing-page CTA and 36 new tests. |
-| *(this commit)* | docs | This file. |
 | `a49747e` | **1.10.1** · schema 7 | Marketing only: two landing-page feature cards (day close, reminders with a paper trail), a Day close strip chip, and a headline that runs to the closed day. No app behaviour changed. |
 | `f2feaba` | **1.10.0** · schema 7 | Day close (collections by method, cash reconciliation, frozen `day_closes` snapshot), the missed-charge detector, and the reminder queue with a `reminders` send log that honours quiet hours. Plus mobile layouts for both new screens. |
 | `7dab99c` | docs | PUSH.md for the v1.9.0 bundles. |
@@ -83,9 +84,9 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.11.0.bundle    # refs + required base
-git bundle verify myClinic-full-v1.11.0.bundle         # "complete history"
-git clone -b main myClinic-full-v1.11.0.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.11.1.bundle    # refs + required base
+git bundle verify myClinic-full-v1.11.1.bundle         # "complete history"
+git clone -b main myClinic-full-v1.11.1.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 

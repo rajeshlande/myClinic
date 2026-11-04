@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, supabaseConfigured } from './supabase.js';
 import { makeDemoWorkspace } from './demo-data.js';
+import {
+  inviteDefaults, recallInviteError, recallInviteToken, rememberInviteError, rememberInviteToken,
+} from './invites.mjs';
 import { nextId } from './logic.mjs';
 import { licenseState, canWrite, seatUsage } from './license.mjs';
 import { TRIAL_DAYS } from './license.mjs';
@@ -14,7 +17,7 @@ const StoreContext = createContext(null);
 
 const emptyState = {
   clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [],
-  invoices: [], day_closes: [], reminders: [], subscription: null,
+  invoices: [], day_closes: [], reminders: [], invites: [], subscription: null,
 };
 const STATE_TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices', 'day_closes', 'reminders'];
 
@@ -76,7 +79,36 @@ export function StoreProvider({ children, session }) {
   }, []);
 
   /* ------------------------------------------------------------------ live load */
-  const loadLive = useCallback(async ({ quiet = false } = {}) => {
+  /**
+   * Claim a seat that an owner has already offered.
+   *
+   * `accept_invite()` matches the invitation to the email in the caller's JWT, so
+   * the token is only a disambiguator; it is passed when the invitee arrived from
+   * the link (kept in sessionStorage across the sign-up and email-confirmation
+   * round trip). "No pending invitation" is the normal case for a brand-new clinic
+   * owner and must not surface as an error.
+   */
+  const claimPendingInvite = useCallback(async () => {
+    try {
+      const token = recallInviteToken();
+      const { data, error } = await supabase.rpc('accept_invite', token ? { p_token: token } : {});
+      if (error) {
+        // 'no pending invitation for this email' is the ordinary answer for anyone
+        // who is not invited — anything else is a refusal the person must read.
+        const message = String(error.message ?? '');
+        rememberInviteError(/no pending invitation/i.test(message) ? '' : message);
+        return null;
+      }
+      if (!data) return null;
+      rememberInviteToken('');    // a token is good once
+      rememberInviteError('');
+      return data;
+    } catch { return null; }
+  }, []);
+
+  const loadLiveRef = useRef(null);
+
+  const loadLive = useCallback(async ({ quiet = false, attempt = 0 } = {}) => {
     if (!session) return;
     if (!quiet) { setError(''); setReady(false); }
     try {
@@ -86,7 +118,18 @@ export function StoreProvider({ children, session }) {
       const { data: memberships, error: mErr } = await supabase.from('staff').select('*').eq('user_id', session.user.id);
       if (mErr) throw mErr;
 
-      const mine = memberships?.[0];
+      let mine = memberships?.[0];
+      if (!mine && attempt === 0) {
+        // No membership yet: this account may have been invited by a clinic owner.
+        // accept_invite() is the only thing that can grant a seat, and it matches on
+        // the verified email in the JWT — so a person who signed up from an invite
+        // link lands in that clinic instead of being pushed to create their own.
+        const claimed = await claimPendingInvite();
+        if (claimed) {
+          loadLiveRef.current?.({ quiet: true, attempt: 1 });
+          return;
+        }
+      }
       if (!mine) {
         setState({ ...emptyState, profile: profile ?? null });
         setNeedsOnboarding(true);
@@ -115,6 +158,9 @@ export function StoreProvider({ children, session }) {
         supabase.from('invoices').select('*').eq('clinic_id', clinic.id).order('issued_on', { ascending: false }),
         optional(supabase.from('day_closes').select('*').eq('clinic_id', clinic.id).order('closed_on', { ascending: false })),
         optional(supabase.from('reminders').select('*').eq('clinic_id', clinic.id).order('logged_on', { ascending: false })),
+        // Owners see every invitation; staff see none (the policy filters, it does
+        // not error), so Team can show the pending list without a second query.
+        optional(supabase.from('invites').select('*').eq('clinic_id', clinic.id).order('created_at', { ascending: false })),
       ]);
       const failure = results.find((r) => r.error);
       if (failure) throw failure.error;
@@ -133,6 +179,7 @@ export function StoreProvider({ children, session }) {
         invoices: results[4].data ?? [],
         day_closes: results[5].data ?? [],
         reminders: results[6].data ?? [],
+        invites: results[7].data ?? [],
         // schema 7 is what day close and the reminder log need; without it the
         // pages explain themselves instead of failing a write.
         schemaReady: !(results[5].missing || results[6].missing),
@@ -167,7 +214,9 @@ export function StoreProvider({ children, session }) {
     } finally {
       setReady(true);
     }
-  }, [session]);
+  }, [session, claimPendingInvite]);
+
+  loadLiveRef.current = loadLive;
 
   useEffect(() => {
     if (supabaseConfigured && session) loadLive();
@@ -370,15 +419,56 @@ export function StoreProvider({ children, session }) {
     return data;
   }, [mode, persistLocal, loadLive]);
 
-  /** Owner-side: create an invite (server enforces the owner check). */
-  const inviteStaff = useCallback(async ({ email, role = 'frontdesk', name = '' }) => {
+  /**
+   * Owner-side: create an invitation.
+   *
+   * Written as a row rather than through invite_staff(): the RPC only carries
+   * email/role/name, while a doctor's invitation also has to carry a specialty and
+   * a qualification for `accept_invite()` to copy onto the seat. The owner-only
+   * insert policy (`is_clinic_owner(clinic_id) and invited_by = auth.uid()`) is the
+   * gate — the same gate the RPC uses — so nothing is weakened by it.
+   */
+  const inviteStaff = useCallback(async ({ email, role = 'frontdesk', name = '', specialty = '', qualification = '' }) => {
     if (mode === 'demo') return null;
-    const { data, error: e } = await supabase.rpc('invite_staff', {
-      p_clinic: stateRef.current.clinic.id, p_email: email, p_role: role, p_name: name,
-    });
-    if (e) throw e;
+    const clinic = stateRef.current.clinic;
+    if (!clinic?.id) throw new Error('Open a clinic before inviting anyone.');
+    if (!userId) throw new Error('Sign in again to invite someone.');
+    const seat = inviteDefaults({ role, email, name, clinic, staff: stateRef.current.staff ?? [] });
+
+    const { data, error: e } = await supabase.from('invites').insert({
+      clinic_id: clinic.id,
+      email: seat.email,
+      role: role === 'owner' ? 'doctor' : role,
+      full_name: seat.full_name,
+      specialty: specialty || '',
+      qualification: qualification || '',
+      invited_by: userId,
+    }).select().maybeSingle();
+
+    if (e) {
+      // 23505 = this email already has a pending invitation for this clinic. Hand
+      // back the one that exists instead of a red toast: the owner's goal — one
+      // open invitation — is already true.
+      if (e.code === '23505') {
+        const { data: existing } = await supabase.from('invites').select('*')
+          .eq('clinic_id', clinic.id).eq('email', seat.email).is('accepted_at', null)
+          .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (existing) return { ...existing, alreadyPending: true };
+      }
+      throw e;
+    }
+
+    await loadLive({ quiet: true });
     return data;
-  }, [mode]);
+  }, [mode, userId, loadLive]);
+
+  /** Owner-side: withdraw an invitation. RLS allows an owner to delete them. */
+  const revokeInvite = useCallback(async (id) => {
+    if (mode === 'demo' || !id) return;
+    const { error: e } = await supabase.from('invites').delete().eq('id', id);
+    if (e) throw e;
+    await loadLive({ quiet: true });
+  }, [mode, loadLive]);
 
   /** Invitee-side: claim a pending invite addressed to this user's email. */
   const acceptInvite = useCallback(async (token = null) => {
@@ -534,19 +624,25 @@ export function StoreProvider({ children, session }) {
     ...state,
     doctors: (state.staff ?? []).filter((s) => s.role !== 'frontdesk'),
     frontDesk: (state.staff ?? []).filter((s) => s.role === 'frontdesk'),
-    currentStaff: (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id) ?? (state.staff ?? [])[0] ?? null,
-    role: (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id)?.role ?? (state.staff ?? [])[0]?.role ?? 'owner',
+    currentStaff: (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id)
+      ?? (state.staff ?? []).find((s) => s.role === 'owner') ?? (state.staff ?? [])[0] ?? null,
+    // The signed-in member's own role; in the demo workspace nobody is signed in, so
+    // fall back to the owner row — never to staff[0], which is whichever person was
+    // added most recently (inviting a doctor used to demote the demo user).
+    role: (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id)?.role
+      ?? (state.staff ?? []).find((s) => s.role === 'owner')?.role
+      ?? (state.staff ?? [])[0]?.role ?? 'owner',
     // sync surface
     online, pending, conflicts, syncState, lastSyncedAt, usingCache,
     flushNow: flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, inviteStaff, acceptInvite,
+    create, update, remove, createClinic, inviteStaff, revokeInvite, acceptInvite,
     refresh, resetDemo, enterDemo: bootDemo,
     // licensing
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, inviteStaff, acceptInvite, resetDemo, bootDemo, refresh,
+    create, update, remove, createClinic, inviteStaff, revokeInvite, acceptInvite, resetDemo, bootDemo, refresh,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial]);
 

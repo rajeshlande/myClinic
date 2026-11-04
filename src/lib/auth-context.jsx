@@ -39,7 +39,9 @@ export function AuthProvider({ children }) {
     signUp: (email, password, fullName) => run(async () => {
       const { data, error: e } = await supabase.auth.signUp({
         email, password,
-        options: { data: { full_name: fullName }, emailRedirectTo: `${window.location.origin}${window.location.pathname}#/onboarding` },
+        // Land in the app after confirming: the router sends a brand-new owner to
+        // onboarding, while an invited user has their seat claimed on first load.
+        options: { data: { full_name: fullName }, emailRedirectTo: `${window.location.origin}${window.location.pathname}#/app/dashboard` },
       });
       if (e) throw e;
       return data;

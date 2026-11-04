@@ -1,9 +1,17 @@
 import { useState } from 'react';
-import { Clock, Plus, Pencil, Stethoscope, Users, UserRound, ShieldCheck, Copy, Mail, Phone, Power } from 'lucide-react';
+import {
+  Clock, Plus, Pencil, Stethoscope, Users, UserRound, ShieldCheck, Copy, Mail, Phone, Power,
+  Trash2, Link2, UserPlus, Hourglass,
+} from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
 import { ROLES, formatMoney, moneyToPaise, paiseToInput, slugify } from '../lib/logic.mjs';
 import { canAddSeat } from '../lib/license.mjs';
+import { can } from '../lib/permissions.js';
+import {
+  daysLeft, inviteDefaults, inviteEmailError, inviteLink as buildInviteLink, inviteState,
+  pendingInvites, rememberInviteToken,
+} from '../lib/invites.mjs';
 import { guardWrite } from '../components/LicenseBanner.jsx';
 
 export default function Team() {
@@ -13,8 +21,9 @@ export default function Team() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [invite, setInvite] = useState({ email: '', role: 'frontdesk' });
+  const [invite, setInvite] = useState({ email: '', role: 'frontdesk', name: '', specialty: '', qualification: '' });
   const [saving, setSaving] = useState(false);
+  const [sentInvite, setSentInvite] = useState(null);
 
   const doctors = store.doctors;
   const staff = store.frontDesk;
@@ -100,29 +109,66 @@ export default function Team() {
   }
 
   async function sendInvite() {
-    if (!invite.email.trim()) { toast.error('Add the person’s work email.'); return; }
+    const emailError = inviteEmailError(invite.email);
+    if (emailError) { toast.error(emailError); return; }
     if (!seasonCheck(invite.role)) return;
     setSaving(true);
     try {
       if (store.mode === 'demo') {
-        // Demo keeps everything local: create the seat immediately.
-        await store.create('staff', {
-          full_name: invite.email.split('@')[0], role: invite.role, email: invite.email,
-          specialty: '', qualification: '', active: true, color: '#0f766e',
+        // The demo has no server to invite anyone into, so the seat is created
+        // immediately — complete, because a doctor without hours or a fee breaks
+        // the day board and the invoice defaults.
+        const seat = inviteDefaults({
+          role: invite.role, email: invite.email, name: invite.name,
+          clinic: store.clinic ?? {}, staff: store.staff ?? [],
         });
-        toast.success('Seat added in the demo workspace.');
+        await store.create('staff', seat);
+        toast.success(invite.role === 'frontdesk'
+          ? `${seat.full_name} has the front desk.`
+          : `${seat.full_name} is on the rota with the clinic's hours — set their own in Doctors & staff.`);
       } else {
-        await store.inviteStaff({ email: invite.email.trim(), role: invite.role });
-        toast.success(`Invite created for ${invite.email}. It activates when they sign in.`);
+        const row = await store.inviteStaff({
+          email: invite.email, role: invite.role, name: invite.name,
+          specialty: invite.specialty, qualification: invite.qualification,
+        });
+        setSentInvite(row);
+        toast.success(row?.alreadyPending
+          ? `An invitation for ${invite.email} is already open — copy the link again.`
+          : `Invitation for ${invite.email} is ready. Send them the link.`);
       }
-      setInvite({ email: '', role: 'frontdesk' });
+      setInvite({ email: '', role: 'frontdesk', name: '', specialty: '', qualification: '' });
       setInviteOpen(false);
     } catch (e) {
-      toast.error(e.message ?? 'Could not create the invite.');
+      const message = String(e.message ?? '');
+      toast.error(/row-level security|policy/i.test(message)
+        ? 'Only the clinic owner can invite staff.'
+        : (message || 'Could not create the invite.'));
     } finally { setSaving(false); }
   }
 
-  const inviteLink = `${window.location.origin}${window.location.pathname}#/signup?clinic=${slugify(store.clinic?.name ?? 'clinic')}&role=${invite.role}`;
+  async function revokeInvite(row) {
+    try {
+      await store.revokeInvite(row.id);
+      toast.info(`Invitation for ${row.email} withdrawn.`);
+    } catch (e) { toast.error(e.message ?? 'Could not withdraw the invitation.'); }
+  }
+
+  function copyInvite(inviteRow, role, email) {
+    const link = buildInviteLink(inviteRow?.token ?? '', {});
+    if (!inviteRow?.token) { toast.error('This invitation has no link — invite them again.'); return; }
+    rememberInviteToken(inviteRow.token);
+    const text = `Join ${store.clinic?.name} on myClinic as ${(role ?? inviteRow.role) === 'doctor' ? 'a doctor' : 'front desk'}: ${link}`;
+    navigator.clipboard?.writeText(text)
+      .then(() => toast.success('Invitation link copied — send it on WhatsApp or email.'))
+      .catch(() => toast.error('Clipboard blocked — select the link and copy it.'));
+    void email;
+  }
+
+  const pending = pendingInvites(store.invites ?? []);
+  const canInvite = can(store.role ?? 'owner', 'team:write');
+  const inviteLink = sentInvite?.token
+    ? buildInviteLink(sentInvite.token, {})
+    : buildInviteLink('', {});
 
   return (
     <div className="page stack" style={{ gap: 16 }}>
@@ -207,6 +253,56 @@ export default function Team() {
         </div>
       )}
 
+      {canInvite ? (
+        <Card>
+          <CardHead
+            title="Pending invitations" icon={Mail}
+            sub={store.mode === 'demo'
+              ? 'Demo seats are created immediately — nothing waits here'
+              : 'A seat is granted the first time they sign in with that email'}
+            action={<Badge tone={pending.length ? 'info' : 'neutral'}>{pending.length} open</Badge>}
+          />
+          <div className="card-body stack" style={{ gap: 8 }}>
+            {store.mode === 'demo' ? (
+              <p className="small muted" style={{ margin: 0 }}>
+                Inviting someone in the demo adds them to the clinic at once, so there is nothing to
+                wait for. In a live clinic an invitation stays here until it is claimed — or until it
+                expires after fourteen days.
+              </p>
+            ) : pending.length ? (
+              pending.map((row) => (
+                <div key={row.id} className="invite-row">
+                  <Avatar name={row.full_name || row.email} size="sm" />
+                  <div className="stack" style={{ gap: 1, minWidth: 0 }}>
+                    <div className="row wrap" style={{ gap: 6 }}>
+                      <strong className="small">{row.full_name || row.email}</strong>
+                      <Badge tone={row.role === 'doctor' ? 'info' : 'neutral'}>
+                        {row.role === 'doctor' ? 'Doctor' : 'Front desk'}
+                      </Badge>
+                      <span className="tiny faint row" style={{ gap: 4 }}>
+                        <Hourglass size={10} /> {daysLeft(row) === 0 ? 'expires today' : `${daysLeft(row)} day${daysLeft(row) === 1 ? '' : 's'} left`}
+                      </span>
+                    </div>
+                    <span className="tiny muted mono" style={{ wordBreak: 'break-all' }}>{row.email}</span>
+                    {row.specialty || row.qualification ? (
+                      <span className="tiny faint">{[row.specialty, row.qualification].filter(Boolean).join(' · ')}</span>
+                    ) : null}
+                  </div>
+                  <div className="row" style={{ gap: 4 }}>
+                    <Button size="sm" variant="subtle" icon={Copy} onClick={() => copyInvite(row)}>Link</Button>
+                    <IconButton icon={Trash2} label={`Withdraw the invitation for ${row.email}`} size={15} onClick={() => revokeInvite(row)} />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="small muted" style={{ margin: 0 }}>
+                No one is waiting to join. Press <strong>Invite staff</strong> to offer a seat.
+              </p>
+            )}
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="pad">
         <div className="row wrap" style={{ gap: 10 }}>
           <span className="kpi-icon"><Users size={15} /></span>
@@ -269,30 +365,73 @@ export default function Team() {
         sub="They keep their own login — you grant the seat"
         footer={<>
           <Button variant="ghost" onClick={() => setInviteOpen(false)}>Close</Button>
-          <Button variant="subtle" icon={Copy} onClick={() => {
-            const text = `Join ${store.clinic?.name} on myClinic: ${inviteLink}`;
-            navigator.clipboard?.writeText(text).then(() => toast.success('Invite link copied.')).catch(() => toast.error('Clipboard blocked.'));
-          }}>Copy link</Button>
+          <Button
+            variant="subtle" icon={Copy} disabled={!sentInvite?.token}
+            onClick={() => copyInvite(sentInvite, invite.role, invite.email)}
+          >
+            Copy link
+          </Button>
           <Button variant="primary" icon={Mail} loading={saving} onClick={sendInvite} disabled={!invite.email.trim()}>Send invite</Button>
         </>}
       >
         <div className="stack">
           <div className="form-grid">
-            <Field label="Work email *"><Input value={invite.email} onChange={(e) => setInvite((i) => ({ ...i, email: e.target.value }))} placeholder="priya@clinic.in" autoFocus /></Field>
+            <Field label="Work email *" error={invite.email ? inviteEmailError(invite.email) : ''}>
+              <Input value={invite.email} onChange={(e) => setInvite((i) => ({ ...i, email: e.target.value }))} placeholder="priya@clinic.in" autoFocus inputMode="email" />
+            </Field>
             <Field label="Role">
               <Select value={invite.role} onChange={(e) => setInvite((i) => ({ ...i, role: e.target.value }))}>
                 {ROLES.filter((r) => r.id !== 'owner').map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
               </Select>
             </Field>
+            <Field label="Name" hint="Optional — otherwise we use the part before the @" className="span-2">
+              <Input value={invite.name} onChange={(e) => setInvite((i) => ({ ...i, name: e.target.value }))} placeholder={invite.role === 'doctor' ? 'Dr. Priya Kamble' : 'Priya Kamble'} />
+            </Field>
+            {invite.role !== 'frontdesk' ? (
+              <>
+                <Field label="Specialty"><Input value={invite.specialty} onChange={(e) => setInvite((i) => ({ ...i, specialty: e.target.value }))} placeholder="Paediatrics" /></Field>
+                <Field label="Qualification"><Input value={invite.qualification} onChange={(e) => setInvite((i) => ({ ...i, qualification: e.target.value }))} placeholder="MBBS, DCH" /></Field>
+              </>
+            ) : null}
           </div>
           <p className="tiny muted" style={{ marginTop: 2 }}>
             {ROLES.find((r) => r.id === invite.role)?.hint}
           </p>
-          <pre className="tiny mono" style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>{inviteLink}</pre>
-          <p className="tiny muted">
-            They sign in with this email and the seat is granted server-side by <code>accept_invite()</code>.
-            Nobody — including an existing member — can add themselves to a clinic, so this step cannot be skipped.
-          </p>
+
+          {store.mode === 'demo' ? (
+            <div className="notice tiny">
+              <span className="row" style={{ gap: 7, alignItems: 'flex-start' }}>
+                <UserPlus size={14} style={{ flex: 'none', marginTop: 1 }} />
+                <span>
+                  The demo has no server to invite anyone into, so this adds the seat straight away —
+                  with the clinic's hours and fees if it is a doctor. In a live clinic the seat is
+                  granted the moment they sign in with this email.
+                </span>
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="notice tiny">
+                <span className="row" style={{ gap: 7, alignItems: 'flex-start' }}>
+                  <Link2 size={14} style={{ flex: 'none', marginTop: 1 }} />
+                  <span>
+                    The link is created with the invitation. Send it on WhatsApp or email — they sign up
+                    with this address and the seat is granted by <code>accept_invite()</code> the first
+                    time they open the app. A doctor starts on the clinic's default hours; set their own
+                    afterwards in Doctors &amp; staff.
+                  </span>
+                </span>
+              </div>
+              {sentInvite?.token ? (
+                <pre className="tiny mono" style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>{inviteLink}</pre>
+              ) : (
+                <p className="tiny faint" style={{ margin: 0 }}>
+                  The invitation is created when you press Send invite; the link appears here and in
+                  Pending invitations.
+                </p>
+              )}
+            </>
+          )}
         </div>
       </Modal>
     </div>
