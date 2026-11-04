@@ -3,6 +3,30 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.8] — 2026-11-04 · schema 10
+
+**One demo door.** The marketing page had four ways into the demo clinic — a hero
+button, the closing band, a link in the footer list and a "Sample patients"
+button — so a visitor who meant to read pricing could end up in sample data, and
+the page read as a demo of itself. There is now exactly one: the footer button
+labelled **Open Demo**.
+
+Everything else on the page is the product: the hero offers a single call to
+action (plans, or sign up once Supabase is connected), the plan cards lead to sign
+up, and the closing band — previously *"Open the demo clinic and click around"* —
+now closes on the clinic's own morning. The footer keeps three link groups; the
+demo is a button, not a fourth link.
+
+**No reference project.** The repository no longer names the project myClinic's
+technical foundation was adapted from — `THIRD_PARTY_NOTICES.md` credits only the
+packages the app actually ships.
+
+Two guards keep both promises: `tests/landing.test.mjs` fails if a second demo
+entry appears on the marketing page or if any file names the reference project.
+283 tests, 13 suites.
+
+**Upgrading.** No database change — schema 10 covers this build.
+
 ## [1.11.7] — 2026-11-04 · schema 10
 
 A clinic on the yearly plan was shown as monthly, quoted the monthly price, and —

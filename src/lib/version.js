@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.7';
+export const APP_VERSION = '1.11.8';
 export const SCHEMA_VERSION = 10;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.8', date: '2026-11-04', schema: 10,
+    highlights: [
+      'The marketing page has one way into the demo: the footer button, "Open Demo". The hero, the closing band, the plan cards and the footer link list no longer drop a visitor into sample data — they lead to plans, sign up or the deployment guide.',
+      'The hero now offers a single call to action instead of three, and the closing band talks about the clinic\'s morning rather than the demo clinic.',
+      'Every reference to the reference project myClinic grew out of is gone from the repository, including the third-party notices, which now credit only the packages the app actually ships.',
+    ],
+  },
   {
     version: '1.11.7', date: '2026-11-04', schema: 10,
     highlights: [

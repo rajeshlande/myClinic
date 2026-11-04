@@ -47,8 +47,10 @@ export const FOOTER_GROUPS = [
   },
   {
     title: 'Try it',
+    // The demo workspace is reached from the footer's one "Open Demo" button, not
+    // from a list of links — a second entry point dilutes the pitch and drops a
+    // visitor into sample data when they meant to read pricing.
     links: [
-      { label: 'Open the demo', to: '/app/dashboard' },
       { label: 'Patient booking page', to: '/book/sunrise-multispecialty' },
       { label: 'Deployment guide', to: '/setup' },
     ],

@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
-  CalendarDays,
   ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarCheck, Check, ChevronRight,
-  CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar, PlayCircle,
+  CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar,
   ShieldCheck, Smartphone, Sparkles, Stethoscope, Sun, Users, WifiOff, Zap, Ticket,
   CloudOff, Languages, Paintbrush, KeyRound, Send, Sunset, Menu, X, Plus, Minus,
 } from 'lucide-react';
@@ -12,12 +11,8 @@ import { useAuth } from '../lib/auth-context.jsx';
 import { applyTheme, readTheme } from '../lib/theme.js';
 import { Button, Badge } from '../components/ui.jsx';
 import { APP_VERSION } from '../lib/version.js';
-import { BOOKING_SLUG_FALLBACK, bookingUrl } from '../lib/public-booking.mjs';
 import { FOOTER_GROUPS, isCompact } from '../lib/responsive.mjs';
 import { useLayout } from '../lib/use-layout.js';
-
-/** The sample clinic's booking page — what a patient sees. */
-const DEMO_SLUG = BOOKING_SLUG_FALLBACK;
 
 const FEATURES = [
   { icon: Ticket, title: 'Token queue for walk-ins', body: 'The front desk taps once to issue the next token — no appointment, no patient record needed first. Doctors call numbers in order, and the lounge screen shows who is next.' },
@@ -69,7 +64,11 @@ export default function Landing({ anchor }) {
     }
   }, [anchor]);
 
+  // The marketing page has exactly one way into the demo workspace: the footer's
+  // "Open Demo" button. Everything else on this page is the product — plans, sign
+  // up, the deployment guide — so a visitor never lands in sample data by accident.
   const enterDemo = () => navigate(configured ? (user ? '/app/dashboard' : '/login') : '/app/dashboard');
+  const startFree = () => navigate(configured ? '/signup' : '/pricing');
 
   return (
     <div className="marketing">
@@ -137,12 +136,8 @@ export default function Landing({ anchor }) {
             day ends with the drawer counted and a snapshot you can hand to your accountant.
           </p>
           <div className="mk-cta">
-            <Button variant="primary" size="lg" icon={ArrowRight} onClick={() => navigate(configured ? '/signup' : '/app/dashboard')}>
-              {configured ? 'Start free' : 'Explore the live demo'}
-            </Button>
-            <Button variant="subtle" size="lg" icon={PlayCircle} onClick={enterDemo}>See it with sample patients</Button>
-            <Button variant="ghost" size="lg" icon={CalendarDays} onClick={() => window.open(bookingUrl(DEMO_SLUG), '_blank', 'noopener')}>
-              Open a booking page
+            <Button variant="primary" size="lg" icon={ArrowRight} onClick={startFree}>
+              {configured ? 'Start free' : 'See plans & pricing'}
             </Button>
           </div>
           <div className="row wrap tiny muted" style={{ gap: 14 }}>
@@ -262,8 +257,8 @@ export default function Landing({ anchor }) {
               <ul>
                 {plan.features.map((f) => <li key={f}><Check size={13} strokeWidth={3} /> {f}</li>)}
               </ul>
-              <Button variant={plan.popular ? 'primary' : 'subtle'} className="block" onClick={() => navigate(configured ? '/signup' : '/app/dashboard')}>
-                {plan.id === 'chain' ? 'Talk to us' : 'Start 14-day trial'}
+              <Button variant={plan.popular ? 'primary' : 'subtle'} className="block" onClick={() => navigate(configured ? '/signup' : '/setup')}>
+                {configured ? (plan.id === 'chain' ? 'Talk to us' : 'Start 14-day trial') : 'Connect a project'}
               </Button>
             </article>
           ))}
@@ -293,13 +288,15 @@ export default function Landing({ anchor }) {
       <section className="mk-section" style={{ paddingTop: 0 }}>
         <div className="mk-final card pad">
           <div className="stack" style={{ gap: 8 }}>
-            <h2 style={{ color: '#eafaf6', fontSize: 'clamp(1.3rem, 1rem + 1vw, 1.8rem)' }}>Open the demo clinic and click around</h2>
+            <h2 style={{ color: '#eafaf6', fontSize: 'clamp(1.3rem, 1rem + 1vw, 1.8rem)' }}>Tomorrow morning starts here</h2>
             <p style={{ color: 'rgba(234,250,246,0.78)', maxWidth: '56ch' }} className="small">
-              Sunrise Multispecialty OPD is loaded with six months of fictional patients, appointments and invoices — no signup, no configuration.
+              Register a walk-in, issue a token, write the note, raise the bill and close the day — the whole path on one screen. The demo in the footer is loaded with six months of fictional patients if you would rather look first.
             </p>
           </div>
           <div className="row wrap" style={{ gap: 8 }}>
-            <Button size="lg" onClick={enterDemo} icon={LayoutDashboard} style={{ background: '#eafaf6', color: '#08403c', borderColor: 'transparent' }}>Open demo</Button>
+            <Button size="lg" onClick={() => navigate(configured ? '/signup' : '/pricing')} icon={ArrowRight} style={{ background: '#eafaf6', color: '#08403c', borderColor: 'transparent' }}>
+              {configured ? 'Start free' : 'See plans'}
+            </Button>
             <Button size="lg" variant="ghost" style={{ color: '#eafaf6' }} onClick={() => navigate('/setup')} icon={ChevronRight}>Connect Supabase</Button>
           </div>
         </div>
@@ -320,10 +317,7 @@ export default function Landing({ anchor }) {
               OPD or a multi-branch group. Built for a clinic desk, not a boardroom.
             </p>
             <div className="row wrap" style={{ gap: 8 }}>
-              <Button size="sm" variant="primary" onClick={() => navigate(configured ? '/signup' : '/app/dashboard')}>
-                {configured ? 'Start free' : 'Explore the demo'}
-              </Button>
-              <Button size="sm" variant="subtle" onClick={enterDemo}>Sample patients</Button>
+              <Button size="sm" variant="primary" icon={LayoutDashboard} onClick={enterDemo}>Open Demo</Button>
             </div>
           </div>
 

@@ -13,4 +13,4 @@ myClinic is built on open-source software. The production bundle includes:
 | [@fontsource-variable/inter](https://fontsource.org/fonts/inter) | SIL OFL 1.1 | Interface typeface |
 | [@fontsource-variable/manrope](https://fontsource.org/fonts/manrope) | SIL OFL 1.1 | Display typeface |
 
-Architecture references the [mycar](https://github.com/rajeshlande/mycar) project (React + Vite + Supabase starter for a vehicle-expense app). No application code, content, schema or designs from that project are redistributed here; the product, schema, workflows and interface are original to myClinic.
+Every package above is a published dependency with its licence stated. myClinic's own source is MIT — see [`LICENSE`](LICENSE).
