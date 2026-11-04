@@ -20,10 +20,10 @@ Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 | --- | --- | --- |
-| `myClinic-update-to-v1.11.10.bundle` | ~18 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
-| `myClinic-full-v1.11.10.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.12.0.bundle` | ~45 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
+| `myClinic-full-v1.12.0.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` and the tags `v1.11.7`, `v1.11.8`, `v1.11.9` and `v1.11.10`.
+Both carry `main` and the tags `v1.11.7`, `v1.11.8`, `v1.11.9`, `v1.11.10` and `v1.12.0`.
 
 ## Route A · update the clone you already pushed (recommended)
 
@@ -32,17 +32,17 @@ cd ~/path/to/myClinic
 git status                      # expect: clean, HEAD at be0711b
 git remote -v                   # expect: origin → github.com/rajeshlande/myClinic.git
 
-git fetch /path/to/myClinic-update-to-v1.11.10.bundle \
+git fetch /path/to/myClinic-update-to-v1.12.0.bundle \
   'refs/heads/main:refs/remotes/bundle/main' \
   'refs/tags/*:refs/tags/*'
 
 git merge --ff-only refs/remotes/bundle/main
 
-git log --oneline -3            # docs audit / fix(demo) 1.11.10 / be0711b
+git log --oneline -4            # feat(whatsapp) 1.12.0 / docs audit / fix(demo) / be0711b
 
 git push origin main
 git push --atomic origin refs/tags/v1.11.7 refs/tags/v1.11.8 \
-  refs/tags/v1.11.9 refs/tags/v1.11.10
+  refs/tags/v1.11.9 refs/tags/v1.11.10 refs/tags/v1.12.0
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -58,7 +58,7 @@ missing.
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.11.10.bundle myClinic
+git clone -b main myClinic-full-v1.12.0.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
@@ -72,14 +72,14 @@ If GitHub is still at `e417a41` (v1.11.2), use the same two files — they conta
 everything since — and push the four older tags by name as well:
 
 ```bash
-git fetch /path/to/myClinic-full-v1.11.10.bundle \
+git fetch /path/to/myClinic-full-v1.12.0.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
 git push --atomic origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5 \
   refs/tags/v1.11.6 refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9 \
-  refs/tags/v1.11.10
+  refs/tags/v1.11.10 refs/tags/v1.12.0
 ```
 
 The update bundle declares `be0711b` as its base, so for a clone still sitting on
@@ -90,7 +90,8 @@ reports the missing prerequisite rather than half-applying it.
 
 | Commit | Release | Scope |
 | --- | --- | --- |
-| `fix(demo)` *(top of `main`)* | **1.11.10** · schema 10 | **The demo door opens the demo.** On the one deployment with Supabase configured — the published site — the footer's *Open Demo* button routed a signed-out visitor to `/login`, so the single entrance promised in 1.11.8 ended on a sign-in form. It always opens the workspace now; with no session the store is already in demo mode against `localStorage`, and nothing is sent to the clinic database. `tests/landing.test.mjs` pins it (287 tests). |
+| `feat(whatsapp)` | **1.12.0** · schema 11 | **Four messages reach the patient.** Token (with how many ahead), appointment (date/time/doctor/address), bill (total, paid, balance, UPI id) and prescription (medicines and directions in the patient's language) all leave from the clinic's own WhatsApp through one composer. Consent is a column: `patients.wa_opt_in` / `wa_opt_out_at`, with the composer refusing an opted-out patient. The send log takes all five kinds. **Run `supabase/schema.sql` again** — schema 11 is additive. |
+| `fix(demo)` | **1.11.10** · schema 10 | **The demo door opens the demo.** On the one deployment with Supabase configured — the published site — the footer's *Open Demo* button routed a signed-out visitor to `/login`, so the single entrance promised in 1.11.8 ended on a sign-in form. It always opens the workspace now; with no session the store is already in demo mode against `localStorage`, and nothing is sent to the clinic database. `tests/landing.test.mjs` pins it (287 tests). |
 | `47873a3` | **1.11.9** · schema 10 | The front desk's own workspace: no Doctors & staff, no Day close, no Subscription and no plan panel; Settings shows a seat only the tabs it can act on. `day:close` becomes an owner capability (the desk still collects), `team:read` drops to owner + doctor, and the README follows the awesome-readme shape. |
 | `c9e683a` | **1.11.8** · schema 10 | One demo door: the marketing page keeps a single entry into the demo workspace — the footer button **Open Demo** — and the hero, closing band, plan cards and footer links lead to plans or sign up instead. The reference project myClinic grew out of is no longer named anywhere in the repo, including `THIRD_PARTY_NOTICES.md`. `tests/landing.test.mjs` guards both. |
 | `a36008a` | **1.11.7** · schema 10 | **Subscription.** The licence view dropped `interval` and `collection_ref`, so a yearly clinic read as monthly, was priced monthly, **renewed for one month instead of twelve**, and lost the payment reference it had just recorded. The view carries both now; `billingPeriod()`/`extendPeriod()` decide the term a payment buys (calendar months, matching `renew_subscription()`); the dialog's Monthly/Yearly toggle only previews prices; the demo workspace stops hard-coding 30 days. The sidebar offers "Manage subscription" only to the owner. Paise print in pairs (`₹23,990.40`). **README rebuilt** as a project front page. |
@@ -110,9 +111,9 @@ reports the missing prerequisite rather than half-applying it.
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.11.10.bundle    # refs + required base (be0711b)
-git bundle verify myClinic-full-v1.11.10.bundle         # "complete history"
-git clone -b main myClinic-full-v1.11.10.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.12.0.bundle    # refs + required base (be0711b)
+git bundle verify myClinic-full-v1.12.0.bundle         # "complete history"
+git clone -b main myClinic-full-v1.12.0.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
