@@ -201,6 +201,7 @@ supabase.from('clinics').insert({ name: 'x', plan: 'chain' })
 | `rls/frontdesk-clinical-delete` | Fixed | Per-role policies for patients/appointments/consultations/invoices; `invoice_guard()` reserves voids and paid-invoice edits for owners |
 | `idor/issue-token-cross-clinic` | Fixed | `issue_token()` re-resolves patient and doctor under `p_clinic`, locks the doctor-day with `pg_advisory_xact_lock` |
 | `offline/phi-unbounded-localstorage` | Fixed | `src/lib/offline.js`: per-user+clinic cache key, 24 h TTL, purge on sign-out, outbox separate per user |
+| `rls/role-matrix-not-enforced` | Fixed (schema 10, v1.11.6) | The policies let every seat read every table: `consultations_read` accepted `'frontdesk'` and `invoices_read`/`_write`/`_update` accepted `'doctor'`, so the API granted what the Team page said it did not. Schema 10 narrows both to the roles the product prints (owner+doctor for notes, owner+front desk for money). `supabase/schema-tests.sql` suite F signs in as each seat and checks read/raise/settle; `tests/rbac.test.mjs` fails the build if the SQL role lists and `ROLE_MATRIX` drift apart again |
 
 ## Hardening beyond the findings
 

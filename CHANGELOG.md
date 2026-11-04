@@ -3,6 +3,55 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.6] — 2026-11-04 · schema 10
+
+The Team page has always described three seats: the owner holds *billing, plans,
+staff and every clinical record*, the doctor holds *appointments, consultations
+and prescriptions*, the front desk holds *appointments, patient registration,
+payments*. The app did not enforce it. A doctor could open Billing and raise an
+invoice from a consultation; the front desk could open Consultations and read
+every note; and Reports — promised to all three — refused the front desk. The
+database was looser still: the invoice policies accepted all three roles and the
+consultation policy accepted all three, so the API answered yes even where no
+screen asked.
+
+This release makes the table true in two places at once — the screens and the
+policies — because a hidden button is not a rule.
+
+**In the app.** The capability map is now the single source: `ROLE_MATRIX` prints
+the Team page, the nav and every route read the same map, and the screens that
+build a bill (`ConsultationForm`, `Consultations`, `PatientDetail`) ask
+`can(role, 'invoice:create')` instead of assuming the person is allowed. A doctor
+keeps the chart and loses Billing, the Billing tab, *Raise invoice*, *Collect* and
+*Save & bill*. Front desk keeps registration, the diary, billing, payments and
+the day close, and loses Consultations, Follow-ups and the note text on a
+patient's chart. The owner is unchanged.
+
+**What each side still sees.** Losing a table is not the same as losing your
+numbers: `monthTotals`, `footfallSeries` and `dayTotals` take
+`canSeeConsultations` and fall back to completed appointments, so the front
+desk's dashboard, Reports and day close count the patients who actually came in
+instead of reporting a clinic that stood still. A doctor's dashboard hides
+collected/outstanding and the revenue panels, and shows the waiting queue in
+their place; the balance reminders in Follow-ups are not drafted at all for a
+role that cannot open an invoice.
+
+**In Postgres (schema 10).** Two policies move and nothing else does. The invoice
+policies (`invoices_read`, `invoices_write`, `invoices_update`) stop accepting
+`'doctor'`; `consultations_read` stops accepting `'frontdesk'`. Both the
+canonical policy definitions and the migration block carry the same lists, and a
+new test fails the build if the SQL and the capability map ever disagree again —
+which is how the front desk ended up able to read notes in the first place.
+
+**Upgrading.** Run `supabase/schema.sql` again in the Supabase SQL Editor. It is
+idempotent and additive: schema 10 rewrites four policies, records itself in
+`schema_migrations`, and touches no clinical or billing row. Clinics already
+running schema 9 upgrade in one pass.
+
+Suites A–F pass on a fresh install and on a 9 → 10 upgrade, including new suite F,
+which signs in as each of the three seats in turn and checks what each can read,
+raise and settle.
+
 ## [1.11.5] — 2026-11-05 · schema 9
 
 A clinic created after schema 8 had no public address. `create_clinic()` never
