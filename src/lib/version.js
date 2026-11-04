@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.10.0';
+export const APP_VERSION = '1.10.1';
 export const SCHEMA_VERSION = 7;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,12 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.10.1', date: '2026-11-04', schema: 7,
+    highlights: [
+      'The landing page now advertises day close and the reminder queue, so the two things a solo clinic buys this for are visible before signing in.',
+    ],
+  },
   {
     version: '1.10.0', date: '2026-11-04', schema: 7,
     highlights: [

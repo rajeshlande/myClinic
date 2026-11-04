@@ -3,6 +3,20 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.10.1] — 2026-11-04 · schema 7
+
+A marketing patch: the landing page did not mention the release it was selling.
+
+### Changed
+- The feature grid gains **Close the day, not a notebook** (collections by method, cash counted
+  against cash expected, the frozen snapshot) and **Reminders with a paper trail** (one
+  privacy-safe message per patient, WhatsApp and copy actions, a send log that stops the same
+  patient being chased twice). Twelve cards, three to a row.
+- The section headline reads "One clinic, from the first token to the closed day", the hero
+  paragraph ends on the counted drawer, and the capability strip lists **Day close**.
+
+No application behaviour changed.
+
 ## [1.10.0] — 2026-11-04 · schema 7
 
 The end of the day, inside the app. Until now the front desk closed the day on a

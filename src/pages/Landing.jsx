@@ -4,7 +4,7 @@ import {
   ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarCheck, Check, ChevronRight,
   CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar, PlayCircle,
   ShieldCheck, Smartphone, Sparkles, Stethoscope, Sun, Users, WifiOff, Zap, Ticket,
-  CloudOff, Languages, Paintbrush, KeyRound,
+  CloudOff, Languages, Paintbrush, KeyRound, Send, Sunset,
 } from 'lucide-react';
 import { PLANS, formatMoney } from '../lib/logic.mjs';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -21,7 +21,9 @@ const FEATURES = [
   { icon: Users, title: 'Patient records', body: 'One chart per patient: demographics, allergies, chronic tags, prescriptions and every visit — searchable by name, phone or patient ID.' },
   { icon: Stethoscope, title: 'Consultations & prescriptions', body: 'Structured vitals, examination notes, diagnoses and a printable prescription in seconds. Last visit always visible for context.' },
   { icon: CreditCard, title: 'Billing & payments', body: 'Consultation, procedures and diagnostics on one GST-ready invoice. Part payments, UPI/card/insurance, and outstanding dues tracked per patient.' },
+  { icon: Sunset, title: 'Close the day, not a notebook', body: 'Count the drawer against what the day actually collected, split by cash, UPI and card. Close the day and the figures freeze as a snapshot, so the sheet you printed at 9pm still agrees with the app tomorrow.' },
   { icon: BellRing, title: 'Follow-ups & recalls', body: 'Every consultation sets a follow-up date. myClinic surfaces who is due today and who has gone quiet, so patients come back.' },
+  { icon: Send, title: 'Reminders with a paper trail', body: 'One privacy-safe message per patient — tomorrow\'s appointment, a recall, or a bill owed for a week — with WhatsApp and copy actions. The send log records what was actually sent, so nobody is chased twice.' },
   { icon: BarChart3, title: 'Reports that matter', body: 'Daily collection, monthly revenue vs footfall, payer mix, average ticket and doctor-wise performance — no spreadsheet exports needed.' },
 ];
 
@@ -83,7 +85,8 @@ export default function Landing({ anchor }) {
           <p className="mk-sub">
             myClinic is OPD management software that helps clinics deliver faster care — appointments,
             token queues for walk-ins, patient records, consultations, billing and follow-ups in one calm
-            platform. No paper registers, no lost case sheets, no guessing what today collected.
+            platform. No paper registers, no lost case sheets, and no guessing what today collected — the
+            day ends with the drawer counted and a snapshot you can hand to your accountant.
           </p>
           <div className="mk-cta">
             <Button variant="primary" size="lg" icon={ArrowRight} onClick={() => navigate(configured ? '/signup' : '/app/dashboard')}>
@@ -107,7 +110,7 @@ export default function Landing({ anchor }) {
       </header>
 
       <div className="mk-strip">
-        {['Token queue', 'Appointments', 'Patient records', 'Consultations', 'GST invoices', 'Follow-up recalls', 'Offline PWA', 'Installable app'].map((chip) => (
+        {['Token queue', 'Appointments', 'Patient records', 'Consultations', 'GST invoices', 'Day close', 'Follow-up recalls', 'Offline PWA', 'Installable app'].map((chip) => (
           <span key={chip} className="badge neutral" style={{ padding: '6px 12px', fontSize: '0.78rem' }}><BadgeCheck size={12} style={{ color: 'var(--brand-500)' }} /> {chip}</span>
         ))}
       </div>
@@ -115,8 +118,8 @@ export default function Landing({ anchor }) {
       <section className="mk-section" id="features">
         <div className="stack" style={{ gap: 8, marginBottom: 24, maxWidth: 640 }}>
           <span className="eyebrow">The platform</span>
-          <h2 style={{ fontSize: 'clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem)' }}>Six screens replace the register, the case sheet and the cash book</h2>
-          <p className="muted">Every module talks to the others. A booking becomes a consultation, a consultation becomes an invoice, an invoice becomes a follow-up.</p>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem)' }}>One clinic, from the first token to the closed day</h2>
+          <p className="muted">Every module talks to the others. A booking becomes a consultation, a consultation becomes an invoice, an invoice becomes a follow-up — and the day closes with the drawer counted.</p>
         </div>
         <div className="mk-cards">
           {FEATURES.map((f) => (
