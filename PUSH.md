@@ -11,8 +11,8 @@ are **deployed** (Pages run #7, live bundle reports 1.11.9 / schema 10). The
 during GitHub's 2026-11-04 Git Operations incident, and the remote still lists
 only `v1.11.6` and older.
 
-So this bundle carries **one commit** — v1.11.10, the demo door fix — and the tag
-`v1.11.10`; the tags `v1.11.7`, `v1.11.8` and `v1.11.9` are still in the same
+So this bundle carries **two commits** — v1.11.10 (the demo door fix) and the gap
+analysis re-audit above it — plus the tag `v1.11.10`; the tags `v1.11.7`, `v1.11.8` and `v1.11.9` are still in the same
 bundle and still need pushing. If you have not pushed since `e417a41` (v1.11.2),
 use the [catch-up](#catch-up-from-v1112) section below.
 
@@ -20,7 +20,7 @@ Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 | --- | --- | --- |
-| `myClinic-update-to-v1.11.10.bundle` | ~5 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
+| `myClinic-update-to-v1.11.10.bundle` | ~18 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
 | `myClinic-full-v1.11.10.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
 Both carry `main` and the tags `v1.11.7`, `v1.11.8`, `v1.11.9` and `v1.11.10`.
@@ -38,7 +38,7 @@ git fetch /path/to/myClinic-update-to-v1.11.10.bundle \
 
 git merge --ff-only refs/remotes/bundle/main
 
-git log --oneline -2            # fix(demo) 1.11.10 / be0711b docs
+git log --oneline -3            # docs audit / fix(demo) 1.11.10 / be0711b
 
 git push origin main
 git push --atomic origin refs/tags/v1.11.7 refs/tags/v1.11.8 \
