@@ -9,8 +9,8 @@ import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
 import { TRIAL_DAYS } from './license.mjs';
 import {
-  TABLES, readCache, writeCache, clearAllCache, readOutbox, writeOutbox, enqueue,
-  newClientId, replayOutbox, readSyncMeta, writeSyncMeta,
+  TABLES, mergeFields, readCache, writeCache, clearAllCache, readOutbox, writeOutbox, enqueue,
+  newClientId, replayOutbox, readSyncMeta, writeSyncMeta, unknownColumn,
 } from './offline.js';
 
 const DEMO_KEY = 'myclinic.demo.v1';
@@ -349,14 +349,13 @@ export function StoreProvider({ children, session }) {
     if (table !== 'profile') assertWritable();
     const clinicId = stateRef.current.clinic?.id;
     const clientId = row.client_id ?? newClientId();
-    const record = {
-      id: row.id ?? clientId,
-      client_id: clientId,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      ...row,
-      clinic_id: clinicId,
-    };
+    const stamp = { created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    // `profiles` is keyed by the auth user and carries neither client_id nor
+    // clinic_id, so it is written on its own shape — sending the clinic columns
+    // there is a 400, not a shrug.
+    const record = table === 'profile'
+      ? { id: row.id ?? clientId, ...stamp, ...row }
+      : { id: row.id ?? clientId, client_id: clientId, ...stamp, ...row, clinic_id: clinicId };
 
     // Optimistic: the UI updates immediately, the network catches up.
     persistLocal((prev) => ({ ...prev, [table]: [record, ...(prev[table] ?? [])] }));
@@ -406,6 +405,60 @@ export function StoreProvider({ children, session }) {
     setPending(readOutbox(userId));
     if (navigator.onLine) flush();
   }, [mode, persistLocal, userId, flush]);
+
+  /**
+   * Save through to the database, and answer with what the server said.
+   *
+   * `update()` is deliberately optimistic and queued: a clinic that loses Wi-Fi
+   * mid-morning must not lose the billing it is doing. But a settings screen is
+   * the other kind of write — the person is standing still, watching a Save
+   * button, and needs to know *now* whether it landed. Waiting on the outbox's
+   * background flush meant the screen said "saved" before the server had even
+   * answered, so a refused write looked like a success until the sync badge
+   * turned red minutes later.
+   *
+   * This writes straight to PostgREST when the device is online, keeps the
+   * three-way merge so a second device is not silently overwritten, repairs a
+   * single unknown column against an older database, and throws the real error
+   * otherwise. Offline (or in the demo) it falls back to the queued write.
+   */
+  const updateNow = useCallback(async (table, id, patch) => {
+    const target = table === 'clinic' ? 'clinics' : table === 'profile' ? 'profiles' : table;
+    const baseRow = table === 'clinic' ? stateRef.current.clinic
+      : table === 'profile' ? stateRef.current.profile
+        : (stateRef.current[table] ?? []).find((r) => r.id === id);
+
+    if (mode !== 'live' || !navigator.onLine || !supabase) {
+      await update(table, id, patch);
+      return { queued: true };
+    }
+
+    const { data: current, error: readError } = await supabase.from(target).select('*').eq('id', id).maybeSingle();
+    if (readError) throw readError;
+    if (!current) throw new Error(`That record is no longer in the database — it may have been deleted on another device.`);
+
+    const merged = mergeFields({ table: target, base: baseRow ?? null, local: patch, remote: current });
+    const payload = { ...merged.patch, updated_at: new Date().toISOString() };
+    if (!Object.keys(merged.patch).length) { persistLocal({}); return { row: current, unchanged: true }; }
+
+    let result = await supabase.from(target).update(payload).eq('id', id).select().single();
+    const missing = result.error ? unknownColumn(result.error) : null;
+    if (missing && Object.prototype.hasOwnProperty.call(payload, missing)) {
+      // A database still on the previous schema: keep every column it does have.
+      const trimmed = { ...payload };
+      delete trimmed[missing];
+      result = await supabase.from(target).update(trimmed).eq('id', id).select().single();
+    }
+    if (result.error) throw result.error;
+
+    const row = result.data;
+    persistLocal((prev) => {
+      if (table === 'clinic') return { ...prev, clinic: { ...prev.clinic, ...row } };
+      if (table === 'profile') return { ...prev, profile: { ...(prev.profile ?? {}), ...row } };
+      return { ...prev, [table]: (prev[table] ?? []).map((r) => (r.id === id ? { ...r, ...row } : r)) };
+    });
+    return { row, queued: false };
+  }, [mode, update, persistLocal]);
 
   /**
    * Claim the clinic's public booking address.
@@ -691,14 +744,14 @@ export function StoreProvider({ children, session }) {
     // sync surface
     online, pending, conflicts, syncState, lastSyncedAt, usingCache,
     flushNow: flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
+    create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
     refresh, resetDemo, enterDemo: bootDemo,
     // licensing
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
+    create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
     resetDemo, bootDemo, refresh,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial]);

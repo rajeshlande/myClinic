@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import {
   BellRing, Building2, Check, CreditCard, Copy, Download, ExternalLink, LogOut, MoonStar,
   RefreshCw, Save, Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, Smartphone,
-  ImagePlus, CalendarDays,
+  ImagePlus, CalendarDays, CalendarOff, Clock, AlertCircle,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -17,10 +17,17 @@ import { BrandingFields, BrandMark } from '../components/Branding.jsx';
 import { APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION } from '../lib/version.js';
 import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
 import { BOOKING_HORIZON_DAYS, bookingUrl, clinicSlug } from '../lib/public-booking.mjs';
+import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
+import {
+  FOLLOW_UP_MAX_DAYS, FOLLOW_UP_MIN_DAYS, WEEKDAYS, clinicSessions, closure,
+  normaliseDates, normaliseSessions, normaliseWeekdays, sessionsSummary, validateFollowUpDays,
+  validateSessions,
+} from '../lib/hours.mjs';
+import { clearRecentErrors, diagnosticsText, explainError, recentErrors, rememberError } from '../lib/errors.mjs';
 import { CloudOff, GitBranch, History, Palette, QrCode, RefreshCcw, Scale } from 'lucide-react';
 import {
   CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput,
-  today, toCSV, patientSearch,
+  addDays, profilePatch, today, toCSV, patientSearch,
 } from '../lib/logic.mjs';
 
 export default function Settings() {
@@ -43,6 +50,12 @@ export default function Settings() {
     fee: paiseToInput(store.clinic?.consultation_fee_paise ?? 50000),
     follow_up_fee: paiseToInput(store.clinic?.follow_up_fee_paise ?? 25000),
     gst_rate: String(store.clinic?.gst_rate ?? 0),
+    // Schema 12: a day is one or two sessions, and a clinic can close on chosen
+    // weekdays or one-off dates. A clinic created before schema 12 has neither,
+    // so it starts from its single open/close pair — nothing changes underfoot.
+    sessions: clinicSessions(store.clinic),
+    closed_weekdays: normaliseWeekdays(store.clinic?.closed_weekdays),
+    closed_dates: normaliseDates(store.clinic?.closed_dates),
   }));
   const [profile, setProfile] = useState({
     full_name: store.profile?.full_name ?? '',
@@ -52,6 +65,8 @@ export default function Settings() {
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFERENCES, ...pickPrefs(store.profile) });
 
   useEffect(() => { applyDensity(prefs.density); }, [prefs.density]);
+  // A failure recorded on another screen should be visible here.
+  useEffect(() => { if (tab === 'about') setProblems(recentErrors()); }, [tab]);
 
   const canEdit = can(role, 'clinic:settings');
   // A seat only sees the settings it can act on: the clinic's identity, GST setup,
@@ -80,19 +95,59 @@ export default function Settings() {
   const publicLink = savedSlug ? bookingUrl(savedSlug) : '';
   const slugPending = Boolean(typedSlug) && typedSlug !== savedSlug;
 
+  // Validated while typing, not only on Save: a follow-up window outside 3–45
+  // days is a mistake the field can point at before anything is sent.
+  const followUpError = validateFollowUpDays(clinic.follow_up_days);
+  // The next closure in the coming fortnight, so the owner can see the effect of
+  // the day offs without opening the calendar.
+  const nextClosedLine = (() => {
+    for (let i = 0; i < 14; i += 1) {
+      const iso = addDays(today(), i);
+      const shut = closure(iso, { closedWeekdays: clinic.closed_weekdays, closedDates: clinic.closed_dates });
+      if (shut.closed) {
+        const label = new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+        return `Next closed day: ${i === 0 ? 'today' : label} — ${shut.reason}. No slots are offered that day.`;
+      }
+    }
+    return 'Open every day for the next two weeks.';
+  })();
+
+  const [problems, setProblems] = useState(() => recentErrors());
+
+  function copyDiagnostics() {
+    const text = diagnosticsText({ app: APP_VERSION, schema: SCHEMA_VERSION, build: BUILD_LABEL });
+    const done = () => toast.success('Diagnostics copied — paste them into your message to support.');
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done).catch(() => toast.error('Clipboard blocked by the browser.', 'Select the text under Recent problems and copy it by hand.'));
+    else toast.error('This browser has no clipboard access.', 'Select the text under Recent problems and copy it by hand.');
+  }
+
   async function saveClinic() {
     setSaving(true);
     try {
       let fee, followUp;
       try { fee = moneyToPaise(clinic.fee); followUp = moneyToPaise(clinic.follow_up_fee); }
-      catch { toast.error('Enter valid fee amounts.'); setSaving(false); return; }
-      await store.update('clinic', store.clinic.id, {
+      catch { toast.error('The consultation and follow-up fees must be plain rupee amounts, for example 500.'); setSaving(false); return; }
+
+      // Hours and the follow-up window are checked here as well as in Postgres, so
+      // a bad value is answered in the field's own words rather than as a 400.
+      const hours = validateSessions(clinic.sessions, { label: 'Clinic hours' });
+      if (!hours.ok) { toast.error(hours.error); setSaving(false); return; }
+      const followUpProblem = validateFollowUpDays(clinic.follow_up_days);
+      if (followUpProblem) { toast.error(followUpProblem); setSaving(false); return; }
+      await store.updateNow('clinic', store.clinic.id, {
         name: clinic.name?.trim(), clinic_type: clinic.clinic_type, phone: clinic.phone, email: clinic.email,
         address: clinic.address, gstin: clinic.gstin, brand_color: clinic.brand_color,
         consultation_fee_paise: fee, follow_up_fee_paise: followUp,
-        follow_up_days: Number(clinic.follow_up_days) || 15,
+        follow_up_days: Number(clinic.follow_up_days),
         slot_minutes: Number(clinic.slot_minutes) || 15,
-        open_time: clinic.open_time, close_time: clinic.close_time,
+        // open_time/close_time stay written as the outer edges of the day, so any
+        // older screen (and the public booking page on a stale cache) still reads
+        // sane hours. The truth is `sessions`.
+        open_time: hours.sessions[0].start,
+        close_time: hours.sessions[hours.sessions.length - 1].end,
+        sessions: hours.sessions,
+        closed_weekdays: normaliseWeekdays(clinic.closed_weekdays),
+        closed_dates: normaliseDates(clinic.closed_dates),
         gst_enabled: Boolean(clinic.gst_enabled), gst_rate: Number(clinic.gst_rate) || 0,
         invoice_prefix: clinic.invoice_prefix || 'INV',
         booking_enabled: clinicState.booking_enabled !== false,
@@ -118,20 +173,49 @@ export default function Settings() {
       } else {
         toast.success('Clinic profile saved.');
       }
-    } catch (e) { toast.error(e.message ?? 'Could not save.'); } finally { setSaving(false); }
+    } catch (e) {
+      const explained = rememberError(e, 'Save the clinic profile');
+      toast.error(explained.message, explained.hint);
+      console.warn('clinic profile save failed', explained.code, explained.detail);
+    } finally { setSaving(false); }
   }
 
+  /**
+   * Save my account.
+   *
+   * This used to send `{ ...profile, ...prefs, theme }` — every key the screen
+   * happened to hold — to `profiles`. Once `prefs` grew `send_review_request`
+   * (a preference the database never had a column for) PostgREST refused the
+   * whole update with PGRST204 and the person saw only "Could not save.", so a
+   * name change failed because of a notification toggle.
+   *
+   * Now the patch is built from the columns the database actually has. A new
+   * preference cannot break saving again, and if a column is genuinely missing
+   * the message names it and says to re-run schema.sql.
+   */
   async function saveProfile() {
     setSaving(true);
     try {
+      if (!profile.full_name.trim()) { toast.error('Add your name — it is printed on the prescriptions you sign.'); setSaving(false); return; }
+      const patch = profilePatch(profile, prefs, theme);
       if (store.mode === 'demo') {
         toast.success('Profile saved in the demo workspace.');
       } else {
-        await store.update('profile', store.profile.id, { ...profile, ...prefs, theme });
+        const id = store.profile?.id ?? user?.id;
+        if (!id) { toast.error('You are not signed in, so there is nothing to save to. Sign in again.'); setSaving(false); return; }
+        // `updateNow` waits for the database and throws its answer, so "saved"
+        // is only ever shown once the server has actually accepted the write.
+        if (store.profile) await store.updateNow('profile', id, patch);
+        else await store.create('profile', { id, ...patch });
         toast.success('Profile and preferences saved.');
       }
       setSaving(false);
-    } catch (e) { toast.error(e.message ?? 'Could not save.'); setSaving(false); }
+    } catch (e) {
+      const explained = rememberError(e, 'Save my account');
+      toast.error(explained.message, explained.hint);
+      console.warn('profile save failed', explained.code, explained.detail);
+      setSaving(false);
+    }
   }
 
   function changeTheme(next) {
@@ -233,17 +317,15 @@ export default function Settings() {
               <Field label="Email"><Input value={clinic.email ?? ''} onChange={(e) => setClinic((c) => ({ ...c, email: e.target.value }))} /></Field>
               <Field label="GSTIN" hint="Leave blank if not registered"><Input value={clinic.gstin ?? ''} onChange={(e) => setClinic((c) => ({ ...c, gstin: e.target.value }))} /></Field>
               <Field label="Address" className="span-2"><Input value={clinic.address ?? ''} onChange={(e) => setClinic((c) => ({ ...c, address: e.target.value }))} /></Field>
-              <Field label="Opens at"><Input type="time" value={(clinic.open_time ?? '09:00').slice(0, 5)} onChange={(e) => setClinic((c) => ({ ...c, open_time: e.target.value }))} /></Field>
-              <Field label="Closes at"><Input type="time" value={(clinic.close_time ?? '20:00').slice(0, 5)} onChange={(e) => setClinic((c) => ({ ...c, close_time: e.target.value }))} /></Field>
               <Field label="Default slot length">
                 <Select value={clinic.slot_minutes ?? 15} onChange={(e) => setClinic((c) => ({ ...c, slot_minutes: Number(e.target.value) }))}>
                   {[5, 10, 15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} minutes</option>)}
                 </Select>
               </Field>
-              <Field label="Follow-up validity (days)">
-                <Select value={clinic.follow_up_days ?? 15} onChange={(e) => setClinic((c) => ({ ...c, follow_up_days: Number(e.target.value) }))}>
-                  {[7, 10, 15, 21, 30, 45].map((d) => <option key={d} value={d}>{d} days</option>)}
-                </Select>
+              <Field label="Follow-up validity (days)" hint={`${FOLLOW_UP_MIN_DAYS}–${FOLLOW_UP_MAX_DAYS} days`} error={followUpError}>
+                <Input type="number" min={FOLLOW_UP_MIN_DAYS} max={FOLLOW_UP_MAX_DAYS} step={1}
+                  value={clinic.follow_up_days ?? ''}
+                  onChange={(e) => setClinic((c) => ({ ...c, follow_up_days: e.target.value === '' ? '' : Number(e.target.value) }))} />
               </Field>
               <Field label="Consultation fee ₹"><Input value={clinic.fee} onChange={(e) => setClinic((c) => ({ ...c, fee: e.target.value }))} inputMode="decimal" /></Field>
               <Field label="Follow-up fee ₹"><Input value={clinic.follow_up_fee} onChange={(e) => setClinic((c) => ({ ...c, follow_up_fee: e.target.value }))} inputMode="decimal" /></Field>
@@ -255,6 +337,45 @@ export default function Settings() {
                   ))}
                 </div>
               </Field>
+            </div>
+
+            <div className="stack" style={{ gap: 10, marginTop: 14 }}>
+              <div className="row" style={{ gap: 8 }}>
+                <Clock size={15} className="muted" />
+                <strong className="small">Consulting hours</strong>
+                <span className="small muted">Up to two sessions a day — the break between them is never offered as a slot.</span>
+              </div>
+              <SessionEditor
+                label="Clinic hours"
+                value={clinic.sessions}
+                disabled={!canEdit}
+                hint="A patient can only be booked inside one of these sessions. A doctor is then given one of them."
+                onChange={(sessions) => setClinic((c) => ({ ...c, sessions }))}
+              />
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {activeTab === 'clinic' ? (
+        <Card>
+          <CardHead
+            title="Days the clinic is closed" icon={CalendarOff}
+            sub="Weekly days off and one-off holidays — no slots are offered on these days"
+            action={<Badge tone={(clinic.closed_weekdays ?? []).length || (clinic.closed_dates ?? []).length ? 'warn' : 'neutral'}>
+              {(clinic.closed_weekdays ?? []).length + (clinic.closed_dates ?? []).length} closed
+            </Badge>}
+          />
+          <div className="card-body">
+            <DayOffEditor
+              weekdays={clinic.closed_weekdays}
+              dates={clinic.closed_dates}
+              disabled={!canEdit}
+              onWeekdays={(closed_weekdays) => setClinic((c) => ({ ...c, closed_weekdays }))}
+              onDates={(closed_dates) => setClinic((c) => ({ ...c, closed_dates }))}
+            />
+            <div className="small muted" style={{ marginTop: 10 }}>
+              {nextClosedLine}
             </div>
           </div>
         </Card>
@@ -663,6 +784,28 @@ export default function Settings() {
                 <Button variant="subtle" icon={History} onClick={() => { window.location.hash = '#/app/settings'; }}>You are up to date</Button>
                 <Button variant="ghost" icon={RefreshCw} onClick={() => window.location.reload()}>Reload this build</Button>
               </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHead
+              title="Recent problems" icon={AlertCircle}
+              sub="What failed on this device, in the words the database used"
+              action={<Button size="sm" variant="ghost" icon={Copy} onClick={() => copyDiagnostics()}>Copy</Button>}
+            />
+            <div className="card-body stack" style={{ gap: 8 }}>
+              {problems.length ? problems.map((p) => (
+                <div key={`${p.at}-${p.code}`} className="stack" style={{ gap: 2 }}>
+                  <span className="small"><strong>{p.context || 'app'}</strong> · {p.message}</span>
+                  <span className="tiny faint mono">{p.at} · {p.code || 'no code'}{p.detail && p.detail !== p.message ? ` · ${p.detail.slice(0, 160)}` : ''}</span>
+                </div>
+              )) : (
+                <span className="small muted">Nothing has failed on this device. If something does, the exact reason lands here — copy it into a message and support can read it.</span>
+              )}
+              <span className="small muted">
+                Schema {SCHEMA_VERSION} is what this build expects. If a problem mentions a missing column,
+                re-run <code>supabase/schema.sql</code> in the Supabase SQL editor.
+              </span>
             </div>
           </Card>
 

@@ -13,6 +13,7 @@
  */
 
 import { minutesToTime, timeToMinutes, today } from './logic.mjs';
+import { clinicClosed, doctorClosed, doctorSessions, normaliseSessions, prettyTime } from './hours.mjs';
 
 export const LIVE_STATUSES = ['checked-in', 'in-consult'];
 export const DEAD_STATUSES = ['cancelled', 'no-show'];
@@ -51,28 +52,69 @@ export function detectClashes(appointments, draft, fallback = 15) {
 /**
  * All slot start times for a doctor on a date, given a candidate duration.
  * A slot is offered only when the whole [start, start+duration) interval fits
- * inside working hours AND touches no existing booking.
+ * inside *one* of the doctor's sessions AND touches no existing booking.
+ *
+ * `sessions` is the list from hours.mjs (at most two). When it is absent the
+ * legacy single `day_start`–`day_end` pair is used, so a database that has not
+ * been migrated to schema 12 behaves exactly as before.
+ *
+ * `closed` (or the closure arguments) is a day off: the day yields no slots at
+ * all, and `reason` says why — the desk needs "Closed on Sundays", not an empty
+ * column that looks like a bug.
  */
-export function availableSlots({ appointments = [], doctor, iso, duration = 15, step = null }) {
-  const open = mins(doctor?.day_start || '09:00');
-  const close = mins(doctor?.day_end || '13:00');
+export function availableSlots({
+  appointments = [], doctor, iso, duration = 15, step = null,
+  sessions = null, closed = false, closedReason = '', clinic = null,
+}) {
   const stride = Math.max(5, Number(step) || Number(doctor?.slot_minutes) || duration || 15);
+  const hours = sessions?.length
+    ? normaliseSessions(sessions)
+    : doctorSessions(doctor, clinic);
+
+  // A day off closes the diary for everyone: the clinic's closures apply to every
+  // doctor, and a doctor's own leave closes only their column.
+  const dayOff = doctor ? doctorClosed(iso, doctor, clinic) : clinicClosed(iso, clinic);
+  const shut = closed || dayOff.closed;
+  const reason = closedReason || dayOff.reason;
+  if (shut || !hours.length) {
+    return Object.assign([], { closed: Boolean(shut), reason: shut ? reason : '', sessions: hours });
+  }
+
   const booked = appointments
     .filter((a) => a.doctor_id === doctor?.id && a.scheduled_on === iso && !DEAD_STATUSES.includes(a.status))
     .map((a) => intervalOf(a));
 
   const all = [];
-  for (let t = open; t + duration <= close; t += stride) all.push(t);
+  for (const session of hours) {
+    const open = mins(session.start);
+    const close = mins(session.end);
+    for (let t = open; t + duration <= close; t += stride) all.push(t);
+  }
+  all.sort((a, b) => a - b);
 
-  return all.map((start) => {
+  const slots = all.map((start) => {
     const end = start + duration;
     const blocking = booked.find((b) => start < b.end && b.start < end);
     return { time: time(start), start, end, free: !blocking, blockedBy: blocking ?? null };
   });
+  return Object.assign(slots, { closed: false, reason: '', sessions: hours });
 }
 
-/** Group slots into the sessions a front desk actually talks about. */
-export function groupSlots(slots, { afternoonFrom = '12:00', eveningFrom = '17:00' } = {}) {
+/**
+ * Group slots into the sessions a front desk actually talks about. When the
+ * clinic's real sessions are known they name the groups ("9 AM – 1 PM"); the
+ * morning/afternoon/evening split stays as the fallback.
+ */
+export function groupSlots(slots, { afternoonFrom = '12:00', eveningFrom = '17:00', sessions = null } = {}) {
+  const hours = normaliseSessions(sessions);
+  if (hours.length) {
+    return hours.map((session) => ({
+      id: `session-${session.start}-${session.end}`,
+      label: `${prettyTime(session.start)} – ${prettyTime(session.end)}`,
+      session,
+      slots: slots.filter((s) => s.start >= mins(session.start) && s.end <= mins(session.end)),
+    })).filter((g) => g.slots.length);
+  }
   const a = mins(afternoonFrom);
   const e = mins(eveningFrom);
   const groups = [
@@ -88,8 +130,8 @@ export function groupSlots(slots, { afternoonFrom = '12:00', eveningFrom = '17:0
 }
 
 /** First free slot at or after `from` (minutes), for the "next free" shortcut. */
-export function nextFreeSlot({ appointments = [], doctor, iso, duration = 15, from = 0 }) {
-  const list = availableSlots({ appointments, doctor, iso, duration });
+export function nextFreeSlot({ appointments = [], doctor, iso, duration = 15, from = 0, sessions = null, clinic = null }) {
+  const list = availableSlots({ appointments, doctor, iso, duration, sessions, clinic });
   return list.find((s) => s.free && s.start >= from) ?? null;
 }
 
@@ -97,11 +139,11 @@ export function nextFreeSlot({ appointments = [], doctor, iso, duration = 15, fr
  * Suggest the earliest bookable slot across doctors.
  * Used by the "Next free" button and by the new-appointment form's default time.
  */
-export function suggestNext({ doctors = [], appointments = [], iso = today(), duration = 15, doctorId = null, from = 0 }) {
+export function suggestNext({ doctors = [], appointments = [], iso = today(), duration = 15, doctorId = null, from = 0, clinic = null }) {
   const pool = doctorId && doctorId !== 'all' ? doctors.filter((d) => d.id === doctorId) : doctors;
   let best = null;
   for (const doctor of pool) {
-    const slot = nextFreeSlot({ appointments, doctor, iso, duration, from });
+    const slot = nextFreeSlot({ appointments, doctor, iso, duration, from, clinic });
     if (slot && (!best || slot.start < best.start)) best = { ...slot, doctor_id: doctor.id };
   }
   return best;

@@ -678,6 +678,51 @@ export const DEFAULT_PREFERENCES = {
   quiet_hours: '21:00-08:00',
 };
 
+/**
+ * The columns `public.profiles` actually has (schema.sql).
+ *
+ * A form holds more state than a table has columns — this screen keeps the
+ * chosen accent in localStorage, and carries preferences that a later schema
+ * may or may not have added. Sending the whole object to PostgREST makes one
+ * unknown key fail the entire update (PGRST204), which is how a notification
+ * preference once stopped a doctor from saving their own name. So the patch is
+ * built from this list, never from a spread.
+ */
+export const PROFILE_COLUMNS = [
+  'full_name', 'phone', 'designation', 'theme', 'density', 'reminders_enabled',
+  'reminder_lead_hours', 'send_review_request', 'quiet_hours', 'default_clinic_id',
+];
+
+/** Keep only the keys a table has; drops undefined so a field is never blanked by accident. */
+export function pickColumns(row = {}, columns = PROFILE_COLUMNS) {
+  const out = {};
+  for (const key of columns) {
+    if (row[key] !== undefined && row[key] !== null) out[key] = row[key];
+  }
+  return out;
+}
+
+/**
+ * The update `profiles` should receive from the account screen.
+ * @param {{full_name?:string, phone?:string, designation?:string}} profile
+ * @param {object} prefs  theme, density, reminders*, quiet_hours, send_review_request
+ * @param {string} theme  the theme chosen on the Appearance tab
+ */
+export function profilePatch(profile = {}, prefs = {}, theme = null) {
+  const merged = {
+    ...pickColumns(profile, ['full_name', 'phone', 'designation']),
+    ...pickColumns(prefs, PROFILE_COLUMNS),
+    ...(theme ? { theme } : {}),
+  };
+  if (typeof merged.full_name === 'string') merged.full_name = merged.full_name.trim();
+  if (typeof merged.phone === 'string') merged.phone = merged.phone.trim();
+  if (typeof merged.designation === 'string') merged.designation = merged.designation.trim();
+  if (merged.reminder_lead_hours !== undefined) merged.reminder_lead_hours = Number(merged.reminder_lead_hours);
+  if (merged.reminders_enabled !== undefined) merged.reminders_enabled = Boolean(merged.reminders_enabled);
+  if (merged.send_review_request !== undefined) merged.send_review_request = Boolean(merged.send_review_request);
+  return pickColumns(merged);
+}
+
 export const DEFAULT_DOCTOR = {
   full_name: '', specialty: 'General Physician', qualification: 'MBBS', registration_no: '',
   phone: '', email: '', color: '#0f766e', day_start: '09:00', day_end: '13:00',

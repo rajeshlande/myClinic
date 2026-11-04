@@ -8,6 +8,15 @@ import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Inp
 import { ROLES, formatMoney, moneyToPaise, paiseToInput, slugify } from '../lib/logic.mjs';
 import { canAddSeat } from '../lib/license.mjs';
 import { can, roleMatrixFor } from '../lib/permissions.js';
+import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
+import {
+  WEEKDAYS, clinicSessions, doctorSessions, normaliseDates, normaliseWeekdays, sessionsSummary,
+  validateDoctorSessions,
+} from '../lib/hours.mjs';
+
+/** 'Mon Tue' from weekday numbers, for the day-off badge. */
+const WEEKDAY_SHORT = Object.fromEntries(WEEKDAYS.map((d) => [d.id, d.short]));
+import { rememberError } from '../lib/errors.mjs';
 import {
   daysLeft, inviteDefaults, inviteEmailError, inviteLink as buildInviteLink, inviteState,
   pendingInvites, rememberInviteToken,
@@ -32,13 +41,24 @@ export default function Team() {
     full_name: '', role: 'doctor', specialty: 'General Physician', qualification: 'MBBS',
     registration_no: '', phone: '', email: '', color: '#0f766e',
     day_start: '09:00', day_end: '13:00', slot_minutes: 15, fee: '500', follow_up_fee: '250', active: true,
+    // Schema 12: a doctor sits inside one of the clinic's sessions and can have
+    // their own days off. Both start empty and inherit the clinic.
+    sessions: [], closed_weekdays: [], closed_dates: [],
   };
   const [draft, setDraft] = useState(blank);
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target?.value ?? e }));
 
   function openNew() {
     setEditing(null);
-    setDraft({ ...blank, fee: paiseToInput(store.clinic?.consultation_fee_paise ?? 50000), follow_up_fee: paiseToInput(store.clinic?.follow_up_fee_paise ?? 25000) });
+    setDraft({
+      ...blank,
+      fee: paiseToInput(store.clinic?.consultation_fee_paise ?? 50000),
+      follow_up_fee: paiseToInput(store.clinic?.follow_up_fee_paise ?? 25000),
+      // Start from the clinic's first session so a new doctor is bookable at once,
+      // and they can be narrowed to it (or to the other one) from here.
+      sessions: clinicSessions(store.clinic).slice(0, 1),
+      closed_weekdays: [], closed_dates: [],
+    });
     setFormOpen(true);
   }
   function openEdit(member) {
@@ -47,6 +67,9 @@ export default function Team() {
       ...blank, ...member,
       fee: paiseToInput(member.fee_paise ?? 0),
       follow_up_fee: paiseToInput(member.follow_up_fee_paise ?? 0),
+      sessions: doctorSessions(member, store.clinic),
+      closed_weekdays: normaliseWeekdays(member.closed_weekdays),
+      closed_dates: normaliseDates(member.closed_dates),
     });
     setFormOpen(true);
   }
@@ -54,6 +77,14 @@ export default function Team() {
   async function save() {
     if (!draft.full_name.trim()) { toast.error('Add the person’s name.'); return; }
     if (!seasonCheck(draft.role)) return;
+
+    // A doctor's hours must sit inside one of the clinic's sessions: the evening
+    // doctor cannot be booked at 10 AM because the screen offered it.
+    let hours = null;
+    if (draft.role !== 'frontdesk') {
+      hours = validateDoctorSessions(draft.sessions, clinicSessions(store.clinic), { label: `${draft.full_name.trim() || 'Doctor'}'s hours` });
+      if (!hours.ok) { toast.error(hours.error); return; }
+    }
     setSaving(true);
     try {
       let fee = 0, followUp = 0;
@@ -67,8 +98,13 @@ export default function Team() {
         phone: draft.phone,
         email: draft.email,
         color: draft.color,
-        day_start: draft.day_start,
-        day_end: draft.day_end,
+        // The legacy pair stays written as the outer edges of the doctor's day so
+        // an older screen — and the pre-1.13 public booking page — still agrees.
+        day_start: hours?.sessions?.[0]?.start ?? draft.day_start,
+        day_end: hours?.sessions?.[hours.sessions.length - 1]?.end ?? draft.day_end,
+        sessions: hours?.sessions ?? [],
+        closed_weekdays: normaliseWeekdays(draft.closed_weekdays),
+        closed_dates: normaliseDates(draft.closed_dates),
         slot_minutes: Number(draft.slot_minutes) || 15,
         fee_paise: fee,
         follow_up_fee_paise: followUp,
@@ -89,7 +125,10 @@ export default function Team() {
         toast.success(`Invitation sent to ${payload.email}. They appear here once they sign in.`);
       }
       setFormOpen(false);
-    } catch (e) { toast.error(e.message ?? 'Could not save.'); } finally { setSaving(false); }
+    } catch (e) {
+      const explained = rememberError(e, `${draft.full_name.trim() || 'A staff member'} · save`);
+      toast.error(explained.message, explained.hint);
+    } finally { setSaving(false); }
   }
 
   /** Licence gate: read-only clinics and full plans cannot take a new seat. */
@@ -206,7 +245,10 @@ export default function Team() {
                   </div>
                   {member.role !== 'frontdesk' ? (
                     <div className="row wrap tiny" style={{ gap: 8, marginTop: 6 }}>
-                      <span className="badge neutral"><Clock size={10} /> {member.day_start}–{member.day_end}</span>
+                      <span className="badge neutral"><Clock size={10} /> {sessionsSummary(doctorSessions(member, store.clinic)) || 'No hours set'}</span>
+                      {normaliseWeekdays(member.closed_weekdays).length || normaliseDates(member.closed_dates).length ? (
+                        <span className="badge warn">{normaliseWeekdays(member.closed_weekdays).map((d) => WEEKDAY_SHORT[d]).join(' ')}{normaliseDates(member.closed_dates).length ? ` +${normaliseDates(member.closed_dates).length} day off` : ''} off</span>
+                      ) : null}
                       <span className="badge neutral">{member.slot_minutes ?? 15} min slots</span>
                       <span className="badge brand">{formatMoney(member.fee_paise ?? 0)}</span>
                       <span className="badge neutral">F/U {formatMoney(member.follow_up_fee_paise ?? 0)}</span>
@@ -327,8 +369,20 @@ export default function Team() {
           <Field label="Email"><Input value={draft.email} onChange={set('email')} type="email" placeholder="name@clinic.in" /></Field>
           {draft.role !== 'frontdesk' ? (
             <>
-              <Field label="Day starts"><Input type="time" value={draft.day_start} onChange={set('day_start')} /></Field>
-              <Field label="Day ends"><Input type="time" value={draft.day_end} onChange={set('day_end')} /></Field>
+              <div className="span-2">
+                <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                  <Clock size={14} className="muted" />
+                  <strong className="small" style={{ whiteSpace: 'nowrap' }}>Day starts and ends</strong>
+                  <span className="small muted">Inside one of the clinic's sessions — a doctor is not bookable across the clinic's break.</span>
+                </div>
+                <SessionEditor
+                  label={`${draft.full_name.trim() || 'Doctor'}'s hours`}
+                  value={draft.sessions}
+                  clinicHours={clinicSessions(store.clinic)}
+                  onChange={(sessions) => setDraft((d) => ({ ...d, sessions }))}
+                  hint={`Clinic hours: ${sessionsSummary(clinicSessions(store.clinic)) || 'not set yet'}.`}
+                />
+              </div>
               <Field label="Slot length">
                 <Select value={draft.slot_minutes} onChange={set('slot_minutes')}>
                   {[5, 10, 15, 20, 30, 45].map((m) => <option key={m} value={m}>{m} minutes</option>)}
@@ -336,6 +390,17 @@ export default function Team() {
               </Field>
               <Field label="Consultation fee ₹"><Input value={draft.fee} onChange={set('fee')} inputMode="decimal" /></Field>
               <Field label="Follow-up fee ₹"><Input value={draft.follow_up_fee} onChange={set('follow_up_fee')} inputMode="decimal" /></Field>
+              <div className="span-2" style={{ marginTop: 6 }}>
+                <strong className="small">Days off</strong>
+                <DayOffEditor
+                  label="This doctor's days off"
+                  weekdays={draft.closed_weekdays}
+                  dates={draft.closed_dates}
+                  onWeekdays={(closed_weekdays) => setDraft((d) => ({ ...d, closed_weekdays }))}
+                  onDates={(closed_dates) => setDraft((d) => ({ ...d, closed_dates }))}
+                  inheritNote="The clinic's own closed days always apply on top of these."
+                />
+              </div>
               <Field label="Calendar colour">
                 <div className="row" style={{ gap: 6 }}>
                   {['#0f766e', '#7c5cd6', '#c2872b', '#3d7fb8', '#c0455a', '#5d7c5a'].map((c) => (

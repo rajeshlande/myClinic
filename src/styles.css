@@ -335,6 +335,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .input.invalid, .select.invalid { border-color: var(--danger); }
 .form-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .form-grid .span-2 { grid-column: span 2; }
+
+/* A working session: two clock fields, its length, and a way to remove it.
+   On a phone the length gives way first — the two times are what a person edits,
+   and a wrapped "4h" on its own line reads like a bug. */
+.session-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; gap: 8px; align-items: end; }
+@media (max-width: 520px) {
+  .session-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .session-row .session-length { display: none; }
+}
 @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } .form-grid .span-2 { grid-column: span 1; } }
 
 .check { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; font-size: 0.86rem; }

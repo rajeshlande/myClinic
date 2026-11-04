@@ -89,7 +89,7 @@ export default function PublicBooking() {
         if (!alive) return;
         setBusy(list ?? []);
         // Land on the first day that actually has something free.
-        const available = availabilityByDay({ doctor, days, busy: list ?? [] });
+        const available = availabilityByDay({ doctor, days, busy: list ?? [], clinic: profile?.clinic ?? null });
         const firstOpen = days.find((d) => (available.get(d.iso) ?? 0) > 0);
         setDayIso((current) => (current && (available.get(current) ?? 0) > 0 ? current : (firstOpen?.iso ?? days[0]?.iso)));
         setTime(null);
@@ -99,13 +99,16 @@ export default function PublicBooking() {
     return () => { alive = false; };
   }, [doctorId, slug, days]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The clinic's own hours and closed days travel with the public profile, so the
+  // page can say "closed on Sunday" instead of showing an empty column.
+  const clinicHours = profile?.clinic ?? null;
   const availability = useMemo(
-    () => (doctor ? availabilityByDay({ doctor, days, busy }) : new Map()),
-    [doctor, days, busy],
+    () => (doctor ? availabilityByDay({ doctor, days, busy, clinic: clinicHours }) : new Map()),
+    [doctor, days, busy, clinicHours],
   );
   const slots = useMemo(
-    () => (doctor && dayIso ? slotsForDay({ doctor, iso: dayIso, busy }) : []),
-    [doctor, dayIso, busy],
+    () => (doctor && dayIso ? slotsForDay({ doctor, iso: dayIso, busy, clinic: clinicHours }) : []),
+    [doctor, dayIso, busy, clinicHours],
   );
   const groups = useMemo(() => groupedSlots(slots), [slots]);
   const hasAnySlot = [...availability.values()].some((n) => n > 0);

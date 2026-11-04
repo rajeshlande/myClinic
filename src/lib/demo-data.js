@@ -6,6 +6,7 @@ import {
   DEFAULT_CLINIC, DEFAULT_PREFERENCES, addDays, currentMonth, localISO,
   nextId, shiftMonth, today,
 } from './logic.mjs';
+import { closure } from './hours.mjs';
 
 // Deterministic PRNG so the demo looks the same on every device.
 function rng(seed = 20260101) {
@@ -47,6 +48,14 @@ export function makeDemoWorkspace() {
     name: 'Sunrise Multispecialty OPD',
     slug: 'sunrise-opd',
     plan: 'growth',
+    // The demo shows what the settings screen actually models: a morning
+    // session, an evening session, a closed break between them, and Sunday off.
+    sessions: [{ start: '09:00', end: '13:00' }, { start: '16:00', end: '20:00' }],
+    open_time: '09:00',
+    close_time: '20:00',
+    closed_weekdays: [0],
+    closed_dates: [],
+    follow_up_days: 15,
     created_at: `${shiftMonth(currentMonth(), -14)}-01T09:00:00.000Z`,
   };
 
@@ -56,6 +65,9 @@ export function makeDemoWorkspace() {
       role: 'owner', specialty: 'Internal Medicine', qualification: 'MBBS, MD (Internal Medicine)',
       registration_no: 'MH-2011-48213', phone: '+91 98200 11234', email: 'anita@sunriseclinic.in',
       color: '#0f766e', day_start: '09:00', day_end: '13:00', slot_minutes: 15,
+      // The owner sits the morning only; the evening is the paediatrician's.
+      sessions: [{ start: '09:00', end: '13:00' }],
+      closed_weekdays: [], closed_dates: [],
       fee_paise: 60000, follow_up_fee_paise: 30000, active: true,
     },
     {
@@ -63,6 +75,9 @@ export function makeDemoWorkspace() {
       role: 'doctor', specialty: 'Paediatrics', qualification: 'MBBS, DCH',
       registration_no: 'MH-2014-71290', phone: '+91 98200 55678', email: 'imran@sunriseclinic.in',
       color: '#7c5cd6', day_start: '16:00', day_end: '20:00', slot_minutes: 15,
+      // Evening only, and Saturdays off — one doctor's own day off.
+      sessions: [{ start: '16:00', end: '20:00' }],
+      closed_weekdays: [6], closed_dates: [],
       fee_paise: 70000, follow_up_fee_paise: 35000, active: true,
     },
     {
@@ -70,6 +85,7 @@ export function makeDemoWorkspace() {
       role: 'frontdesk', specialty: 'Front desk', qualification: 'BCom',
       registration_no: '', phone: '+91 98200 99001', email: 'priya@sunriseclinic.in',
       color: '#c2872b', day_start: '08:30', day_end: '20:30', slot_minutes: 15,
+      sessions: [], closed_weekdays: [], closed_dates: [],
       fee_paise: 0, follow_up_fee_paise: 0, active: true,
     },
   ];
@@ -124,8 +140,14 @@ export function makeDemoWorkspace() {
     for (let v = 0; v < visitsThisMonth; v++) {
       const patient = pick(patients);
       const doctor = pick(doctors);
-      const day = monthsAgo === 0 ? int(1, Math.max(1, now.getDate())) : int(1, 28);
-      const visited_on = `${month}-${String(day).padStart(2, '0')}`;
+      let day = monthsAgo === 0 ? int(1, Math.max(1, now.getDate())) : int(1, 28);
+      // The clinic is shut on Sundays, so no visit is seeded on one: the demo must
+      // not contradict the hours its own settings screen shows.
+      let visited_on = `${month}-${String(day).padStart(2, '0')}`;
+      for (let guard = 0; guard < 7 && closure(visited_on, { closedWeekdays: clinic.closed_weekdays }).closed; guard += 1) {
+        day = day < 28 ? day + 1 : Math.max(1, day - 1);
+        visited_on = `${month}-${String(day).padStart(2, '0')}`;
+      }
       // Stay inside this doctor's session so every seeded visit lands on the board.
       const mOpen = Number(String(doctor.day_start || '09:00').slice(0, 2)) * 60 + Number(String(doctor.day_start || '09:00').slice(3, 5));
       const mClose = Number(String(doctor.day_end || '13:00').slice(0, 2)) * 60 + Number(String(doctor.day_end || '13:00').slice(3, 5));
@@ -276,13 +298,24 @@ export function makeDemoWorkspace() {
       });
     }
   });
+  // The demo diary respects the same hours the settings screen edits: no bookings
+  // on a day the clinic is shut, and none for a doctor on their own day off.
+  const shutOn = (date) => closure(date, {
+    closedWeekdays: clinic.closed_weekdays, closedDates: clinic.closed_dates,
+  }).closed;
+  const doctorShutOn = (doctor, date) => closure(date, {
+    closedWeekdays: doctor.closed_weekdays, closedDates: doctor.closed_dates,
+  }).closed;
+
   for (let d = 1; d <= 5; d++) {
     const date = addDays(t, d);
+    if (shutOn(date)) continue;
     const n = int(3, 6);
     const used = new Set();
     for (let i = 0; i < n; i++) {
       const patient = pick(patients);
       const doctor = pick(doctors);
+      if (doctorShutOn(doctor, date)) continue;
       // One booking per doctor per slot, chosen from the clinic's real session.
       // Offer slots from the picked doctor's own session, not a fixed 9-to-5 grid.
       const dOpen = toM(doctor.day_start || '09:00');

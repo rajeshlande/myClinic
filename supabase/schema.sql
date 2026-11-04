@@ -37,6 +37,11 @@
 --     5  UPI collection                  v1.7.0
 --     6  prescription numbering          v1.8.0
 --     7  day close + reminder log        v1.10.0
+--     8  public booking                  v1.11.0
+--     9  clinic slug                     v1.11.5
+--    10  role split                      v1.11.6
+--    11  WhatsApp consent + log          v1.12.0
+--    12  two sessions, days off, 3–45 d  v1.13.0
 --
 -- To add a migration: append a numbered block inside its migration's guard,
 -- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
@@ -2203,6 +2208,487 @@ begin
   update public.app_meta
      set schema_version = 11, applied_at = now(), notes = 'whatsapp consent and message log'
    where schema_version < 11;
+end $migration$;
+
+-- =============================================================================
+-- Schema 12 · Two sessions a day, days off, and a 3–45 day follow-up window
+--
+-- A clinic day is not one window. A doctor sitting 9 AM–1 PM and 6 PM–10 PM has
+-- a shut shutter in the middle, and a single open/close pair cannot say that —
+-- the diary quietly offered 2 PM in an empty clinic. So hours become a list of
+-- at most two sessions, for the clinic and for each doctor, and a doctor's
+-- sessions must sit inside one of the clinic's.
+--
+-- Days off are a column, not a habit: weekday numbers (0 = Sunday) plus one-off
+-- dates, on the clinic and on each person. The clinic being shut closes it for
+-- everyone; a doctor's own leave closes only their column.
+--
+-- The follow-up window narrows from 0–180 days to the 3–45 days the product
+-- actually teaches. Existing rows are clamped to the range before the CHECK is
+-- added, so no clinic is left with a row the new rule would reject.
+--
+-- Additive only: new columns with defaults, a backfill that copies the old
+-- single pair into the first session, and one constraint narrowed. No row is
+-- deleted, and a database already on 12 skips the whole block.
+-- =============================================================================
+
+-- Is a session list readable? A CHECK may not raise, so a malformed value
+-- answers false instead of failing the write with a stack trace.
+create or replace function public.sessions_valid(p_sessions jsonb)
+returns boolean language plpgsql immutable as $fn$
+declare
+  i integer;
+  item jsonb;
+  s time;
+  e time;
+  prev_end time := null;
+begin
+  if p_sessions is null or jsonb_typeof(p_sessions) <> 'array' then return false; end if;
+  if jsonb_array_length(p_sessions) > 2 then return false; end if;
+  for i in 0 .. jsonb_array_length(p_sessions) - 1 loop
+    item := p_sessions -> i;
+    if jsonb_typeof(item) <> 'object' then return false; end if;
+    begin
+      s := (item ->> 'start')::time;
+      e := (item ->> 'end')::time;
+    exception when others then
+      return false;
+    end;
+    if s is null or e is null or e <= s then return false; end if;
+    if e - s < interval '15 minutes' then return false; end if;
+    if prev_end is not null and s < prev_end then return false; end if;
+    prev_end := e;
+  end loop;
+  return true;
+end $fn$;
+
+-- Sessions with the legacy open/close pair as the fallback, so a caller never
+-- has to special-case a clinic that has not been edited since schema 11.
+create or replace function public.sessions_or(p_sessions jsonb, p_open time, p_close time)
+returns jsonb language plpgsql immutable as $fn$
+begin
+  if p_sessions is not null and jsonb_typeof(p_sessions) = 'array' and jsonb_array_length(p_sessions) > 0 then
+    return p_sessions;
+  end if;
+  if p_open is not null and p_close is not null and p_close > p_open then
+    return jsonb_build_array(jsonb_build_object(
+      'start', to_char(p_open, 'HH24:MI'), 'end', to_char(p_close, 'HH24:MI')));
+  end if;
+  return '[]'::jsonb;
+end $fn$;
+
+-- Does every inner session fit inside one outer session? This is the rule that
+-- stops a doctor being booked across the clinic's break.
+create or replace function public.sessions_cover(p_outer jsonb, p_inner jsonb)
+returns boolean language plpgsql immutable as $fn$
+declare
+  i integer;
+  j integer;
+  inner_item jsonb;
+  outer_item jsonb;
+  s time;
+  e time;
+  os time;
+  oe time;
+  covered boolean;
+begin
+  if p_inner is null or jsonb_array_length(p_inner) = 0 then return true; end if;
+  if p_outer is null or jsonb_array_length(p_outer) = 0 then return true; end if;
+  for i in 0 .. jsonb_array_length(p_inner) - 1 loop
+    inner_item := p_inner -> i;
+    s := (inner_item ->> 'start')::time;
+    e := (inner_item ->> 'end')::time;
+    covered := false;
+    for j in 0 .. jsonb_array_length(p_outer) - 1 loop
+      outer_item := p_outer -> j;
+      os := (outer_item ->> 'start')::time;
+      oe := (outer_item ->> 'end')::time;
+      if s >= os and e <= oe then covered := true; exit; end if;
+    end loop;
+    if not covered then return false; end if;
+  end loop;
+  return true;
+exception when others then
+  return false;
+end $fn$;
+
+-- Is [p_time, p_time + p_minutes) inside one session, on the slot grid?
+create or replace function public.sessions_has_slot(p_sessions jsonb, p_time time, p_minutes integer)
+returns boolean language plpgsql immutable as $fn$
+declare
+  i integer;
+  item jsonb;
+  s time;
+  e time;
+  step integer := greatest(5, coalesce(p_minutes, 15));
+begin
+  if p_sessions is null or jsonb_array_length(p_sessions) = 0 then return false; end if;
+  for i in 0 .. jsonb_array_length(p_sessions) - 1 loop
+    item := p_sessions -> i;
+    s := (item ->> 'start')::time;
+    e := (item ->> 'end')::time;
+    if p_time >= s and p_time + make_interval(mins => step) <= e
+       and mod(round(extract(epoch from (p_time - s)) / 60)::int, step) = 0 then
+      return true;
+    end if;
+  end loop;
+  return false;
+end $fn$;
+
+-- Null when open, otherwise the reason the day is shut.
+create or replace function public.closed_on(p_weekdays smallint[], p_dates date[], p_day date)
+returns text language plpgsql immutable as $fn$
+begin
+  if p_dates is not null and p_day = any(p_dates) then
+    return 'holiday';
+  end if;
+  if p_weekdays is not null and (extract(dow from p_day)::smallint) = any(p_weekdays) then
+    return 'weekday';
+  end if;
+  return null;
+end $fn$;
+
+do $migration$
+begin
+  if public.app_schema_version() >= 12 then
+    raise notice 'schema 12 (sessions and days off) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 12 (sessions, days off, follow-up 3-45 days)';
+
+  execute $sql$
+
+  alter table public.clinics
+    add column if not exists sessions jsonb not null default '[]'::jsonb,
+    add column if not exists closed_weekdays smallint[] not null default '{}',
+    add column if not exists closed_dates date[] not null default '{}';
+
+  alter table public.staff
+    add column if not exists sessions jsonb not null default '[]'::jsonb,
+    add column if not exists closed_weekdays smallint[] not null default '{}',
+    add column if not exists closed_dates date[] not null default '{}';
+
+  -- The preference the account screen has been sending since 1.10 with no column
+  -- to land in. Its absence is what made a name change fail with PGRST204.
+  alter table public.profiles
+    add column if not exists send_review_request boolean not null default true;
+
+  -- Backfill: the old single pair becomes the first (and only) session. Nothing
+  -- is lost and every existing clinic keeps exactly the hours it had.
+  update public.clinics
+     set sessions = jsonb_build_array(jsonb_build_object(
+           'start', to_char(open_time, 'HH24:MI'),
+           'end', to_char(close_time, 'HH24:MI')))
+   where coalesce(jsonb_array_length(sessions), 0) = 0
+     and close_time > open_time;
+
+  update public.staff
+     set sessions = jsonb_build_array(jsonb_build_object(
+           'start', to_char(day_start, 'HH24:MI'),
+           'end', to_char(day_end, 'HH24:MI')))
+   where coalesce(jsonb_array_length(sessions), 0) = 0
+     and day_end > day_start;
+
+  -- Follow-up validity: 0–180 becomes 3–45. Clamp first, constrain second, so the
+  -- ALTER cannot fail on a row that is already there.
+  alter table public.clinics drop constraint if exists clinics_follow_up_days_check;
+  update public.clinics set follow_up_days = least(45, greatest(3, follow_up_days));
+  alter table public.clinics add constraint clinics_follow_up_days_check
+    check (follow_up_days between 3 and 45);
+
+  alter table public.clinics drop constraint if exists clinics_sessions_check;
+  alter table public.clinics add constraint clinics_sessions_check
+    check (public.sessions_valid(sessions));
+
+  alter table public.staff drop constraint if exists staff_sessions_check;
+  alter table public.staff add constraint staff_sessions_check
+    check (public.sessions_valid(sessions));
+
+  alter table public.clinics drop constraint if exists clinics_closed_weekdays_check;
+  alter table public.clinics add constraint clinics_closed_weekdays_check
+    check (closed_weekdays <@ array[0,1,2,3,4,5,6]::smallint[]);
+
+  alter table public.staff drop constraint if exists staff_closed_weekdays_check;
+  alter table public.staff add constraint staff_closed_weekdays_check
+    check (closed_weekdays <@ array[0,1,2,3,4,5,6]::smallint[]);
+
+  alter table public.clinics drop constraint if exists clinics_closed_dates_check;
+  alter table public.clinics add constraint clinics_closed_dates_check
+    check (cardinality(closed_dates) <= 60);
+
+  alter table public.staff drop constraint if exists staff_closed_dates_check;
+  alter table public.staff add constraint staff_closed_dates_check
+    check (cardinality(closed_dates) <= 60);
+
+  $sql$;
+
+  -- A doctor's sessions must sit inside one of the clinic's. The check is in the
+  -- trigger as well as the screen, because the API is reachable without the
+  -- screen — and because a clinic that narrows its hours must not silently leave
+  -- a doctor bookable at a time the doors are shut.
+  execute $sql$
+  create or replace function public.staff_hours_guard()
+  returns trigger language plpgsql security definer set search_path = public as $body$
+  declare
+    c public.clinics;
+  begin
+    if new.role = 'frontdesk' then return new; end if;
+    if coalesce(jsonb_array_length(new.sessions), 0) = 0 then return new; end if;
+    select * into c from public.clinics where id = new.clinic_id;
+    if not found then return new; end if;
+    if coalesce(jsonb_array_length(c.sessions), 0) = 0 then return new; end if;
+    if not public.sessions_cover(c.sessions, new.sessions) then
+      raise exception 'staff:hours' using errcode = 'P0001';
+    end if;
+    return new;
+  end $body$;
+
+  drop trigger if exists staff_hours_guard on public.staff;
+  create trigger staff_hours_guard before insert or update of sessions, clinic_id on public.staff
+    for each row execute function public.staff_hours_guard();
+  $sql$;
+
+  -- The public page now learns the clinic's sessions and closed days, and each
+  -- doctor's own. Only what a patient needs to pick a time: no names, no ids
+  -- beyond the doctor's, no clinical detail.
+  execute $sql$
+  create or replace function public.public_clinic_profile(p_slug text)
+  returns jsonb language plpgsql stable security definer set search_path = public as $$
+  declare
+    c public.clinics;
+    roster jsonb;
+  begin
+    select * into c from public.clinics where slug = lower(btrim(p_slug));
+    if not found then
+      return null;
+    end if;
+
+    if not c.booking_enabled then
+      return jsonb_build_object(
+        'enabled', false,
+        'clinic', jsonb_build_object('name', c.name, 'phone', c.phone, 'address', c.address));
+    end if;
+
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'id', s.id,
+             'full_name', s.full_name,
+             'specialty', s.specialty,
+             'qualification', s.qualification,
+             'fee_paise', s.fee_paise,
+             'follow_up_fee_paise', s.follow_up_fee_paise,
+             'day_start', to_char(s.day_start, 'HH24:MI'),
+             'day_end', to_char(s.day_end, 'HH24:MI'),
+             'slot_minutes', s.slot_minutes,
+             'color', s.color,
+             'sessions', public.sessions_or(s.sessions, s.day_start, s.day_end),
+             'closed_weekdays', to_jsonb(s.closed_weekdays),
+             'closed_dates', to_jsonb(s.closed_dates)) order by s.full_name), '[]'::jsonb)
+      into roster
+      from public.staff s
+     where s.clinic_id = c.id and s.active and s.role in ('owner', 'doctor');
+
+    return jsonb_build_object(
+      'enabled', true,
+      'clinic', jsonb_build_object(
+        'name', c.name, 'slug', c.slug, 'clinic_type', c.clinic_type,
+        'address', c.address, 'phone', c.phone, 'brand_color', c.brand_color,
+        'booking_note', c.booking_note, 'booking_horizon_days', c.booking_horizon_days,
+        'sessions', public.sessions_or(c.sessions, c.open_time, c.close_time),
+        'closed_weekdays', to_jsonb(c.closed_weekdays),
+        'closed_dates', to_jsonb(c.closed_dates)),
+      'doctors', roster);
+  end $$;
+  $sql$;
+
+  -- public_book gains the same two refusals the page shows: a day the clinic is
+  -- shut, and a time outside the doctor's sessions (which now means outside the
+  -- clinic's sessions too, because the trigger guarantees the containment).
+  -- The rest of the body is the schema-8 function, unchanged.
+  execute $sql$
+  create or replace function public.public_book(
+    p_slug text,
+    p_doctor uuid,
+    p_date date,
+    p_time time,
+    p_name text,
+    p_phone text,
+    p_reason text default '')
+  returns jsonb language plpgsql security definer set search_path = public as $$
+  declare
+    alphabet constant text := 'ACDEFGHJKLMNPQRTUVWXY2346789';
+    c public.clinics;
+    d public.staff;
+    pat public.patients;
+    appt public.appointments;
+    existing public.appointments;
+    digits text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+    clean_name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
+    ref text := 'BK-';
+    -- Not `code`: a plpgsql variable with a column's name makes every reference
+    -- in a query ambiguous, and this one is read while generating the next one.
+    patient_code text;
+    seq bigint;
+    i integer;
+    recent integer;
+    v_hours jsonb;
+    v_shut text;
+  begin
+    select * into c from public.clinics where slug = lower(btrim(p_slug));
+    if not found or not c.booking_enabled then
+      raise exception 'booking:closed' using errcode = 'P0001';
+    end if;
+
+    select * into d from public.staff
+     where id = p_doctor and clinic_id = c.id and active and role in ('owner', 'doctor');
+    if not found then
+      raise exception 'booking:doctor' using errcode = 'P0001';
+    end if;
+
+    if char_length(clean_name) < 2 or char_length(clean_name) > 80 then
+      raise exception 'booking:name' using errcode = 'P0001';
+    end if;
+    if char_length(digits) not in (10, 11, 12) then
+      raise exception 'booking:phone' using errcode = 'P0001';
+    end if;
+    if p_date < current_date or p_date > current_date + c.booking_horizon_days then
+      raise exception 'booking:date' using errcode = 'P0001';
+    end if;
+    -- A closed day is closed for everyone, and a doctor's own leave closes their day.
+    v_shut := public.closed_on(c.closed_weekdays, c.closed_dates, p_date);
+    if v_shut is not null then
+      raise exception 'booking:dayoff' using errcode = 'P0001';
+    end if;
+    v_shut := public.closed_on(d.closed_weekdays, d.closed_dates, p_date);
+    if v_shut is not null then
+      raise exception 'booking:leave' using errcode = 'P0001';
+    end if;
+
+    -- The slot must sit inside one of the doctor's sessions — which schema 12
+    -- guarantees are inside the clinic's — and on the doctor's slot grid.
+    v_hours := public.sessions_or(d.sessions, d.day_start, d.day_end);
+    if not public.sessions_has_slot(v_hours, p_time, d.slot_minutes) then
+      raise exception 'booking:slot' using errcode = 'P0001';
+    end if;
+    -- Same half-hour rule the page applies: no slot that starts in the next 30 min.
+    if p_date = current_date and p_time < localtime + interval '30 minutes' then
+      raise exception 'booking:past' using errcode = 'P0001';
+    end if;
+
+    -- One slot at a time. The lock is taken on the pair that can collide, so two
+    -- patients tapping 10:30 at 11pm are serialised and the second gets
+    -- 'slot_taken' instead of a duplicate row.
+    perform pg_advisory_xact_lock(hashtextextended(d.id::text || ':' || p_date::text, 0));
+
+    -- Already booked with this doctor that day? Sending the same tap twice must
+    -- not book twice, and a second appointment at a different time is almost
+    -- always a mistake — hand back the one they have.
+    select a.* into existing
+      from public.appointments a
+      join public.patients p on p.id = a.patient_id
+     where a.doctor_id = d.id and a.scheduled_on = p_date and a.status = 'booked'
+       and p.clinic_id = c.id and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+     order by a.scheduled_at
+     limit 1;
+    if found then
+      if existing.scheduled_at = p_time and existing.booking_ref is not null then
+        return jsonb_build_object(
+          'ref', existing.booking_ref, 'iso', existing.scheduled_on,
+          'at', to_char(existing.scheduled_at, 'HH24:MI'),
+          'doctor', d.full_name, 'clinic', c.name,
+          'minutes', existing.duration_minutes, 'duplicate', true);
+      end if;
+      -- RAISE cannot carry both a format string and USING MESSAGE, so the time
+      -- travels as an argument: 'booking:already:16:30'.
+      raise exception 'booking:already:%', to_char(existing.scheduled_at, 'HH24:MI')
+        using errcode = 'P0001';
+    end if;
+
+    -- Flood guards: a phone gets three online bookings a day, a clinic forty an
+    -- hour. Both are far above real use and cheap enough to count.
+    select count(*) into recent
+      from public.appointments a
+      join public.patients p on p.id = a.patient_id
+     where p.clinic_id = c.id and a.source = 'online'
+       and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+       and a.created_at::date = current_date;
+    if recent >= 3 then
+      raise exception 'booking:toomany' using errcode = 'P0001';
+    end if;
+
+    select count(*) into recent
+      from public.appointments a
+     where a.clinic_id = c.id and a.source = 'online'
+       and a.created_at > now() - interval '1 hour';
+    if recent >= 40 then
+      raise exception 'booking:busy' using errcode = 'P0001';
+    end if;
+
+    -- The slot itself. Inside the lock, so this read cannot go stale before the
+    -- insert below; the unique index is the second half of the same guarantee.
+    if exists (select 1 from public.appointments a
+                where a.doctor_id = d.id and a.scheduled_on = p_date
+                  and a.status <> 'cancelled'
+                  and a.scheduled_at < p_time + make_interval(mins => d.slot_minutes)
+                  and a.scheduled_at + make_interval(mins => a.duration_minutes) > p_time) then
+      raise exception 'booking:slot_taken' using errcode = 'P0001';
+    end if;
+
+    -- Patient: matched on phone digits, created only if nobody answers to them.
+    -- The clinic-wide lock keeps two simultaneous new patients from taking the
+    -- same code.
+    perform pg_advisory_xact_lock(hashtextextended('patient:' || c.id::text, 0));
+    select * into pat from public.patients p
+     where p.clinic_id = c.id and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+     order by p.created_at
+     limit 1;
+
+    if not found then
+      select coalesce(max(nullif(regexp_replace(p.code, '[^0-9]', '', 'g'), '')::bigint), 0) + 1
+        into seq
+        from public.patients p
+       where p.clinic_id = c.id and p.code ~ '^PT-[0-9]+$';
+      patient_code := 'PT-' || lpad(coalesce(seq, 1)::text, 5, '0');
+      insert into public.patients (clinic_id, code, full_name, phone, notes)
+      values (c.id, patient_code, clean_name, btrim(p_phone), 'Registered from the online booking page.')
+      returning * into pat;
+    end if;
+
+    for i in 1..6 loop
+      ref := ref || substr(alphabet, 1 + floor(random() * char_length(alphabet))::int, 1);
+    end loop;
+
+    begin
+      insert into public.appointments
+        (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, duration_minutes,
+         kind, status, reason, source, booking_ref)
+      values
+        (c.id, pat.id, d.id, p_date, p_time, d.slot_minutes,
+         'New consultation', 'booked', left(coalesce(p_reason, ''), 120), 'online', ref)
+      returning * into appt;
+    exception when unique_violation then
+      raise exception 'booking:slot_taken' using errcode = 'P0001';
+    end;
+
+    return jsonb_build_object(
+      'ref', appt.booking_ref, 'iso', appt.scheduled_on,
+      'at', to_char(appt.scheduled_at, 'HH24:MI'),
+      'doctor', d.full_name, 'clinic', c.name,
+      'minutes', appt.duration_minutes, 'duplicate', false);
+  end $$;
+  $sql$;
+
+  -- Replacing a function keeps its privileges, so nothing is re-granted here: the
+  -- anon surface stays exactly the five RPCs schema 8 opened, and the suite that
+  -- counts them keeps counting five.
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (12, 'sessions-and-days-off', '1.13.0',
+          'clinics.sessions + closed_weekdays/closed_dates, staff.sessions + own days off, profiles.send_review_request, follow-up window narrowed to 3-45 days')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 12, applied_at = now(), notes = 'two sessions a day, days off, follow-up 3-45 days'
+   where schema_version < 12;
 end $migration$;
 
 commit;

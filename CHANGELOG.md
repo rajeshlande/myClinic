@@ -3,6 +3,40 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.13.0] — 2026-11-04 · schema 12
+
+**A clinic day is two sessions, not one window.** The app modelled hours as
+`open_time`–`close_time`, so a clinic that shuts between 1 PM and 6 PM had no way to
+say so and the diary offered 2 PM in an empty building. Hours are a list now — at most
+two sessions per day, for the clinic and for each doctor — and the break between them
+is never a slot.
+
+- **A doctor sits inside one session.** The morning doctor is not bookable in the
+  evening, and hours that would cross the clinic's break are refused by the screen, by
+  the appointment sheet and by a Postgres trigger (`staff:hours`), not just hidden.
+- **Days off are settings.** Weekdays (0 = Sunday) and one-off dates, on the clinic and
+  on each person. The clinic being shut closes the diary for everyone; a doctor's own
+  leave closes only their column. `public_book` refuses both with `booking:dayoff` and
+  `booking:leave`, so the page and the API cannot disagree.
+- **Follow-up validity is 3–45 days** instead of 0–180. Existing rows are clamped
+  before the CHECK is added, so the migration cannot fail on data that is already there.
+
+**"My account will not save" is fixed, and the reason is on the screen.** The account
+screen sent `{ ...profile, ...prefs, theme }` to `profiles` — every key it happened to
+hold, including `send_review_request`, which had no column. PostgREST refused the whole
+update (PGRST204), so a name change failed because of a notification toggle, and the
+person saw "Could not save." The payload is now built from the columns that exist, the
+missing column exists too (schema 12), and a save writes through to the database when
+the device is online so "saved" is only shown once the server has answered.
+
+**Every failure explains itself.** `src/lib/errors.mjs` turns a refusal into what it
+means and what to do: a missing column names itself and points at `supabase/schema.sql`
+with the schema number, a seat that is not allowed says so, an expired session asks for
+a sign-in, an unreachable server says the change is queued, and a refused value says
+which constraint. The raw text is always kept on `detail`, the last five failures are
+listed under **Settings → About** with a Copy button, and a crashed screen renders a
+panel with the version, the schema and the same diagnostics instead of a blank page.
+
 ## [1.12.0] — 2026-11-04 · schema 11
 
 **Four more things reach the patient's phone.** The clinic already messaged patients

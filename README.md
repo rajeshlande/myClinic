@@ -7,7 +7,7 @@
   <p>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg" alt="Deploy" /></a>
-    <img src="https://img.shields.io/badge/schema-11-blue.svg" alt="schema 11" />
+    <img src="https://img.shields.io/badge/schema-12-blue.svg" alt="schema 12" />
     <img src="https://img.shields.io/badge/node-26.13.0-brightgreen.svg" alt="node 26" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
   </p>
@@ -115,18 +115,23 @@ numbering; follow-up lists that close the loop.
 **Owner** — revenue, payer mix, footfall, appointment outcomes and doctor
 performance; a public booking page at `/#/book/<clinic-slug>` that sells the same
 slots the front desk sees, with a `BK-…` reference a patient can cancel with;
-doctors and staff with their own hours, fees and calendar colour; email
-invitations claimed on first sign-in; day close with cash reconciliation, missed
-charges and a frozen snapshot per day.
+**two sessions a day** (9 AM–1 PM and 6 PM–10 PM, with the break between them never
+offered as a slot), a doctor who sits inside one of them, **days off** for the clinic
+and for each person, and a follow-up window of 3–45 days; doctors and staff with their
+own hours, fees and calendar colour; email invitations claimed on first sign-in; day
+close with cash reconciliation, missed charges and a frozen snapshot per day.
 
 **Platform** — offline-first with an outbox and a sync centre that never merges a
 clinician's edit silently; multi-tenant by RLS; one set of breakpoints with a
-bottom tab bar on phones; installable PWA.
+bottom tab bar on phones; installable PWA; and saves that say what went wrong —
+a missing column names itself and points at `supabase/schema.sql`, a refused seat,
+an expired session, an unreachable server and a rejected value each read differently,
+with the last few failures listed under Settings → About.
 
 ## Roles and permissions
 
 Three seats, one table — printed on the Team page, enforced by the nav, the
-routes, the screens **and** the database (schema 11).
+routes, the screens **and** the database (schema 12).
 
 | Capability | Owner | Doctor | Front desk |
 | --- | :--: | :--: | :--:|

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, UserPlus, AlertTriangle, Check, ChevronLeft, ChevronRight, Sparkles, Sun, Sunrise, Sunset } from 'lucide-react';
+import { CalendarClock, UserPlus, AlertTriangle, Check, ChevronLeft, ChevronRight, Sparkles, Sun, Sunrise, Sunset, Clock } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Button, Field, IconButton, Input, Select, Textarea, Modal, Avatar, Badge } from './ui.jsx';
 import {
@@ -7,6 +7,7 @@ import {
   today, validateAppointment,
 } from '../lib/logic.mjs';
 import { availableSlots, detectClashes, explainConflict, groupSlots, suggestNext } from '../lib/schedule.mjs';
+import { doctorSessions } from '../lib/hours.mjs';
 
 export default function AppointmentForm({ open, onClose, appointment, defaults = {}, onCreated, onRegisterPatient }) {
   const store = useStore();
@@ -49,9 +50,14 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
       doctor,
       iso: draft.scheduled_on,
       duration: Number(draft.duration_minutes) || 15,
+      // Both of the clinic's sessions, the doctor's window, and the day offs.
+      clinic: store.clinic,
     });
-  }, [doctor, draft.scheduled_on, draft.duration_minutes, store.appointments, appointment]);
-  const groups = useMemo(() => groupSlots(slots), [slots]);
+  }, [doctor, draft.scheduled_on, draft.duration_minutes, store.appointments, appointment, store.clinic]);
+  const groups = useMemo(
+    () => groupSlots(slots, { sessions: doctor ? doctorSessions(doctor, store.clinic) : null }),
+    [slots, doctor, store.clinic],
+  );
   const freeCount = slots.filter((s) => s.free).length;
   const clashes = useMemo(() => detectClashes(store.appointments, draft), [store.appointments, draft]);
 
@@ -200,7 +206,7 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
                 const next = suggestNext({
                   doctors, appointments: store.appointments.filter((a) => a.id !== appointment?.id),
                   iso: draft.scheduled_on, duration: Number(draft.duration_minutes) || 15,
-                  doctorId: draft.doctor_id,
+                  doctorId: draft.doctor_id, clinic: store.clinic,
                 });
                 if (next) setDraft((d) => ({ ...d, scheduled_at: next.time, doctor_id: next.doctor_id }));
               }}
@@ -212,7 +218,11 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
           {slots.length ? (
             <div className="slot-groups">
               {groups.map((group) => {
-                const Icon = group.id === 'morning' ? Sunrise : group.id === 'afternoon' ? Sun : Sunset;
+                // Session groups are named by their own window ("9:00 AM – 1:00 PM"),
+                // so the icon follows the clock rather than a fixed three-slot day.
+                const Icon = group.id === 'morning' ? Sunrise
+                  : group.id === 'afternoon' ? Sun
+                    : group.id === 'evening' ? Sunset : Clock;
                 return (
                   <div key={group.id} className="slot-group">
                     <span className="slot-group-label"><Icon size={12} /> {group.label}</span>
@@ -239,7 +249,9 @@ export default function AppointmentForm({ open, onClose, appointment, defaults =
             </div>
           ) : (
             <p className="small muted" style={{ margin: 0 }}>
-              This doctor has no working hours configured. Add them under Doctors &amp; staff.
+              {slots.closed
+                ? `${slots.reason || 'The clinic is closed that day'} — no slots are offered. Pick another day, or open Settings → Working hours to change the day off.`
+                : `This doctor has no working hours inside the clinic's sessions for that day. Add them under Doctors & staff, or widen the clinic's hours in Settings.`}
             </p>
           )}
         </Field>

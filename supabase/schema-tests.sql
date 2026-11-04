@@ -1089,3 +1089,214 @@ begin
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE H · TWO SESSIONS A DAY, DAYS OFF, AND THE 3–45 DAY FOLLOW-UP
+-- =============================================================================
+-- Schema 12 splits the clinic day into at most two sessions and gives the clinic
+-- and every doctor their own days off. This suite holds the database to the
+-- three things that could quietly break a clinic:
+--   1. a second session is stored, read back, and offered to the public page;
+--   2. the break between sessions is *not* bookable, and a closed day refuses
+--      every booking on it — the page and the API must agree;
+--   3. a doctor's hours cannot sit outside the clinic's, and follow-up validity
+--      is clamped to 3–45 days rather than 0–180.
+begin;
+
+do $$
+declare
+  owner_h uuid := gen_random_uuid();
+  clinic uuid;
+  doc uuid;
+  pat uuid;
+  c public.clinics;
+  j jsonb;
+  workday date;
+  i integer;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values (owner_h, 'hours-owner@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  insert into public.clinics (name, slug, booking_enabled)
+    values ('Hours Clinic', 'hours-clinic', true)
+    returning * into c;
+  clinic := c.id;
+
+  insert into public.staff (clinic_id, user_id, full_name, role)
+    values (clinic, owner_h, 'Hours Owner', 'owner') returning id into doc;
+
+  -- ------------------------------------------------ 1. two sessions land
+  update public.clinics
+     set sessions = '[{"start":"09:00","end":"13:00"},{"start":"18:00","end":"22:00"}]'::jsonb,
+         closed_weekdays = array[0]::smallint[],
+         closed_dates = array[current_date + 3]::date[]
+   where id = clinic;
+
+  select * into c from public.clinics where id = clinic;
+  if jsonb_array_length(c.sessions) <> 2 then
+    raise exception 'FAIL: two sessions did not survive the write' using errcode = 'P0002';
+  end if;
+  if public.sessions_or(c.sessions, c.open_time, c.close_time) <> c.sessions then
+    raise exception 'FAIL: sessions_or rewrote a clinic that already has sessions' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a clinic keeps two sessions a day';
+
+  -- ------------------------------------------- 2. the shape is enforced
+  begin
+    update public.clinics set sessions = '[{"start":"09:00","end":"12:00"},{"start":"10:00","end":"13:00"}]'::jsonb where id = clinic;
+    raise exception 'FAIL: overlapping sessions were accepted' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: overlapping sessions are refused';
+  end;
+
+  begin
+    update public.clinics set sessions = '[{"start":"09:00","end":"11:00"},{"start":"12:00","end":"14:00"},{"start":"15:00","end":"17:00"}]'::jsonb where id = clinic;
+    raise exception 'FAIL: a third session was accepted' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: a third session is refused — two is the maximum';
+  end;
+
+  begin
+    update public.clinics set sessions = '[{"start":"18:00","end":"09:00"}]'::jsonb where id = clinic;
+    raise exception 'FAIL: a session that ends before it starts was accepted' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: a backwards session is refused';
+  end;
+
+  -- ------------------------------------ 3. legacy rows still answer hours
+  -- A clinic created before schema 12 has no sessions; the old pair is the day.
+  insert into public.clinics (name, slug, open_time, close_time)
+    values ('Legacy Hours', 'legacy-hours', '10:00', '16:00') returning * into c;
+  j := public.sessions_or(c.sessions, c.open_time, c.close_time);
+  if j->0->>'start' <> '10:00' or j->0->>'end' <> '16:00' then
+    raise exception 'FAIL: a clinic with only open/close answered %', j using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a clinic saved before schema 12 still answers its hours';
+
+  -- ---------------------------------- 4. a doctor cannot sit outside them
+  select * into c from public.clinics where id = clinic;
+  update public.staff
+     set sessions = '[{"start":"09:00","end":"11:00"}]'::jsonb
+   where id = doc;
+  raise notice 'PASS: a doctor sits inside the clinic''s first session';
+
+  begin
+    update public.staff
+       set sessions = '[{"start":"14:00","end":"16:00"}]'::jsonb
+     where id = doc;
+    raise exception 'FAIL: a doctor was given hours in the clinic''s break' using errcode = 'P0002';
+  exception when others then
+    if position('staff:hours' in sqlerrm) = 0 then raise; end if;
+    raise notice 'PASS: hours in the clinic''s break are refused';
+  end;
+
+  update public.staff set sessions = '[{"start":"18:00","end":"21:00"}]'::jsonb where id = doc;
+  raise notice 'PASS: the evening doctor may sit only in the evening session';
+
+  -- --------------------------------------- 5. the follow-up window is 3–45
+  begin
+    update public.clinics set follow_up_days = 0 where id = clinic;
+    raise exception 'FAIL: a 0-day follow-up was accepted' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: follow-up validity below 3 days is refused';
+  end;
+
+  begin
+    update public.clinics set follow_up_days = 46 where id = clinic;
+    raise exception 'FAIL: a 46-day follow-up was accepted' using errcode = 'P0002';
+  exception when check_violation then
+    raise notice 'PASS: follow-up validity above 45 days is refused';
+  end;
+
+  update public.clinics set follow_up_days = 45 where id = clinic;
+  update public.clinics set follow_up_days = 3 where id = clinic;
+  raise notice 'PASS: 3 and 45 days are both accepted';
+
+  -- ------------------------ 6. the account preference the app has been sending
+  insert into public.profiles (id, full_name) values (owner_h, 'Hours Owner')
+    on conflict (id) do nothing;
+  begin
+    update public.profiles set send_review_request = false where id = owner_h;
+  exception when undefined_column then
+    raise exception 'FAIL: profiles has no send_review_request column — the account screen cannot save' using errcode = 'P0002';
+  end;
+  raise notice 'PASS: profiles carries send_review_request (the account save bug''s other half)';
+
+  -- ------------------------------------- 7. what the public page is told
+  j := public.public_clinic_profile('hours-clinic');
+  if jsonb_array_length(j->'clinic'->'sessions') <> 2 then
+    raise exception 'FAIL: the public page was not given both sessions' using errcode = 'P0002';
+  end if;
+  if jsonb_array_length(j->'clinic'->'closed_weekdays') <> 1 then
+    raise exception 'FAIL: the public page was not given the closed weekdays' using errcode = 'P0002';
+  end if;
+  if jsonb_array_length(j->'doctors'->0->'sessions') <> 1 then
+    raise exception 'FAIL: the public page was not given the doctor''s sessions' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the public profile carries both sessions and the days off';
+
+  -- A day the clinic is genuinely open: not the closed weekday, not the holiday,
+  -- and never a date in the past.
+  workday := null;
+  for i in 1 .. 9 loop
+    if extract(dow from (current_date + i))::int <> 0 and (current_date + i) <> (current_date + 3) then
+      workday := current_date + i;
+      exit;
+    end if;
+  end loop;
+  if workday is null then
+    raise exception 'FAIL: no open day found to book on' using errcode = 'P0002';
+  end if;
+
+  -- ------------------------------------------- 8. closed days refuse booking
+  -- A Friday (or whichever weekday is closed) must refuse outright.
+  reset role;
+  begin
+    perform public.public_book('hours-clinic', doc, current_date + (7 - extract(dow from current_date)::int) % 7,
+                               '18:00', 'Sunday Patient', '9000000333', '');
+    raise exception 'FAIL: a booking landed on a closed weekday' using errcode = 'P0002';
+  exception when others then
+    if position('booking:dayoff' in sqlerrm) = 0 then raise; end if;
+    raise notice 'PASS: a closed weekday refuses every booking';
+  end;
+
+  begin
+    perform public.public_book('hours-clinic', doc, current_date + 3, '18:00', 'Holiday Patient', '9000000334', '');
+    raise exception 'FAIL: a booking landed on a clinic holiday' using errcode = 'P0002';
+  exception when others then
+    if position('booking:dayoff' in sqlerrm) = 0 then raise; end if;
+    raise notice 'PASS: a one-off holiday refuses every booking';
+  end;
+
+  -- ------------------------------- 9. the break between sessions is shut
+  begin
+    perform public.public_book('hours-clinic', doc, workday, '15:00', 'Break Patient', '9000000335', '');
+    raise exception 'FAIL: a booking was taken in the clinic''s break' using errcode = 'P0002';
+  exception when others then
+    if position('booking:slot' in sqlerrm) = 0 then raise; end if;
+    raise notice 'PASS: the break between the two sessions is not bookable';
+  end;
+
+  -- ------------------------------------- 10. a doctor''s own leave closes their day
+  update public.staff set closed_weekdays = array[extract(dow from workday)::smallint] where id = doc;
+  begin
+    perform public.public_book('hours-clinic', doc, workday, '18:00', 'Leave Patient', '9000000336', '');
+    raise exception 'FAIL: a booking landed on the doctor''s day off' using errcode = 'P0002';
+  exception when others then
+    if position('booking:leave' in sqlerrm) = 0 then raise; end if;
+    raise notice 'PASS: a doctor''s own day off refuses the booking';
+  end;
+
+  -- ------------------------- 11. and an open evening still books normally
+  update public.staff set closed_weekdays = '{}'::smallint[] where id = doc;
+  j := public.public_book('hours-clinic', doc, workday, '18:00', 'Evening Patient', '9000000337', '');
+  if j->>'at' <> '18:00' then
+    raise exception 'FAIL: the evening session did not book (%)', j using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a slot inside the evening session books';
+
+  raise notice 'ALL HOURS CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run

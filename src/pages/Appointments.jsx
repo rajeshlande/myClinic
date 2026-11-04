@@ -55,7 +55,7 @@ export default function Appointments() {
   const dayAppts = useMemo(() => appointmentsForDate(store.appointments, date, doctorId), [store.appointments, date, doctorId]);
   const board = useMemo(
     () => buildDayBoard({ doctors: doctorsShown, appointments: store.appointments, iso: date }),
-    [doctorsShown, store.appointments, date],
+    [doctorsShown, store.appointments, date, store.clinic],
   );
 
   const filtered = useMemo(() => {
@@ -72,8 +72,8 @@ export default function Appointments() {
   const patientOf = (id) => store.patients.find((p) => p.id === id);
   const doctorOf = (id) => store.doctors.find((d) => d.id === id);
   const nextFree = useMemo(
-    () => suggestNext({ doctors: doctorsShown, appointments: store.appointments, iso: date }),
-    [doctorsShown, store.appointments, date],
+    () => suggestNext({ doctors: doctorsShown, appointments: store.appointments, iso: date, clinic: store.clinic }),
+    [doctorsShown, store.appointments, date, store.clinic],
   );
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(date, i - 3)), [date]);

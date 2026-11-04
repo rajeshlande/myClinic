@@ -110,7 +110,7 @@ export function bookingDays({ from = today(), count = BOOKING_HORIZON_DAYS } = {
  * The demo passes appointments instead, and they are folded into the same shape
  * so the two paths cannot drift.
  */
-export function slotsForDay({ doctor, iso, busy = [], now = new Date(), duration = null }) {
+export function slotsForDay({ doctor, iso, busy = [], now = new Date(), duration = null, clinic = null }) {
   const minutes = Math.max(5, Number(duration || doctor?.slot_minutes || 15));
   const appointments = busy
     .filter((b) => (b.iso ?? b.scheduled_on) === iso)
@@ -127,7 +127,10 @@ export function slotsForDay({ doctor, iso, busy = [], now = new Date(), duration
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const earliest = iso === nowIso ? nowMinutes + BOOKING_LEAD_MINUTES : 0;
 
-  return availableSlots({ appointments, doctor, iso, duration: minutes })
+  // The patient sees exactly what the desk sees: both of the clinic's sessions,
+  // the doctor's own window inside one of them, and no slots at all on a day the
+  // clinic or that doctor is closed.
+  return availableSlots({ appointments, doctor, iso, duration: minutes, clinic })
     .filter((slot) => slot.start >= earliest)
     .map((slot) => ({ time: slot.time, start: slot.start, end: slot.end, free: slot.free }));
 }
@@ -147,10 +150,10 @@ export function firstOpenDay({ doctor, days, busy, now = new Date() }) {
 }
 
 /** Free-slot count per day, for the "3 slots" hint under each date chip. */
-export function availabilityByDay({ doctor, days, busy, now = new Date() }) {
+export function availabilityByDay({ doctor, days, busy, now = new Date(), clinic = null }) {
   const map = new Map();
   for (const day of days) {
-    const slots = slotsForDay({ doctor, iso: day.iso, busy, now });
+    const slots = slotsForDay({ doctor, iso: day.iso, busy, now, clinic });
     map.set(day.iso, slots.filter((s) => s.free).length);
   }
   return map;

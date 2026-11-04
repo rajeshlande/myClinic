@@ -9,6 +9,7 @@ import App from './App.jsx';
 import { AuthProvider } from './lib/auth-context.jsx';
 import { applyTheme, readTheme, readAccent, watchSystemTheme } from './lib/theme.js';
 import { ToastProvider } from './components/ui.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { PWAProvider, usePWA } from './lib/pwa.jsx';
 import { PWAWidgets } from './components/PWAWidgets.jsx';
 
@@ -53,7 +54,9 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <PWAProvider>
           <ToastProvider>
-            <App />
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
             <PWAWidgets />
             <Boot />
           </ToastProvider>

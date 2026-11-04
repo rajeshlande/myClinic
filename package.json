@@ -1,9 +1,9 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.12.0",
+  "version": "1.13.0",
   "type": "module",
-  "description": "myClinic — OPD clinic management SaaS: appointments, public booking, token queue, patient records, consultations, offline-first sync, multi-language prescriptions, billing and follow-ups.",
+  "description": "myClinic \u2014 OPD clinic management SaaS: appointments, public booking, token queue, patient records, consultations, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {
     "node": ">=22.22.0",
     "npm": ">=10.9.0"

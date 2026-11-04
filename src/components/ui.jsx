@@ -201,14 +201,16 @@ let seq = 0;
 
 export function ToastProvider({ children }) {
   const [items, setItems] = useState([]);
-  const push = useCallback((message, tone = 'info', ttl = 4200) => {
+  const push = useCallback((message, tone = 'info', ttl = 4200, hint = '') => {
     const id = ++seq;
-    setItems((prev) => [...prev, { id, message, tone }]);
+    setItems((prev) => [...prev, { id, message, tone, hint }]);
     setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), ttl);
   }, []);
+  // Errors stay up longer and can carry a second line — what failed, then what to
+  // do about it. "Could not save." alone told nobody anything.
   const api = useMemo(() => ({
     success: (m) => push(m, 'success'),
-    error: (m) => push(m, 'error', 6000),
+    error: (m, hint = '') => push(m, 'error', hint ? 10000 : 6000, hint),
     info: (m) => push(m, 'info'),
   }), [push]);
 
@@ -219,7 +221,10 @@ export function ToastProvider({ children }) {
         {items.map((t) => (
           <div key={t.id} className={`toast ${t.tone}`}>
             <span className="t-icon">{t.tone === 'success' ? <Check size={14} /> : t.tone === 'error' ? <AlertCircle size={14} /> : <Info size={14} />}</span>
-            <span className="spacer">{t.message}</span>
+            <span className="spacer">
+              {t.message}
+              {t.hint ? <span className="small muted" style={{ display: 'block', marginTop: 2 }}>{t.hint}</span> : null}
+            </span>
             <button className="icon-btn plain sm" aria-label="Dismiss" onClick={() => setItems((prev) => prev.filter((x) => x.id !== t.id))}><X size={13} /></button>
           </div>
         ))}

@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.12.0';
-export const SCHEMA_VERSION = 11;
+export const APP_VERSION = '1.13.0';
+export const SCHEMA_VERSION = 12;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,19 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.13.0', date: '2026-11-04', schema: 12,
+    highlights: [
+      'A clinic day can now be two sessions — 9 AM–1 PM and 6 PM–10 PM — and the break between them is never offered as a slot. Settings → Clinic profile edits both, with the length of each session shown as you type.',
+      'A doctor sits inside one of the clinic\'s sessions. The morning doctor is not bookable in the evening, and hours that would cross the clinic\'s break are refused on the screen, in the appointment sheet and by the database.',
+      'Days off are settings now, for the clinic and for each doctor: pick weekdays (Sunday, or every second Saturday) and add one-off holidays. Closed days offer no slots anywhere — the desk, the booking page and the API all agree — and the screen says which day is next.',
+      'Follow-up validity is a 3 to 45 day window instead of 0 to 180. Values already saved are clamped rather than refused, so no clinic is left with a row the new rule would reject.',
+      '"My account" now saves. The screen was sending every preference it held — including one the database had no column for — so PostgREST refused the whole update and a name change failed because of a notification toggle. The payload is built from the columns that exist, and the missing column exists as well (schema 12).',
+      'Every save now answers with the reason it failed instead of "Could not save.": which column is missing (and that schema.sql needs re-running), which seat is not allowed, that the session expired, that the server is unreachable, or which value the database refused. Settings → About lists the last few failures with a Copy button for support.',
+      'Saves on the settings screens wait for the database. The queue still protects the till when the wifi drops, but a person watching a Save button is told the truth immediately — "saved" no longer appears before the server has answered.',
+      'A crashed screen no longer leaves a blank page: it says what broke, shows the version and schema, and offers to copy the diagnostics for support.',
+    ],
+  },
   {
     version: '1.12.0', date: '2026-11-04', schema: 11,
     highlights: [
