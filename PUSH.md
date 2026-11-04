@@ -20,6 +20,10 @@ Two files, pick according to what you already have:
 
 Both carry `main` and the tags `v1.11.7`, `v1.11.8` and `v1.11.9`.
 
+Checked against the live site today: <https://rajeshlande.github.io/myClinic/>
+still serves bundle `assets/index-t-8H4Y3H.js` and reports **1.11.6**. After this
+push the deployed bundle should report **1.11.9** and schema **10**.
+
 ## Route A · update the clone you already pushed (recommended)
 
 ```bash
@@ -68,7 +72,7 @@ git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
 git push origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5 \
-  refs/tags/v1.11.6 refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9 refs/tags/v1.11.9 refs/tags/v1.11.8
+  refs/tags/v1.11.6 refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9
 ```
 
 The update bundle declares `d9869c8` as its base, so for a clone still sitting on
@@ -79,8 +83,8 @@ reports the missing prerequisite rather than half-applying it.
 
 | Commit | Release | Scope |
 | --- | --- | --- |
-| *(this release's fix commit)* | **1.11.9** · schema 10 | The front desk's own workspace: no Doctors & staff, no Day close, no Subscription and no plan panel; Settings shows a seat only the tabs it can act on. `day:close` becomes an owner capability (the desk still collects), `team:read` drops to owner + doctor, and the README follows the awesome-readme shape. |
-| *(the previous fix commit)* | **1.11.8** · schema 10 | One demo door: the marketing page keeps a single entry into the demo workspace — the footer button **Open Demo** — and the hero, closing band, plan cards and footer links lead to plans or sign up instead. The reference project myClinic grew out of is no longer named anywhere in the repo, including `THIRD_PARTY_NOTICES.md`. `tests/landing.test.mjs` guards both. |
+| `47873a3` | **1.11.9** · schema 10 | The front desk's own workspace: no Doctors & staff, no Day close, no Subscription and no plan panel; Settings shows a seat only the tabs it can act on. `day:close` becomes an owner capability (the desk still collects), `team:read` drops to owner + doctor, and the README follows the awesome-readme shape. |
+| `c9e683a` | **1.11.8** · schema 10 | One demo door: the marketing page keeps a single entry into the demo workspace — the footer button **Open Demo** — and the hero, closing band, plan cards and footer links lead to plans or sign up instead. The reference project myClinic grew out of is no longer named anywhere in the repo, including `THIRD_PARTY_NOTICES.md`. `tests/landing.test.mjs` guards both. |
 | `a36008a` | **1.11.7** · schema 10 | **Subscription.** The licence view dropped `interval` and `collection_ref`, so a yearly clinic read as monthly, was priced monthly, **renewed for one month instead of twelve**, and lost the payment reference it had just recorded. The view carries both now; `billingPeriod()`/`extendPeriod()` decide the term a payment buys (calendar months, matching `renew_subscription()`); the dialog's Monthly/Yearly toggle only previews prices; the demo workspace stops hard-coding 30 days. The sidebar offers "Manage subscription" only to the owner. Paise print in pairs (`₹23,990.40`). **README rebuilt** as a project front page. |
 | *(the docs commit above it)* | docs | README rebuilt, CHANGELOG entry for 1.11.7, this file, `.markdownlint.json`. |
 | `d9869c8` | **1.11.6** · schema 10 | Role split. Schema 10 narrows `consultations_read` to owner + doctor and `invoices_read/_write/_update` to owner + front desk, and every screen asks `can(role, capability)` instead of assuming — a doctor loses Billing, *Raise invoice* and *Save & bill*; the front desk loses Consultations, Follow-ups and note text, and gains Reports. |
