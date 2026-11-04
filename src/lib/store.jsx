@@ -174,6 +174,17 @@ export function StoreProvider({ children, session }) {
     else bootDemo();
   }, [session, loadLive, bootDemo]);
 
+  // The demo workspace lives in localStorage and the public booking page writes to
+  // the same key — sometimes from this very document, when a reviewer opens
+  // /#/book and comes back. Re-read on that signal so the appointment the patient
+  // just booked is on the calendar without a reload.
+  useEffect(() => {
+    if (mode !== 'demo' || typeof window === 'undefined') return undefined;
+    const reread = () => bootDemo();
+    window.addEventListener('myclinic:demowrite', reread);
+    return () => window.removeEventListener('myclinic:demowrite', reread);
+  }, [mode, bootDemo]);
+
   // Pending work is mirrored into React state so the UI can show it.
   useEffect(() => {
     setPending(readOutbox(userId));

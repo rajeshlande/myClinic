@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
+  CalendarDays,
   ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarCheck, Check, ChevronRight,
   CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar, PlayCircle,
   ShieldCheck, Smartphone, Sparkles, Stethoscope, Sun, Users, WifiOff, Zap, Ticket,
@@ -11,6 +12,10 @@ import { useAuth } from '../lib/auth-context.jsx';
 import { applyTheme, readTheme } from '../lib/theme.js';
 import { Button, Badge } from '../components/ui.jsx';
 import { APP_VERSION } from '../lib/version.js';
+import { BOOKING_SLUG_FALLBACK, bookingUrl } from '../lib/public-booking.mjs';
+
+/** The sample clinic's booking page — what a patient sees. */
+const DEMO_SLUG = BOOKING_SLUG_FALLBACK;
 
 const FEATURES = [
   { icon: Ticket, title: 'Token queue for walk-ins', body: 'The front desk taps once to issue the next token — no appointment, no patient record needed first. Doctors call numbers in order, and the lounge screen shows who is next.' },
@@ -93,11 +98,15 @@ export default function Landing({ anchor }) {
               {configured ? 'Start free' : 'Explore the live demo'}
             </Button>
             <Button variant="subtle" size="lg" icon={PlayCircle} onClick={enterDemo}>See it with sample patients</Button>
+            <Button variant="ghost" size="lg" icon={CalendarDays} onClick={() => window.open(bookingUrl(DEMO_SLUG), '_blank', 'noopener')}>
+              Open a booking page
+            </Button>
           </div>
           <div className="row wrap tiny muted" style={{ gap: 14 }}>
             <span className="row" style={{ gap: 5 }}><Check size={13} style={{ color: 'var(--success)' }} /> No card required</span>
             <span className="row" style={{ gap: 5 }}><Check size={13} style={{ color: 'var(--success)' }} /> Installs as an app</span>
             <span className="row" style={{ gap: 5 }}><Check size={13} style={{ color: 'var(--success)' }} /> Works on clinic wifi or offline</span>
+            <span className="row" style={{ gap: 5 }}><Check size={13} style={{ color: 'var(--success)' }} /> Patients book their own slot</span>
           </div>
           <div className="mk-proof">
             <div><b>4.2 min</b><span>median consult-to-bill time</span></div>
@@ -110,7 +119,7 @@ export default function Landing({ anchor }) {
       </header>
 
       <div className="mk-strip">
-        {['Token queue', 'Appointments', 'Patient records', 'Consultations', 'GST invoices', 'Day close', 'Follow-up recalls', 'Offline PWA', 'Installable app'].map((chip) => (
+        {['Token queue', 'Appointments', 'Online booking', 'Patient records', 'Consultations', 'GST invoices', 'Day close', 'Follow-up recalls', 'Offline PWA', 'Installable app'].map((chip) => (
           <span key={chip} className="badge neutral" style={{ padding: '6px 12px', fontSize: '0.78rem' }}><BadgeCheck size={12} style={{ color: 'var(--brand-500)' }} /> {chip}</span>
         ))}
       </div>

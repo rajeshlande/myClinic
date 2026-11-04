@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 
 const checks = [];
 const suite = 'supabase/schema-tests.sql';
-checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (single source of truth, schema v1-v4)']);
+checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (single source of truth, schema v1-v8)']);
 checks.push([existsSync(suite), `${suite} present (role matrix + licensing regression suites)`]);
 checks.push([existsSync('src/lib/permissions.js'), 'client role matrix mirrors the policies']);
 checks.push([existsSync('src/lib/offline.js'), 'offline engine (scoped cache, TTL, outbox)']);
@@ -21,8 +21,17 @@ Database checks (run against a SCRATCH project, never production):
 
   1. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
      -> one file. Idempotent: re-running it upgrades any older database in place,
-        straight to schema v4 (see public.app_schema_version()).
-  2. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
+        straight to schema v8 (see public.app_schema_version()).
+  2. set role anon;   -- the public booking surface, seen from outside
+     select public.public_clinic_profile('sunrise-opd');       -- profile and doctors only
+     select public.public_booking_busy('sunrise-opd',
+            (select id from public.staff limit 1));            -- times, never patients
+     select count(*) from public.patients;                     -- permission denied
+     select count(*) from public.appointments;                 -- permission denied
+     reset role;
+     -> the five booking RPCs answer; every table still refuses anon.
+
+  3. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
      -> every assertion prints PASS, ending in
         "ALL RLS CHECKS COMPLETED" and "ALL LICENSING CHECKS COMPLETED";
         the whole fixture set is rolled back, so a run leaves no trace.
@@ -41,6 +50,10 @@ What the suites prove:
   · issue_token() refuses a patient from another clinic
   · a paid invoice cannot be voided or amended by a non-owner
   · only an owner can create an invitation
+  · anon can call the five booking RPCs and read no table at all
+  · a public booking cannot take a slot that is already held, twice over:
+    the client's availableSlots and the unique index on live appointments agree
+  · a cancelled booking releases its slot; the row and its reference stay
 
 Client checks:
   npm test    — role matrix, sync merge policy, replay idempotency, retries

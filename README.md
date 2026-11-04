@@ -13,14 +13,15 @@ Built by adapting the technical foundation of the supplied [`mycar`](https://git
 | **Dashboard** | Today's OPD queue with one-tap check-in → consult, collected-vs-billed trend, footfall, follow-ups due, revenue mix, doctor performance. |
 | **Branding** | Upload a square and a wide clinic logo — they appear on prescriptions, invoices and the sidebar, print correctly offline, and feed WhatsApp and email later through one brand kit. |
 | **Appointments** | Interval-accurate day board per doctor (a 30-minute visit occupies 30 minutes), week load view, list view, next-free suggestion, check-in, in-consult, completed, no-show, cancel with undo, reschedule. |
+| **Public booking** | A page at `/#/book/<clinic>` a patient can open with no account: clinic identity and brand colour, a doctor picker, a 14-day strip that greys out the days that are full, the doctor's day in morning/afternoon/evening blocks, then name, mobile and an optional reason. Slots come from the same `availableSlots` engine the front desk uses, so a patient and a receptionist cannot double-book a time; the database refuses the same slot twice. The patient gets a reference (`BK-4K7P2Q`) to cancel with, and the appointment lands on the calendar with source **Booked online**. |
 | **Patients** | Registration with auto patient IDs, clinical flags (chronic conditions, allergies), full chart: timeline, vitals, prescriptions, invoices, appointments. |
 | **Consultations** | Vitals, complaint, examination, diagnoses, prescription lines, advice, follow-up date — "Save & bill" creates the invoice in one step. The drug field is a **medicine master typeahead** (brand / molecule / symptom) that fills dose, frequency, duration and food relation, and runs **safety checks** on every prescription. |
 | **Billing** | GST-ready invoices with line items, discounts, part payments, payer method (cash/UPI/card/insurance/credit), outstanding dues per patient, printable invoice. Unpaid invoices carry a scannable **UPI QR** with the exact balance pre-filled — set the clinic VPA in Settings → Billing & invoices → Payments & UPI. |
 | **Follow-ups** | Overdue / due-today / next-7-days recall lists, closed-loop "mark done", gone-quiet cohort, and a **reminder queue**: one privacy-safe message per patient for booked appointments, due recalls and week-old balances, with copy / WhatsApp actions and a send log that stops the same patient being chased twice. |
 | **Day close** | The day's collections split by payment method, cash counted against cash expected with the variance written down, the missed charges found for you (seen but never billed, bills still open, dues older than a week), and a **frozen snapshot** per day — reopen to amend, never overwrite silently. Shareable as text or CSV. |
-| **Reports** | Month picker, revenue trend, payer mix, revenue by category, footfall, doctor performance table, top diagnoses, appointment outcomes, utilisation, daily collection. |
+| **Reports** | Month picker, revenue trend, payer mix, revenue by category, footfall, doctor performance table, top diagnoses, appointment outcomes, **where the diary comes from** (walk-in / phone / online / referral), utilisation, daily collection. |
 | **Doctors & staff** | Doctors with their own hours, slot length, fees and calendar colour; front-desk seats; role matrix; seat count against plan. |
-| **Settings** | Clinic profile, billing/GST, account, appearance (theme + density), reminders, plan, data export. |
+| **Settings** | Clinic profile, **public booking** (on/off, copyable link, the slug, how far ahead the diary opens, the note patients see), billing/GST, account, appearance (theme + density), reminders, plan, data export. |
 | **PWA** | Installable, standalone display, offline app shell, shortcuts (queue / book / register / billing), theme-aware icons. |
 
 Live demo data: the app boots into **Sunrise Multispecialty OPD** with six months of fictional patients, appointments, consultations and invoices — no configuration needed.
@@ -185,6 +186,13 @@ tests/logic.test.mjs        money, invoices, slots, analytics, CSV, validation
 - Plan changes are simulated; connect a payment provider before charging clinics.
 - Consultation editing is append-only (create a new visit) to keep the clinical record honest.
 - No file attachments (reports, scans) yet.
+- Public booking confirms on screen and by a WhatsApp message the patient sends themselves — there
+  is no automatic SMS or email confirmation, and no deposit. It needs **schema 8**
+  (`public_clinic_profile`, `public_booking_busy`, `public_book`, `public_booking_lookup`,
+  `public_cancel_booking`); on an older database the page says so and asks you to run
+  `supabase/schema.sql`. In a live clinic the desk sees a booking when the app next loads — there is
+  no realtime channel yet, so demo mode (which shares one browser profile) is the only place it
+  appears without a refresh.
 
 Deployment, troubleshooting and the Supabase guide are also available in-app at **/#/setup**.
 
@@ -256,6 +264,27 @@ Where it lives:
 - `supabase/schema-tests.sql` — rolled-back regression suite
 - `src/lib/license.mjs` — the client mirror of those rules (unit-tested)
 - `/app/subscription` — plan, seats, payment recording, export of the terms
+
+## The public surface
+
+Three routes sit outside the app shell and outside authentication:
+
+| Route | Who opens it | What it can do |
+|---|---|---|
+| `/#/book` and `/#/book/:slug` | any patient with the link | read the clinic's public profile, the doctors' hours and which minutes are busy; book one appointment |
+| `/#/booking/:ref` | the patient who holds that reference | see their appointment, cancel it |
+
+Nothing else is reachable: there is no policy that lets `anon` read a table, only the five
+`security definer` functions in migration 8, each granted explicitly and each returning one row or
+one narrow shape. `public_booking_busy` returns *times and lengths* — never a patient id, a name or a
+reason. The slot rules are enforced twice: in the client by `availableSlots` (the same function the
+day board uses) and in the database by a partial unique index on live rows plus a per-doctor-per-day
+advisory lock, so the last slot cannot be sold twice at 11pm.
+
+Turn it off in **Settings → Clinic → Public booking**; the link then shows the clinic's phone number
+and nothing else.
+
+---
 
 ## The token queue
 

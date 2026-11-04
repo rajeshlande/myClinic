@@ -3,6 +3,42 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.0] — 2026-11-04 · schema 8
+
+Patients could not book themselves. Every appointment started with a phone call the
+desk answered mid-queue, and a patient who wanted to cancel had to reach a human.
+This release gives each clinic a page at `/#/book/<clinic>` that works with no
+account, and makes the booking a first-class appointment rather than a request.
+
+### Added
+- **Public booking page** (`/#/book/:slug`). Clinic name, brand colour and phone at the
+  top; the doctor's day split into morning, afternoon and evening; a 14-day strip that
+  greys out the days that are already full; name, mobile and an optional reason. No
+  account, no payment, nothing clinical.
+- **A reference the patient keeps** (`BK-4K7P2Q`) and a `/#/booking/:ref` page to look the
+  appointment up and cancel it. Cancelling releases the slot immediately and keeps the
+  record.
+- **Settings → Clinic → Public booking**: on/off switch, the copyable link, the slug, how
+  far ahead the diary opens (7/14/21/30 days) and a note shown to patients.
+- **Reports → Where the diary comes from**: walk-in, phone, online and referral split for
+  the month, so a clinic can see whether the link is working.
+- `appointments.booking_ref` and `appointments.cancelled_at`; the booking page's five
+  `security definer` RPCs, granted to `anon` and to nobody else.
+
+### Changed
+- An appointment's `source` now carries through from the public page (`'online'`) and is
+  reported rather than assumed to be a walk-in.
+- `appointments` uniqueness moved from a full constraint to a partial unique index on
+  live rows, so a cancelled slot can be booked again without deleting history. Strictly
+  weaker than the constraint it replaces: no row that satisfied the old rule can violate
+  the new one.
+- The landing page links to a real booking page and lists online booking in the
+  capability strip.
+
+### Fixed
+- A clinic row that never had a `slug` (the column arrived in migration 4 for branding
+  and was never filled) is given one during migration 8, derived from the clinic name.
+
 ## [1.10.1] — 2026-11-04 · schema 7
 
 A marketing patch: the landing page did not mention the release it was selling.

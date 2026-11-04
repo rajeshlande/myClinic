@@ -12,6 +12,7 @@ import {
   monthLabel, monthTotals, payerMix, revenueSeries, shiftMonth, sumBy, toCSV, today,
   topDiagnoses, recentMonths, occupancy, inMonth, PAYMENT_METHODS,
 } from '../lib/logic.mjs';
+import { leadSourceMix } from '../lib/public-booking.mjs';
 
 export default function Reports() {
   const store = useStore();
@@ -32,6 +33,9 @@ export default function Reports() {
   const payers = useMemo(() => payerMix({ invoices: monthInvoices, month }), [monthInvoices, month]);
   const performers = useMemo(() => doctorPerformance({ appointments: store.appointments, consultations: store.consultations, invoices: store.invoices, doctors: store.doctors, month }), [store.appointments, store.consultations, store.invoices, store.doctors, month]);
   const diagnoses = useMemo(() => topDiagnoses({ consultations: monthConsults, month, count: 6 }), [monthConsults, month]);
+  // Where the diary came from — the online booking page writes source 'online'.
+  const leadSources = useMemo(() => leadSourceMix({ appointments: store.appointments, month }), [store.appointments, month]);
+  const onlineBookings = leadSources.find((s) => s.id === 'online')?.count ?? 0;
   const apptStats = useMemo(() => {
     const list = inMonth(store.appointments, month, 'scheduled_on');
     return {
@@ -171,7 +175,7 @@ export default function Reports() {
         </div>
       </Card>
 
-      <div className="grid three" style={{ gap: 16 }}>
+      <div className="grid" style={{ gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         <Card>
           <CardHead title="Top diagnoses" sub="This month" icon={Activity} />
           <div className="card-body">
@@ -191,6 +195,22 @@ export default function Reports() {
               format={(v) => `${v}`}
             />
             <p className="tiny faint" style={{ marginTop: 10 }}>{apptStats.total ? Math.round((apptStats.completed / apptStats.total) * 100) : 0}% completion rate</p>
+          </div>
+        </Card>
+        <Card>
+          <CardHead title="Where the diary comes from" sub={monthLabel(month)} icon={Users}
+            action={onlineBookings ? <Badge tone="info">{onlineBookings} online</Badge> : null} />
+          <div className="card-body">
+            <BarList
+              items={leadSources.map((s) => ({ label: s.label, value: s.count }))}
+              format={(v) => `${v}`}
+              color="var(--brand-500)"
+            />
+            <p className="tiny faint" style={{ marginTop: 10 }}>
+              {apptStats.total
+                ? `${Math.round(((leadSources.find((s) => s.id === 'online')?.share ?? 0) * 100))}% of this month's appointments came from the public booking page.`
+                : 'No appointments in this month yet.'}
+            </p>
           </div>
         </Card>
         <Card>

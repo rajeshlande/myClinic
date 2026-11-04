@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  BellRing, Building2, Check, CreditCard, Download, LogOut, MoonStar, RefreshCw, Save,
-  Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, ExternalLink, Smartphone,
-  ImagePlus,
+  BellRing, Building2, Check, CreditCard, Copy, Download, ExternalLink, LogOut, MoonStar,
+  RefreshCw, Save, Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, Smartphone,
+  ImagePlus, CalendarDays,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -16,10 +16,11 @@ import { SyncCenter } from '../components/SyncCenter.jsx';
 import { BrandingFields, BrandMark } from '../components/Branding.jsx';
 import { APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION } from '../lib/version.js';
 import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
+import { BOOKING_HORIZON_DAYS, bookingUrl } from '../lib/public-booking.mjs';
 import { CloudOff, GitBranch, History, Palette, QrCode, RefreshCcw, Scale } from 'lucide-react';
 import {
   CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput,
-  today, toCSV, patientSearch,
+  slugify, today, toCSV, patientSearch,
 } from '../lib/logic.mjs';
 
 export default function Settings() {
@@ -52,6 +53,10 @@ export default function Settings() {
 
   useEffect(() => { applyDensity(prefs.density); }, [prefs.density]);
 
+  const canEdit = can(role, 'clinic:settings');
+  const clinicState = clinic ?? {};
+  const publicLink = bookingUrl(clinicState.slug || slugify(clinicState.name || '') || 'sunrise-opd');
+
   async function saveClinic() {
     setSaving(true);
     try {
@@ -67,6 +72,10 @@ export default function Settings() {
         open_time: clinic.open_time, close_time: clinic.close_time,
         gst_enabled: Boolean(clinic.gst_enabled), gst_rate: Number(clinic.gst_rate) || 0,
         invoice_prefix: clinic.invoice_prefix || 'INV',
+        booking_enabled: clinicState.booking_enabled !== false,
+        booking_horizon_days: Number(clinicState.booking_horizon_days) || BOOKING_HORIZON_DAYS,
+        booking_note: (clinicState.booking_note ?? '').slice(0, 120),
+        slug: clinicState.slug || slugify(clinicState.name || '') || 'clinic',
         // Branding travels with the clinic row so it survives offline and appears
         // on every document without a second fetch.
         logo_square_url: clinic.logo_square_url ?? null,
@@ -225,6 +234,88 @@ export default function Settings() {
                 </div>
               </Field>
             </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {tab === 'clinic' ? (
+        <Card>
+          <CardHead
+            title="Public booking" icon={CalendarDays}
+            sub="A page patients can open without an account — share the link anywhere"
+            action={<Badge tone={clinicState.booking_enabled === false ? 'neutral' : 'success'}>{clinicState.booking_enabled === false ? 'Closed' : 'Open'}</Badge>}
+          />
+          <div className="card-body stack">
+            <label className="check">
+              <input
+                type="checkbox" disabled={!canEdit}
+                checked={clinicState.booking_enabled !== false}
+                onChange={(e) => setClinic((c) => ({ ...c, booking_enabled: e.target.checked }))}
+              />
+              <span>
+                <strong className="small">Accept appointments from the booking link</strong>
+                <span className="tiny muted" style={{ display: 'block' }}>
+                  Patients pick a free slot themselves; the appointment lands on your calendar with source
+                  “Booked online”. Turn this off and the page shows your phone number instead.
+                </span>
+              </span>
+            </label>
+
+            <Field label="Booking link" hint="Paste it on WhatsApp, your Google listing, or print the QR at the desk.">
+              <div className="row" style={{ gap: 8 }}>
+                <Input readOnly value={publicLink} onFocus={(e) => e.target.select()} aria-label="Public booking link" />
+                <Button
+                  size="sm" variant="subtle" icon={Copy} type="button"
+                  onClick={() => navigator.clipboard?.writeText(publicLink)
+                    .then(() => toast.success('Booking link copied.'))
+                    .catch(() => toast.error('Clipboard blocked.'))}
+                >
+                  Copy
+                </Button>
+                <Button size="sm" variant="ghost" icon={ExternalLink} type="button" onClick={() => navigate(`/book/${clinicState.slug || ''}`)}>
+                  Open
+                </Button>
+              </div>
+            </Field>
+
+            <div className="form-grid">
+              <Field label="Link name" hint="Lowercase, no spaces — this is the last part of the link.">
+                <Input
+                  value={clinicState.slug ?? ''} disabled={!canEdit}
+                  onChange={(e) => setClinic((c) => ({ ...c, slug: slugify(e.target.value).slice(0, 40) }))}
+                  placeholder="sunrise-opd"
+                />
+              </Field>
+              <Field label="Diary opens for" hint="How far ahead a stranger may book.">
+                <Select
+                  value={clinicState.booking_horizon_days ?? BOOKING_HORIZON_DAYS} disabled={!canEdit}
+                  onChange={(e) => setClinic((c) => ({ ...c, booking_horizon_days: Number(e.target.value) }))}
+                >
+                  {[7, 14, 21, 30].map((d) => <option key={d} value={d}>Next {d} days</option>)}
+                </Select>
+              </Field>
+            </div>
+
+            <Field label="Note shown to patients" hint="Optional — arrival time, parking, what to bring.">
+              <Input
+                value={clinicState.booking_note ?? ''} maxLength={120} disabled={!canEdit}
+                onChange={(e) => setClinic((c) => ({ ...c, booking_note: e.target.value }))}
+                placeholder="Reach 15 minutes before your slot."
+              />
+            </Field>
+
+            <div className="row wrap" style={{ gap: 8 }}>
+              <Button variant="primary" icon={Save} onClick={saveClinic} loading={saving} disabled={!canEdit}>
+                Save booking settings
+              </Button>
+              <Button variant="ghost" icon={ExternalLink} onClick={() => navigate(`/book/${clinicState.slug || ''}`)}>
+                Preview what patients see
+              </Button>
+            </div>
+            <p className="tiny faint" style={{ margin: 0 }}>
+              No account, no payment and no clinical detail crosses this page. A patient can cancel with the
+              reference they were given; you keep the record either way.
+            </p>
           </div>
         </Card>
       ) : null}

@@ -1524,4 +1524,416 @@ grant execute on function public.create_clinic(jsonb, jsonb) to authenticated;
 grant execute on function public.next_patient_code(uuid) to authenticated;
 grant execute on function public.next_invoice_number(uuid, text) to authenticated;
 
+-- =============================================================================
+-- §8 · PUBLIC BOOKING                                migration 8 · app v1.11.0
+-- =============================================================================
+-- A patient with a link and no account books one appointment, then cancels it with
+-- the reference they were given.
+--
+-- The whole surface is five security-definer functions. There is no policy that
+-- lets `anon` touch a table: what crosses the wire is the clinic's public profile,
+-- which minutes of a doctor's day are *busy* (a time and a length — never who),
+-- and the single row a reference points at. A stranger can never enumerate
+-- patients, invoices or consultations, because no function returns a set of them.
+--
+-- Three rules only the database can keep:
+--   one live appointment per (doctor, date, time)     partial unique index below
+--   no two patients winning the last slot             advisory lock in public_book
+--   no flood from one phone or one clinic             counted in public_book
+--
+-- Slots are still computed by the client from `availableSlots` — the same function
+-- the front desk uses — so an online booking and a walk-in cannot disagree about
+-- what is free, and the checks here are the backstop rather than the rulebook.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 8 then
+    raise notice 'schema 8 (public booking) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 8 (public booking)';
+
+  execute $sql$
+
+  -- ------------------------------------------------------- clinics: switches
+  -- Defaults are on: an existing clinic that upgrades gets a working booking page
+  -- at /#/book/<slug> the moment it is deployed, with the diary opened 14 days.
+  alter table public.clinics add column if not exists booking_enabled boolean not null default true;
+  alter table public.clinics add column if not exists booking_horizon_days integer not null default 14;
+  alter table public.clinics add column if not exists booking_note text not null default '';
+
+  do $constraints$
+  begin
+    if not exists (select 1 from pg_constraint where conname = 'clinics_booking_horizon_range') then
+      alter table public.clinics
+        add constraint clinics_booking_horizon_range check (booking_horizon_days between 1 and 60);
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'clinics_booking_note_len') then
+      alter table public.clinics
+        add constraint clinics_booking_note_len check (char_length(booking_note) <= 120);
+    end if;
+  end $constraints$;
+
+  -- Every clinic needs an address to be reachable at all. Existing rows may have a
+  -- null slug (the column was added for branding in migration 4 and never filled),
+  -- so derive one from the name and step around collisions rather than failing.
+  do $slugs$
+  declare
+    r record;
+    base text;
+    candidate text;
+    n integer;
+  begin
+    for r in select id, name, slug from public.clinics where slug is null or btrim(slug) = '' loop
+      base := left(coalesce(nullif(btrim(both '-' from regexp_replace(lower(r.name), '[^a-z0-9]+', '-', 'g')), ''), 'clinic'), 32);
+      candidate := base;
+      n := 0;
+      while exists (select 1 from public.clinics c where c.slug = candidate and c.id <> r.id) loop
+        n := n + 1;
+        candidate := base || '-' || n;
+      end loop;
+      update public.clinics set slug = candidate where id = r.id;
+    end loop;
+  end $slugs$;
+
+  -- --------------------------------------------------- appointments: the ref
+  -- booking_ref is what the patient keeps. Unique per clinic so a reference can
+  -- never point at two appointments; nullable because every desk booking made
+  -- before today has none.
+  alter table public.appointments add column if not exists booking_ref text;
+  alter table public.appointments add column if not exists cancelled_at timestamptz;
+  create unique index if not exists appointments_booking_ref_key
+    on public.appointments (clinic_id, booking_ref) where booking_ref is not null;
+
+  -- A cancellation has to release its slot. Until now the full unique constraint
+  -- meant a cancelled 10:30 could never be re-booked without deleting history —
+  -- the desk's own re-book screen had the same problem — while the client
+  -- scheduler already treats cancelled rows as free (DEAD_STATUSES). Dropping the
+  -- constraint for a partial index is strictly weaker: no row that satisfied the
+  -- old rule can violate the new one.
+  alter table public.appointments drop constraint if exists appointments_doctor_id_scheduled_on_scheduled_at_key;
+  create unique index if not exists appointments_slot_unique
+    on public.appointments (doctor_id, scheduled_on, scheduled_at) where status <> 'cancelled';
+
+  -- Public bookings look a patient up by phone digits, not by the formatter's
+  -- spacing, so ' 98200 11223' and '+919820011223' are the same person.
+  create index if not exists patients_phone_digits_idx
+    on public.patients (clinic_id, regexp_replace(phone, '[^0-9]', '', 'g'));
+
+  -- --------------------------------------------------------- public profile
+  create or replace function public.public_clinic_profile(p_slug text)
+  returns jsonb language plpgsql stable security definer set search_path = public as $$
+  declare
+    c public.clinics;
+    roster jsonb;
+  begin
+    select * into c from public.clinics where slug = lower(btrim(p_slug));
+    if not found then
+      return null;
+    end if;
+
+    -- A clinic that has closed online booking still answers — with its phone
+    -- number and nothing else — so a link on an old poster stays useful.
+    if not c.booking_enabled then
+      return jsonb_build_object(
+        'enabled', false,
+        'clinic', jsonb_build_object('name', c.name, 'phone', c.phone, 'address', c.address));
+    end if;
+
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'id', s.id,
+             'full_name', s.full_name,
+             'specialty', s.specialty,
+             'qualification', s.qualification,
+             'fee_paise', s.fee_paise,
+             'follow_up_fee_paise', s.follow_up_fee_paise,
+             'day_start', to_char(s.day_start, 'HH24:MI'),
+             'day_end', to_char(s.day_end, 'HH24:MI'),
+             'slot_minutes', s.slot_minutes,
+             'color', s.color) order by s.full_name), '[]'::jsonb)
+      into roster
+      from public.staff s
+     where s.clinic_id = c.id and s.active and s.role in ('owner', 'doctor');
+
+    return jsonb_build_object(
+      'enabled', true,
+      'clinic', jsonb_build_object(
+        'name', c.name, 'slug', c.slug, 'clinic_type', c.clinic_type,
+        'address', c.address, 'phone', c.phone, 'brand_color', c.brand_color,
+        'booking_note', c.booking_note, 'booking_horizon_days', c.booking_horizon_days),
+      'doctors', roster);
+  end $$;
+
+  -- ------------------------------------------------------------ busy minutes
+  -- Times and lengths only. This is the one read that spans the diary, so it is
+  -- deliberately blind: no patient id, no name, no reason, no status detail
+  -- beyond "this minute is gone".
+  create or replace function public.public_booking_busy(p_slug text, p_doctor uuid)
+  returns jsonb language plpgsql stable security definer set search_path = public as $$
+  declare
+    c public.clinics;
+    busy jsonb;
+  begin
+    select * into c from public.clinics where slug = lower(btrim(p_slug)) and booking_enabled;
+    if not found then
+      return jsonb_build_object('busy', '[]'::jsonb);
+    end if;
+    if not exists (select 1 from public.staff s
+                    where s.id = p_doctor and s.clinic_id = c.id and s.active and s.role in ('owner', 'doctor')) then
+      return jsonb_build_object('busy', '[]'::jsonb);
+    end if;
+
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'iso', a.scheduled_on,
+             'at', to_char(a.scheduled_at, 'HH24:MI'),
+             'minutes', a.duration_minutes) order by a.scheduled_on, a.scheduled_at), '[]'::jsonb)
+      into busy
+      from public.appointments a
+     where a.doctor_id = p_doctor
+       and a.status <> 'cancelled'
+       and a.scheduled_on between current_date and current_date + c.booking_horizon_days;
+
+    return jsonb_build_object('busy', busy);
+  end $$;
+
+  -- ---------------------------------------------------------------- book it
+  create or replace function public.public_book(
+    p_slug text,
+    p_doctor uuid,
+    p_date date,
+    p_time time,
+    p_name text,
+    p_phone text,
+    p_reason text default '')
+  returns jsonb language plpgsql security definer set search_path = public as $$
+  declare
+    alphabet constant text := 'ACDEFGHJKLMNPQRTUVWXY2346789';
+    c public.clinics;
+    d public.staff;
+    pat public.patients;
+    appt public.appointments;
+    existing public.appointments;
+    digits text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+    clean_name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
+    ref text := 'BK-';
+    code text;
+    seq bigint;
+    i integer;
+    recent integer;
+  begin
+    select * into c from public.clinics where slug = lower(btrim(p_slug));
+    if not found or not c.booking_enabled then
+      raise exception 'booking:closed' using errcode = 'P0001';
+    end if;
+
+    select * into d from public.staff
+     where id = p_doctor and clinic_id = c.id and active and role in ('owner', 'doctor');
+    if not found then
+      raise exception 'booking:doctor' using errcode = 'P0001';
+    end if;
+
+    if char_length(clean_name) < 2 or char_length(clean_name) > 80 then
+      raise exception 'booking:name' using errcode = 'P0001';
+    end if;
+    if char_length(digits) not in (10, 11, 12) then
+      raise exception 'booking:phone' using errcode = 'P0001';
+    end if;
+    if p_date < current_date or p_date > current_date + c.booking_horizon_days then
+      raise exception 'booking:date' using errcode = 'P0001';
+    end if;
+    if p_time < d.day_start
+       or p_time + make_interval(mins => d.slot_minutes) > d.day_end
+       or mod(round(extract(epoch from (p_time - d.day_start)) / 60)::int, d.slot_minutes) <> 0 then
+      raise exception 'booking:slot' using errcode = 'P0001';
+    end if;
+    -- Same half-hour rule the page applies: no slot that starts in the next 30 min.
+    if p_date = current_date and p_time < localtime + interval '30 minutes' then
+      raise exception 'booking:past' using errcode = 'P0001';
+    end if;
+
+    -- One slot at a time. The lock is taken on the pair that can collide, so two
+    -- patients tapping 10:30 at 11pm are serialised and the second gets
+    -- 'slot_taken' instead of a duplicate row.
+    perform pg_advisory_xact_lock(hashtextextended(d.id::text || ':' || p_date::text, 0));
+
+    -- Already booked with this doctor that day? Sending the same tap twice must
+    -- not book twice, and a second appointment at a different time is almost
+    -- always a mistake — hand back the one they have.
+    select a.* into existing
+      from public.appointments a
+      join public.patients p on p.id = a.patient_id
+     where a.doctor_id = d.id and a.scheduled_on = p_date and a.status = 'booked'
+       and p.clinic_id = c.id and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+     order by a.scheduled_at
+     limit 1;
+    if found then
+      if existing.scheduled_at = p_time and existing.booking_ref is not null then
+        return jsonb_build_object(
+          'ref', existing.booking_ref, 'iso', existing.scheduled_on,
+          'at', to_char(existing.scheduled_at, 'HH24:MI'),
+          'doctor', d.full_name, 'clinic', c.name,
+          'minutes', existing.duration_minutes, 'duplicate', true);
+      end if;
+      -- RAISE cannot carry both a format string and USING MESSAGE, so the time
+      -- travels as an argument: 'booking:already:16:30'.
+      raise exception 'booking:already:%', to_char(existing.scheduled_at, 'HH24:MI')
+        using errcode = 'P0001';
+    end if;
+
+    -- Flood guards: a phone gets three online bookings a day, a clinic forty an
+    -- hour. Both are far above real use and cheap enough to count.
+    select count(*) into recent
+      from public.appointments a
+      join public.patients p on p.id = a.patient_id
+     where p.clinic_id = c.id and a.source = 'online'
+       and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+       and a.created_at::date = current_date;
+    if recent >= 3 then
+      raise exception 'booking:toomany' using errcode = 'P0001';
+    end if;
+
+    select count(*) into recent
+      from public.appointments a
+     where a.clinic_id = c.id and a.source = 'online'
+       and a.created_at > now() - interval '1 hour';
+    if recent >= 40 then
+      raise exception 'booking:busy' using errcode = 'P0001';
+    end if;
+
+    -- The slot itself. Inside the lock, so this read cannot go stale before the
+    -- insert below; the unique index is the second half of the same guarantee.
+    if exists (select 1 from public.appointments a
+                where a.doctor_id = d.id and a.scheduled_on = p_date
+                  and a.status <> 'cancelled'
+                  and a.scheduled_at < p_time + make_interval(mins => d.slot_minutes)
+                  and a.scheduled_at + make_interval(mins => a.duration_minutes) > p_time) then
+      raise exception 'booking:slot_taken' using errcode = 'P0001';
+    end if;
+
+    -- Patient: matched on phone digits, created only if nobody answers to them.
+    -- The clinic-wide lock keeps two simultaneous new patients from taking the
+    -- same code.
+    perform pg_advisory_xact_lock(hashtextextended('patient:' || c.id::text, 0));
+    select * into pat from public.patients p
+     where p.clinic_id = c.id and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+     order by p.created_at
+     limit 1;
+
+    if not found then
+      select coalesce(max(nullif(regexp_replace(code, '[^0-9]', '', 'g'), '')::bigint), 0) + 1
+        into seq
+        from public.patients
+       where clinic_id = c.id and code ~ '^PT-[0-9]+$';
+      code := 'PT-' || lpad(coalesce(seq, 1)::text, 5, '0');
+      insert into public.patients (clinic_id, code, full_name, phone, notes)
+      values (c.id, code, clean_name, btrim(p_phone), 'Registered from the online booking page.')
+      returning * into pat;
+    end if;
+
+    for i in 1..6 loop
+      ref := ref || substr(alphabet, 1 + floor(random() * char_length(alphabet))::int, 1);
+    end loop;
+
+    begin
+      insert into public.appointments
+        (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, duration_minutes,
+         kind, status, reason, source, booking_ref)
+      values
+        (c.id, pat.id, d.id, p_date, p_time, d.slot_minutes,
+         'New consultation', 'booked', left(coalesce(p_reason, ''), 120), 'online', ref)
+      returning * into appt;
+    exception when unique_violation then
+      raise exception 'booking:slot_taken' using errcode = 'P0001';
+    end;
+
+    return jsonb_build_object(
+      'ref', appt.booking_ref, 'iso', appt.scheduled_on,
+      'at', to_char(appt.scheduled_at, 'HH24:MI'),
+      'doctor', d.full_name, 'clinic', c.name,
+      'minutes', appt.duration_minutes, 'duplicate', false);
+  end $$;
+
+  -- ------------------------------------------------------------------ lookup
+  create or replace function public.public_booking_lookup(p_ref text)
+  returns jsonb language plpgsql stable security definer set search_path = public as $$
+  declare
+    a public.appointments;
+    c public.clinics;
+    d public.staff;
+    p public.patients;
+  begin
+    select * into a from public.appointments where booking_ref = upper(btrim(p_ref)) limit 1;
+    if not found then
+      return jsonb_build_object('found', false);
+    end if;
+
+    select * into c from public.clinics where id = a.clinic_id;
+    select * into d from public.staff where id = a.doctor_id;
+    select * into p from public.patients where id = a.patient_id;
+
+    return jsonb_build_object(
+      'found', true,
+      'ref', a.booking_ref,
+      'iso', a.scheduled_on,
+      'at', to_char(a.scheduled_at, 'HH24:MI'),
+      'status', a.status,
+      'doctor', coalesce(d.full_name, 'the doctor'),
+      'clinic', coalesce(c.name, 'the clinic'),
+      'phone', coalesce(c.phone, ''),
+      'address', coalesce(c.address, ''),
+      'patient_first', split_part(coalesce(p.full_name, ''), ' ', 1));
+  end $$;
+
+  -- ------------------------------------------------------------------ cancel
+  -- The reference is the credential. Cancelling releases the slot (the partial
+  -- unique index above makes that real) and keeps the row: a clinic that sees
+  -- cancellations needs the history more than the patient needs the tidiness.
+  create or replace function public.public_cancel_booking(p_ref text)
+  returns jsonb language plpgsql security definer set search_path = public as $$
+  declare
+    a public.appointments;
+  begin
+    select * into a from public.appointments where booking_ref = upper(btrim(p_ref)) for update;
+    if not found then
+      return jsonb_build_object('cancelled', false, 'status', 'missing');
+    end if;
+    if a.status <> 'booked' then
+      return jsonb_build_object('cancelled', false, 'status', a.status);
+    end if;
+    if a.scheduled_on < current_date then
+      return jsonb_build_object('cancelled', false, 'status', 'past');
+    end if;
+
+    update public.appointments
+       set status = 'cancelled', cancelled_at = now(), updated_at = now()
+     where id = a.id;
+
+    return jsonb_build_object('cancelled', true, 'status', 'cancelled');
+  end $$;
+
+  -- ------------------------------------------------------------------ grants
+  -- Execute is revoked from PUBLIC and handed to anon explicitly: the public
+  -- pages are the only callers that are not signed in, and nothing else is.
+  revoke all on function public.public_clinic_profile(text) from public;
+  revoke all on function public.public_booking_busy(text, uuid) from public;
+  revoke all on function public.public_book(text, uuid, date, time, text, text, text) from public;
+  revoke all on function public.public_booking_lookup(text) from public;
+  revoke all on function public.public_cancel_booking(text) from public;
+
+  grant execute on function public.public_clinic_profile(text) to anon, authenticated;
+  grant execute on function public.public_booking_busy(text, uuid) to anon, authenticated;
+  grant execute on function public.public_book(text, uuid, date, time, text, text, text) to anon, authenticated;
+  grant execute on function public.public_booking_lookup(text) to anon, authenticated;
+  grant execute on function public.public_cancel_booking(text) to anon, authenticated;
+  $sql$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (8, 'public-booking', '1.11.0', 'public booking page: five anon-granted RPCs, booking references, slot release on cancel')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 8, applied_at = now(), notes = 'public booking'
+   where schema_version < 8;
+end $migration$;
+
 commit;

@@ -29,6 +29,10 @@ import Subscription from './pages/Subscription.jsx';
 
 const InvoiceView = lazy(() => import('./pages/InvoiceView.jsx'));
 const PrescriptionView = lazy(() => import('./pages/PrescriptionView.jsx'));
+// The public booking pages are split out: they are the only screens an
+// unauthenticated visitor can reach, and staff never need them in the app bundle.
+const PublicBooking = lazy(() => import('./pages/PublicBooking.jsx'));
+const BookingManage = lazy(() => import('./pages/BookingManage.jsx'));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -90,6 +94,11 @@ export default function App() {
           <Route path="subscription" element={<Subscription />} />
           <Route path="settings" element={<Settings />} />
         </Route>
+
+        {/* Public, no account: a patient books and manages one appointment. */}
+        <Route path="/book" element={<Suspense fallback={<Loading />}><PublicBooking /></Suspense>} />
+        <Route path="/book/:slug" element={<Suspense fallback={<Loading />}><PublicBooking /></Suspense>} />
+        <Route path="/booking/:ref" element={<Suspense fallback={<Loading />}><BookingManage /></Suspense>} />
 
         <Route path="/invoice/:id" element={<Suspense fallback={<Loading />}><InvoiceView /></Suspense>} />
         <Route path="/prescription/:id" element={<Suspense fallback={<Loading />}><PrescriptionView /></Suspense>} />

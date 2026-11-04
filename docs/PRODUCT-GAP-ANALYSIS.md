@@ -1,6 +1,6 @@
 # myClinic — Solo & Small-Clinic product gap analysis
 
-**Audited build:** v1.7.0 · schema 5 · 88 passing tests
+**Audited build:** v1.11.0 · schema 8 · 179 passing tests
 **Method:** every status below is checked against the actual code, not the marketing copy —
 routes in `src/App.jsx`, tables in `supabase/schema.sql`, and the screen that implements it.
 
@@ -25,7 +25,7 @@ should not be started while the solo product still has holes.
 
 | # | Challenge (brief) | Status | What exists in this codebase | The real gap |
 |---|---|---|---|---|
-| 1 | Missed calls & after-hours enquiries | ✗ | `Landing.jsx` is a marketing page; no public booking route | No booking link, no WhatsApp intake, no shared inbox, no AI front desk. **Zero outbound surface.** |
+| 1 | Missed calls & after-hours enquiries | ◐ | Public booking page at `/#/book/:slug` (1.11.0): real slots from the same engine, patient captured by name and phone, a reference the patient can cancel with, and `source='online'` on the appointment | No WhatsApp intake, no shared inbox, no AI front desk. A call that is not answered still leaves no trace — the link only helps the patient who finds it |
 | 2 | Diary chaos / double booking | ✅ | One `appointments` table drives Day/Week/List, conflict-aware slot generation (`schedule.mjs`), reschedule/cancel/no-show/undo, follow-up vs new fee (`feeForVisit`, per-doctor `follow_up_fee_paise`) | Waitlist, room/department field, external calendar sync |
 | 3 | Time lost typing notes | ◐ | Structured consult (`ConsultationForm`): complaint, exam, diagnoses, advice, vitals with reference ranges, follow-up, resume-in-progress, history panel | No voice scribe, no OCR of paper/lab reports, no ICD-10 templates — the drug field is now a medicine-master typeahead with safety checks (1.8.0) |
 | 4 | Scattered patient history | ✅ | `PatientDetail` 360: clinical timeline, visits, prescriptions, billing, appointments, vitals grid, dues, unbilled-visit detection, history preview inside the consult | Clinical attachments (no `files` table), lab-marker trends, patient-facing download |
@@ -67,7 +67,7 @@ Ranked by *administrative minutes removed per patient*, not by feature glamour.
 |---|---|---|---|
 | 1 | **Reminder + recall delivery** — draft T-24h/T-2h messages, preview, one-tap send, log what was sent | The recall engine already computes exactly who is due; today the list just sits there. Turns a dead screen into recovered revenue | S |
 | 2 | **Day-close / cashier session** — per-day collection by method, UPI/cash split, uncollected list, printable close | Directly answers "manual billing and reconciliation" (challenge 5). Finance-grade, no integrations | S |
-| 3 | **Public booking link (`/#/book/:slug`)** — real slots from the same engine, patient identity capture, cancel link | Answers challenges 1 and 11 together, and fills the appointment engine from outside the app for the first time | M |
+| 3 | **Public booking link (`/#/book/:slug`)** ✅ *shipped 1.11.0* — real slots from the same engine, patient identity capture, cancel link | Answers challenges 1 and 11 together, and fills the appointment engine from outside the app for the first time | M |
 | 4 | **Medicine master + autocomplete + safety** — brand/generic/salt, dose defaults, offline formulary, interaction warning with logged override | Kills the biggest per-consult typing cost and the ch-8 safety risk | M |
 | 5 | **Compliance pack** — audit trail, versioned consent, prescription numbering, retention settings, ABHA identity fields | The one thing a solo doctor cannot assemble alone, and the easiest to demonstrate in a sales call | M |
 
@@ -112,7 +112,7 @@ no branch table; and "no per-user fee" is already true in code but never stated 
 | Release | Scope | Done means |
 |---|---|---|
 | **R1 · Collect & recall** ✅ *shipped 1.10.0* | Reminder drafts + send log · day-close session with per-method totals and uncollected list · missed-charge detector (completed visit without an invoice) | A solo doctor can close the day and chase yesterday's follow-ups without leaving the app |
-| **R2 · Fill the diary from outside** | Public booking page on the clinic slug · slot locking against the same engine · patient confirmation + cancel link · "booked from" source on appointments (lead-source analytics) | A patient can book at 11 pm; the doctor sees it in the morning with the source recorded |
+| **R2 · Fill the diary from outside** ✅ *shipped 1.11.0* | Public booking page on the clinic slug · slot locking against the same engine · patient confirmation + cancel link · "booked from" source on appointments (lead-source analytics) | A patient can book at 11 pm; the doctor sees it in the morning with the source recorded |
 | **R3 · Prescribe safely** ✅ *shipped 1.8.0* | Medicine master (brand/generic/salt) with offline fallback · dose defaults per form · interaction warnings with logged override · prescription numbering + immutable version | A repeat prescription is three taps and cannot silently contain a wrong salt |
 
 Compliance pack slots in as **R4** once R1–R3 have made the daily loop sticky; it is the
@@ -126,7 +126,16 @@ easiest thing to *demonstrate*, but the hardest to sell before the product saves
 > detector (seen-not-billed, open bills today, dues older than a week); and a reminder queue with a
 > send log (`reminders`) that honours quiet hours and never re-chases the same patient twice.
 > **Automatic delivery is still absent by design** — the queue drafts, the desk sends on its own
-> WhatsApp number, and the log records what it did. R2 (public booking) is the remaining release.
+> WhatsApp number, and the log records what it did.
+>
+> **Status (1.11.0, schema 8):** R2 shipped. `/#/book/<slug>` is a real page: it reads the clinic's
+> public profile and the doctor's *busy minutes* (never a patient), computes free slots with the same
+> `availableSlots` engine the desk uses, and writes through five `security definer` RPCs granted to
+> `anon`. `appointments.source` now carries `'online'` from the page through to Reports → *Where the
+> diary comes from*, a cancelled slot is released by a partial unique index instead of a deleted row,
+> and the patient keeps `BK-XXXXXX` to look the appointment up or cancel it. What is still missing
+> from the outbound story: WhatsApp/SMS intake, a shared inbox for missed calls, and a reminder that
+> sends itself.
 
 ---
 
@@ -137,4 +146,5 @@ easiest thing to *demonstrate*, but the hardest to sell before the product saves
 2. For reminders: SMS/DLT-compliance route, or WhatsApp click-to-send with the doctor's own number
    (no BSP, no template approval) to start?
 3. Should the public booking page be on the clinic's own domain/subdomain, or a `myclinic.in/<slug>`
-   link that we host?
+   link that we host? — *1.11.0 ships the second as `#/book/<slug>`; a custom domain is a hosting
+   change, not a code change.*

@@ -618,6 +618,11 @@ export const DEFAULT_CLINIC = {
   upi_id: 'sunrise.opd@okicici',
   upi_payee_name: 'Sunrise Multispecialty OPD',
   upi_qr_on_invoices: true,
+  // Public booking (v1.11.0): the slug is the public address, and the horizon is
+  // how far ahead the diary may be opened to strangers.
+  booking_enabled: true,
+  booking_horizon_days: 14,
+  booking_note: 'Reach 15 minutes before your slot at the front desk.',
 };
 
 export const DEFAULT_PREFERENCES = {

@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.10.1';
-export const SCHEMA_VERSION = 7;
+export const APP_VERSION = '1.11.0';
+export const SCHEMA_VERSION = 8;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.0', date: '2026-11-04', schema: 8,
+    highlights: [
+      'Public booking: every clinic gets a page at /#/book/<clinic> that a patient can open without an account — pick a doctor, pick a free slot, leave a name and a number, get a reference.',
+      'Slots come from the same engine the front desk uses, so an online booking and a walk-in can never disagree about what is free. The database refuses the same slot twice.',
+      'A booking is a normal appointment: it lands on the calendar with source “Booked online”, creates or matches the patient card by phone, and shows up in the token queue like any other.',
+      'Patients cancel themselves with their reference — the slot returns to the diary immediately and the record stays. Reports gain “Where the diary comes from”.',
+      'Settings → Clinic gains the booking link, the on/off switch, how far ahead the diary opens, and the note patients see.',
+    ],
+  },
   {
     version: '1.10.1', date: '2026-11-04', schema: 7,
     highlights: [
