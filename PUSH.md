@@ -16,7 +16,7 @@ Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.11.1.bundle` | ~48 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-update-to-v1.11.1.bundle` | ~60 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
 | `myClinic-full-v1.11.1.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
 Both carry `main` and the three tags GitHub does not have yet — `v1.10.1`, `v1.11.0`
@@ -25,8 +25,8 @@ and `v1.11.1` — plus every earlier tag.
 ## Route A · update an existing clone, then push (recommended)
 
 The update bundle declares `e4f7f5f` as its prerequisite, so it applies to your
-existing clone as-is — no re-download of ten rounds of history. It lands **two**
-commits of product (`a49747e`, `7ec613b`) plus the docs commit.
+existing clone as-is — no re-download of ten rounds of history. It lands **three**
+commits of product (`a49747e`, `7ec613b`, `755fafa`) plus a docs commit.
 
 ```bash
 git clone https://github.com/rajeshlande/myClinic.git myClinic   # skip if already cloned
@@ -53,7 +53,7 @@ Verified from this sandbox against the live repository: `git clone` of
 github.com/rajeshlande/myClinic (lands on `e4f7f5f`) → fetch the bundle →
 `git merge --ff-only` lands on the v1.11.1 commit, exit code 0, working tree
 clean, **200/200 tests** pass, `npm run build` and `npm run check:pages` clean,
-tags `v1.3.0 … v1.11.0` present and `v1.2.1` untouched.
+tags `v1.3.0 … v1.11.1` present and `v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
