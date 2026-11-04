@@ -251,3 +251,51 @@ test('a patient create still carries client_id for cross-device dedupe', async (
   assert.equal(sent.client_id, 'c-p9');
   assert.equal(db.rows.get('p9').full_name, 'Asha');
 });
+
+/* ------------------------------------------------- the account's own profile */
+
+test('a profile edit with no row in the database creates the row instead of a conflict', async () => {
+  // The live bug: an account created before the sign-up trigger had no row in
+  // `profiles`, so its own save came back as "this record was deleted at the
+  // clinic" — a deletion that never happened, on a row that is only ever its own.
+  const db = fakeDb([]);                      // the profile row is missing
+  const op = {
+    op_id: 'op-prof', type: 'update', table: 'profiles', id: 'user-1',
+    patch: { full_name: 'Dr. Rajesh Lande', theme: 'system' }, base: null, attempts: 0,
+  };
+  const { remaining, conflicts, applied } = await replayOutbox({ ops: [op], db });
+
+  assert.equal(conflicts.length, 0, 'a missing profile row is not a conflict');
+  assert.equal(remaining.length, 0, 'the queue is drained');
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].created, true, 'it was written as a new row');
+  assert.equal(db.rows.get('user-1').full_name, 'Dr. Rajesh Lande');
+  assert.equal(db.rows.get('user-1').theme, 'system');
+});
+
+test('the recreated profile row keeps the id the account is keyed by', async () => {
+  const db = fakeDb([]);
+  await replayOutbox({
+    ops: [{
+      op_id: 'op-prof2', type: 'update', table: 'profiles', id: 'user-42',
+      patch: { full_name: 'Dr Rao', phone: '' }, base: null, attempts: 0,
+    }],
+    db,
+  });
+  assert.deepEqual([...db.rows.keys()], ['user-42']);
+});
+
+test('a missing row in any other table is still a deletion that needs a human', async () => {
+  // The generous rule is for the account's own row only: a patient who was deleted
+  // at the clinic must not be quietly resurrected by an offline edit.
+  const db = fakeDb([]);
+  const { conflicts, applied } = await replayOutbox({
+    ops: [{ op_id: 'op-pat', type: 'update', table: 'patients', id: 'p-gone', patch: { notes: 'x' }, base: null, attempts: 0 }],
+    db,
+  });
+  assert.equal(applied.length, 0);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].kind, 'deleted-remotely');
+  assert.equal(conflicts[0].recordId, 'p-gone', 'the screen needs the id to offer "Recreate"');
+  assert.equal(db.rows.size, 0, 'nothing was invented');
+});

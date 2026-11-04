@@ -42,6 +42,7 @@
 --    10  role split                      v1.11.6
 --    11  WhatsApp consent + log          v1.12.0
 --    12  two sessions, days off, 3–45 d  v1.13.0
+--    13  a profile row per account     v1.13.1
 --
 -- To add a migration: append a numbered block inside its migration's guard,
 -- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
@@ -2689,6 +2690,49 @@ begin
   update public.app_meta
      set schema_version = 12, applied_at = now(), notes = 'two sessions a day, days off, follow-up 3-45 days'
    where schema_version < 12;
+end $migration$;
+
+-- =============================================================================
+-- Schema 13 · every account has a profile row
+--
+-- The account screen has been saving `{full_name, phone, designation, prefs}` to
+-- `public.profiles` since 1.10. Accounts that existed before `handle_new_user()`
+-- did had no row there, and the client's update then had nothing to attach to —
+-- which surfaced as a sync conflict reading "this record was deleted at the
+-- clinic" for a row that was never written, on the one record that is only ever
+-- the signed-in user's own.
+--
+-- Two fixes, both additive:
+--   1. this backfill writes the missing row for every existing account;
+--   2. the client writes its own row on sign-in and on save (allowed by the
+--      existing `profiles_self` policy), so the situation cannot come back.
+--
+-- No row is read, changed or deleted beyond the missing ones being created.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 13 then
+    raise notice 'schema 13 (profile backfill) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 13 (every account gets a profile row)';
+
+  execute $sql$
+  insert into public.profiles (id, full_name)
+  select u.id, left(coalesce(u.raw_user_meta_data->>'full_name', ''), 80)
+    from auth.users u
+   where not exists (select 1 from public.profiles p where p.id = u.id)
+  on conflict (id) do nothing;
+  $sql$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (13, 'profiles-backfill', '1.13.1',
+          'a profile row for every existing account — the missing row that made the account screen unsaveable')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 13, applied_at = now(), notes = 'every account has a profile row'
+   where schema_version < 13;
 end $migration$;
 
 commit;

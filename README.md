@@ -7,7 +7,7 @@
   <p>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg" alt="Deploy" /></a>
-    <img src="https://img.shields.io/badge/schema-12-blue.svg" alt="schema 12" />
+    <img src="https://img.shields.io/badge/schema-13-blue.svg" alt="schema 13" />
     <img src="https://img.shields.io/badge/node-26.13.0-brightgreen.svg" alt="node 26" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
   </p>
@@ -131,7 +131,7 @@ with the last few failures listed under Settings → About.
 ## Roles and permissions
 
 Three seats, one table — printed on the Team page, enforced by the nav, the
-routes, the screens **and** the database (schema 12).
+routes, the screens **and** the database (schema 13).
 
 | Capability | Owner | Doctor | Front desk |
 | --- | :--: | :--: | :--:|

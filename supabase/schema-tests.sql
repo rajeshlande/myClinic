@@ -1300,3 +1300,94 @@ begin
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE I · THE ACCOUNT'S OWN PROFILE ROW
+-- =============================================================================
+-- The account screen writes to `public.profiles`, keyed by the auth user's id.
+-- An account created before `handle_new_user()` existed had no row, and the app
+-- reported its own save as "this record was deleted at the clinic" — a conflict
+-- about a row nobody had ever written. Schema 13 backfills the row and the client
+-- creates it on sign-in; this suite holds both halves: a user may insert their own
+-- row (that is what the self-heal does), may not insert anybody else's, and the
+-- columns the screen sends all exist.
+begin;
+
+do $$
+declare
+  owner_i uuid := gen_random_uuid();
+  other_i uuid := gen_random_uuid();
+  n integer;
+  row_full_name text;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values
+    (owner_i, 'profile-owner@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{"full_name":"Dr Signed Up"}'::jsonb, 'authenticated', 'authenticated'),
+    (other_i, 'profile-other@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  -- ------------------------------------- 1. sign-up writes the row (trigger)
+  select full_name into row_full_name from public.profiles where id = owner_i;
+  if row_full_name is distinct from 'Dr Signed Up' then
+    raise exception 'FAIL: sign-up did not create a profile row (%)', row_full_name using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: signing up writes a profile row';
+
+  -- ------------------------- 2. the backfill shape: a missing row is created
+  -- Stand in for an account that predates the trigger: remove the row, then run
+  -- exactly what schema 13 runs.
+  delete from public.profiles where id = other_i;
+  insert into public.profiles (id, full_name)
+  select u.id, left(coalesce(u.raw_user_meta_data->>'full_name', ''), 80)
+    from auth.users u
+   where not exists (select 1 from public.profiles p where p.id = u.id)
+  on conflict (id) do nothing;
+
+  select count(*) into n from public.profiles where id = other_i;
+  if n <> 1 then
+    raise exception 'FAIL: the backfill left an account without a profile row' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the backfill gives every existing account a row';
+
+  -- ------------------- 3. the client self-heal: insert your own row, once more
+  perform set_config('request.jwt.claims', json_build_object('sub', other_i, 'role', 'authenticated', 'email', 'profile-other@test.local')::text, true);
+  set local role authenticated;
+
+  insert into public.profiles (id, full_name) values (other_i, 'Second Try')
+    on conflict (id) do nothing;
+  select count(*) into n from public.profiles where id = other_i;
+  if n <> 1 then
+    raise exception 'FAIL: the self-heal left % rows for one account', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: an account can write its own profile row, idempotently';
+
+  -- ------------------------------------------ 4. and cannot write anyone else's
+  begin
+    insert into public.profiles (id, full_name) values (owner_i, 'Not Mine');
+    raise exception 'FAIL: a user wrote another account''s profile' using errcode = 'P0002';
+  exception when insufficient_privilege or check_violation then
+    raise notice 'PASS: a user cannot write another account''s profile row';
+  end;
+
+  reset role;
+
+  -- ------------- 5. the account screen's save lands, columns and all
+  perform set_config('request.jwt.claims', json_build_object('sub', other_i, 'role', 'authenticated', 'email', 'profile-other@test.local')::text, true);
+  set local role authenticated;
+  update public.profiles
+     set full_name = 'Dr Live Save', phone = '9820000000', designation = 'MBBS',
+         theme = 'dark', density = 'compact', reminders_enabled = true,
+         reminder_lead_hours = 24, send_review_request = true, quiet_hours = '21:00-08:00'
+   where id = other_i;
+  reset role;
+
+  select full_name into row_full_name from public.profiles where id = other_i;
+  if row_full_name is distinct from 'Dr Live Save' then
+    raise exception 'FAIL: the account save did not land (%)', row_full_name using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the whole account payload saves to profiles';
+
+  raise notice 'ALL PROFILE CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run

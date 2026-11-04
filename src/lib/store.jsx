@@ -5,6 +5,7 @@ import {
   inviteDefaults, recallInviteError, recallInviteToken, rememberInviteError, rememberInviteToken,
 } from './invites.mjs';
 import { nextId } from './logic.mjs';
+import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
 import { TRIAL_DAYS } from './license.mjs';
@@ -18,6 +19,28 @@ const DEMO_KEY = 'myclinic.demo.v1';
 /** A project that has not run schema 9 yet answers with this instead of a slug. */
 const missingFunction = (error) => error?.code === 'PGRST202' || error?.code === '42883'
   || /could not find the function|function .* does not exist/i.test(error?.message ?? '');
+/**
+ * Write the signed-in user's own profile row if it is missing.
+ *
+ * `profiles.id` is the auth user id and the row is otherwise the user's own, which
+ * is exactly what the `profiles_self` policy allows them to insert. Returns null
+ * (rather than throwing) when the database refuses: the app still works without
+ * a profile row, it just cannot remember preferences.
+ */
+async function createOwnProfile(user) {
+  if (!user?.id) return null;
+  const seed = {
+    id: user.id,
+    full_name: String(user.user_metadata?.full_name ?? '').slice(0, 80),
+  };
+  const { data, error } = await supabase.from('profiles').upsert(seed, { onConflict: 'id' }).select().single();
+  if (error) {
+    rememberError(error, 'Create the account profile row');
+    return null;
+  }
+  return data ?? null;
+}
+
 const StoreContext = createContext(null);
 
 const emptyState = {
@@ -117,8 +140,13 @@ export function StoreProvider({ children, session }) {
     if (!session) return;
     if (!quiet) { setError(''); setReady(false); }
     try {
-      const { data: profile, error: pErr } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+      const { data: found, error: pErr } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
       if (pErr) throw pErr;
+      // An account created before the sign-up trigger existed has no profile row.
+      // Its own saves then arrive as "this record was deleted at the clinic" — for
+      // a row that was never written. The row is ours and its id is known, so it is
+      // created here, once per sign-in, instead of being reported as a deletion.
+      const profile = found ?? await createOwnProfile(session.user);
 
       const { data: memberships, error: mErr } = await supabase.from('staff').select('*').eq('user_id', session.user.id);
       if (mErr) throw mErr;
@@ -435,6 +463,15 @@ export function StoreProvider({ children, session }) {
 
     const { data: current, error: readError } = await supabase.from(target).select('*').eq('id', id).maybeSingle();
     if (readError) throw readError;
+
+    if (!current && table === 'profile') {
+      // First write for this account's profile: create the row with the edit in it.
+      const { data: created, error: createError } = await supabase.from('profiles')
+        .upsert({ id, ...patch }, { onConflict: 'id' }).select().single();
+      if (createError) throw createError;
+      persistLocal((prev) => ({ ...prev, profile: { ...(prev.profile ?? {}), ...created } }));
+      return { row: created, queued: false, created: true };
+    }
     if (!current) throw new Error(`That record is no longer in the database — it may have been deleted on another device.`);
 
     const merged = mergeFields({ table: target, base: baseRow ?? null, local: patch, remote: current });
@@ -608,6 +645,22 @@ export function StoreProvider({ children, session }) {
             applyRemote(conflict.table, data);
           }
         }
+      } else if (conflict.kind === 'deleted-remotely' && winner === 'recreate') {
+        // "Recreate" writes the local values back as a new row. It is only offered
+        // for rows the client owns the key of — `profiles`, whose primary key is the
+        // signed-in user's id — because for anything else there is no whole record
+        // to rebuild from an edit.
+        const row = { ...(conflict.local ?? {}), id: conflict.recordId ?? session?.user?.id };
+        if (!row.id) throw new Error('This device does not know the record’s id — discard the change instead.');
+        if (mode === 'demo') {
+          await create('profile', row);
+        } else {
+          const { data, error: e } = await supabase.from(conflict.table).upsert(row, { onConflict: 'id' }).select().single();
+          if (e) throw e;
+          persistLocal((prev) => (conflict.table === 'profiles'
+            ? { ...prev, profile: { ...(prev.profile ?? {}), ...data } }
+            : { ...prev, [conflict.table]: [data, ...(prev[conflict.table] ?? []).filter((r) => r.id !== data.id)] }));
+        }
       } else if (conflict.kind === 'rejected' && winner === 'local') {
         // Re-queue the rejected change so the operator can retry after fixing access.
         enqueue(userId, {
@@ -621,7 +674,7 @@ export function StoreProvider({ children, session }) {
     } catch (e) {
       setError(e.message ?? 'Could not apply the resolution.');
     }
-  }, [mode, update, applyRemote, userId]);
+  }, [mode, update, create, applyRemote, persistLocal, userId, session]);
 
   const dismissConflict = useCallback((id) => setConflicts((c) => c.filter((x) => x.id !== id)), []);
 

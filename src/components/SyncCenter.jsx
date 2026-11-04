@@ -142,13 +142,15 @@ export function SyncCenter({ open, onClose }) {
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div className="small strong">
                           {c.kind === 'field' ? `Both sides changed ${c.fields.map((f) => f.field.replace(/_/g, ' ')).join(', ')}`
-                            : c.kind === 'deleted-remotely' ? 'This record was deleted at the clinic'
-                              : 'The clinic database rejected this change'}
+                            : c.kind === 'deleted-remotely' && isOwnProfileRow(c) ? 'This account has no profile row in the database'
+                              : c.kind === 'deleted-remotely' ? 'This record was deleted at the clinic'
+                                : 'The clinic database rejected this change'}
                         </div>
                         <div className="tiny muted">
                           {c.kind === 'field' ? `${c.table} · choose which value to keep`
-                            : c.kind === 'deleted-remotely' ? 'Your offline edit cannot be applied. Discard it, or recreate the record.'
-                              : c.message}
+                            : c.kind === 'deleted-remotely' && isOwnProfileRow(c) ? 'Your name and preferences have nowhere to attach to yet. Recreate writes the row now.'
+                              : c.kind === 'deleted-remotely' ? 'Your offline edit cannot be applied. Discard it, or recreate the record.'
+                                : c.message}
                         </div>
                       </div>
                       <Button size="sm" variant="subtle" onClick={() => setResolving(c)}>Review</Button>
@@ -194,6 +196,11 @@ function Stat({ icon: Icon, label, value, tone }) {
   );
 }
 
+/** A conflict on the signed-in user's own profile row — the one row we can rebuild. */
+function isOwnProfileRow(conflict) {
+  return conflict?.table === 'profiles';
+}
+
 function renderValue(table, field, value) {
   if (value == null) return '—';
   if (/_paise$/.test(field) && typeof value === 'number') return formatMoney(value);
@@ -211,17 +218,23 @@ function ResolveConflict({ conflict, onClose, store, onResolved }) {
   };
 
   if (conflict.kind !== 'field') {
+    const ownProfile = isOwnProfileRow(conflict);
     return (
       <Modal open onClose={onClose} title="Review change" sub={conflict.table}
         footer={<>
           <Button variant="ghost" icon={Trash2} onClick={() => { store.dismissConflict(conflict.id); onResolved('Change discarded.'); }}>Discard my change</Button>
           {conflict.kind === 'rejected' ? <Button variant="primary" onClick={() => apply('local')}>Try again</Button> : null}
+          {conflict.kind === 'deleted-remotely' && ownProfile
+            ? <Button variant="primary" icon={Check} onClick={() => apply('recreate')}>Recreate my profile</Button>
+            : null}
         </>}>
         <div className="stack" style={{ gap: 10 }}>
           <p className="small muted">
-            {conflict.kind === 'deleted-remotely'
-              ? 'Someone at the clinic deleted this record while you were offline, so your edit has nothing to attach to. Discarding is the safe choice; if the record is still needed, re-create it.'
-              : conflict.message}
+            {conflict.kind === 'deleted-remotely' && ownProfile
+              ? 'Your account profile row is not in the database — it was never written, usually because the account was created before the database had the trigger that writes it. Nobody deleted anything: the row is yours and its id is known, so Recreate writes it now, with these values. Saving in Settings will also do this from now on.'
+              : conflict.kind === 'deleted-remotely'
+                ? 'Someone at the clinic deleted this record while you were offline, so your edit has nothing to attach to. Discarding is the safe choice; if the record is still needed, re-create it.'
+                : conflict.message}
           </p>
           <pre className="mono tiny" style={{ background: 'var(--surface-2)', padding: 10, borderRadius: 10, overflowX: 'auto', margin: 0 }}>
             {JSON.stringify(conflict.local, null, 2).slice(0, 700)}

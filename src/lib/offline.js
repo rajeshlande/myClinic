@@ -81,6 +81,19 @@ export function unknownColumn(error) {
   return m ? m[1] : null;
 }
 
+/**
+ * Tables where an update to a missing row should *create* it rather than raise a
+ * "deleted at the clinic" conflict.
+ *
+ * `profiles` is the one row this applies to: its primary key is the signed-in
+ * user's own id, so a profile row that is not there does not mean somebody
+ * deleted it — it means this account predates the trigger that writes one, or the
+ * row was never created. Telling a doctor "someone at the clinic deleted your
+ * account profile" and asking them to discard their own name is nonsense: the row
+ * is theirs, the id is known, and writing it is the whole fix.
+ */
+export const UPSERT_ON_MISSING = ['profiles'];
+
 /** Fields where an automatic merge is never acceptable. */
 export const MANUAL_FIELDS = {
   invoices: ['total_paise', 'paid_paise', 'status', 'lines', 'method'],
@@ -371,10 +384,24 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
         applied.push({ op, row: saved, deduped: false });
       } else if (op.type === 'update') {
         const current = await db.selectOne(op.table, { id: op.id });
+        if (!current && UPSERT_ON_MISSING.includes(op.table)) {
+          // First write for this row: create it with the edit already applied.
+          const row = { id: op.id, ...op.patch };
+          const saved = await writeWithColumnRepair(
+            (payload) => db.insert(op.table, payload),
+            row,
+            (column) => repaired.push({ op_id: op.op_id, table: op.table, column }),
+          );
+          drop(op);
+          applied.push({ op, row: saved, created: true });
+          continue;
+        }
         if (!current) {
           conflicts.push({
             id: op.op_id, table: op.table, kind: 'deleted-remotely',
-            local: op.patch, remote: null, opId: op.op_id, at: now(),
+            // `recordId` travels so the screen can offer "Recreate" with the right
+            // primary key — the op id is the queue's, not the row's.
+            recordId: op.id, local: op.patch, remote: null, opId: op.op_id, at: now(),
           });
           drop(op);
           continue;
@@ -386,7 +413,7 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
           conflicts.push({
             id: `${op.op_id}:${fieldConflicts.map((f) => f.field).join(',')}`,
             table: op.table, kind: 'field', fields: fieldConflicts,
-            local: op.patch, remote: current, opId: op.op_id, at: now(),
+            recordId: op.id, local: op.patch, remote: current, opId: op.op_id, at: now(),
           });
         }
         if (Object.keys(patch).length) {
@@ -410,7 +437,7 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
         conflicts.push({
           id: op.op_id, table: op.table, kind: 'rejected',
           message: e.message ?? 'The server rejected this change.',
-          local: op.patch ?? op.row, remote: null, opId: op.op_id, at: now(),
+          recordId: op.id, local: op.patch ?? op.row, remote: null, opId: op.op_id, at: now(),
         });
         drop(op);
         continue;

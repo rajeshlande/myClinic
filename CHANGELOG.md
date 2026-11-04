@@ -3,6 +3,25 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.13.1] — 2026-11-04 · schema 13
+
+**The conflict that said "this record was deleted at the clinic" was not a deletion.**
+The account screen saves to `public.profiles`; an account created before the database
+had `handle_new_user()` never got a row there, so the save had nothing to attach to and
+the sync queue reported it as a remote deletion — on the one record that is only ever
+the signed-in user's own.
+
+- **The app heals it.** On sign-in and on save, the signed-in account writes its own
+  profile row (allowed by the existing `profiles_self` policy). The queue now treats an
+  update to a missing `profiles` row as a first write (`UPSERT_ON_MISSING`) and creates
+  it with the edit applied, instead of raising a conflict.
+- **The screen tells the truth.** A conflict on your own profile reads "Your account
+  profile row is not in the database" and offers **Recreate my profile**, which writes
+  it with the values you had typed. Other records keep the old wording and still need a
+  human: a patient deleted at the clinic is not resurrected by an offline edit.
+- **Schema 13 backfills** a profile row for every existing account, named from the
+  sign-up metadata, so accounts that never open Settings are fixed too.
+
 ## [1.13.0] — 2026-11-04 · schema 12
 
 **A clinic day is two sessions, not one window.** The app modelled hours as

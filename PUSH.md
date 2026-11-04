@@ -11,9 +11,10 @@ v1.11.9 are **deployed** (Pages run #7, live bundle reports 1.11.9 / schema 10).
 during GitHub's 2026-11-04 Git Operations incident, and the remote still lists
 only `v1.11.6` and older.
 
-So this bundle carries **six commits** — v1.11.10 (the demo door), the gap-analysis
-re-audit, v1.12.0 (WhatsApp), two docs commits and **v1.13.0** (two sessions a day,
-days off, 3–45 day follow-ups, honest saves) — plus the tags `v1.11.7`…`v1.13.0`.
+So this bundle carries **eight commits** — v1.11.10 (the demo door), the gap-analysis
+re-audit, v1.12.0 (WhatsApp), docs, **v1.13.0** (two sessions a day, days off, 3–45
+day follow-ups, honest saves) and **v1.13.1** (the profile-row conflict) — plus the
+tags `v1.11.7`…`v1.13.1`.
 If you have not pushed since `e417a41` (v1.11.2), use the
 [catch-up](#catch-up-from-v1112) section below.
 
@@ -21,11 +22,11 @@ Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 | --- | --- | --- |
-| `myClinic-update-to-v1.13.0.bundle` | ~60 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
-| `myClinic-full-v1.13.0.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.13.1.bundle` | ~70 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
+| `myClinic-full-v1.13.1.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` (v1.13.0 plus this document) and the tags `v1.11.7`, `v1.11.8`,
-`v1.11.9`, `v1.11.10`, `v1.12.0` and `v1.13.0`.
+Both carry `main` (v1.13.1 plus this document) and the tags `v1.11.7`, `v1.11.8`,
+`v1.11.9`, `v1.11.10`, `v1.12.0`, `v1.13.0` and `v1.13.1`.
 
 ## Route A · update the clone you already pushed (recommended)
 
@@ -34,7 +35,7 @@ cd ~/path/to/myClinic
 git status                      # expect: clean, HEAD at be0711b
 git remote -v                   # expect: origin → github.com/rajeshlande/myClinic.git
 
-git fetch /path/to/myClinic-update-to-v1.13.0.bundle \
+git fetch /path/to/myClinic-update-to-v1.13.1.bundle \
   'refs/heads/main:refs/remotes/bundle/main' \
   'refs/tags/*:refs/tags/*'
 
@@ -44,7 +45,7 @@ git log --oneline -3            # feat(settings) 1.13.0 / docs segment fit / 1.1
 
 git push origin main
 git push --atomic origin refs/tags/v1.11.7 refs/tags/v1.11.8 \
-  refs/tags/v1.11.9 refs/tags/v1.11.10 refs/tags/v1.12.0 refs/tags/v1.13.0
+  refs/tags/v1.11.9 refs/tags/v1.11.10 refs/tags/v1.12.0 refs/tags/v1.13.0 refs/tags/v1.13.1 refs/tags/v1.13.1
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -60,12 +61,12 @@ missing.
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.13.0.bundle myClinic
+git clone -b main myClinic-full-v1.13.1.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
 git push --atomic origin refs/tags/v1.11.7 refs/tags/v1.11.8 \
-  refs/tags/v1.11.9 refs/tags/v1.11.10 refs/tags/v1.12.0 refs/tags/v1.13.0
+  refs/tags/v1.11.9 refs/tags/v1.11.10 refs/tags/v1.12.0 refs/tags/v1.13.0 refs/tags/v1.13.1 refs/tags/v1.13.1
 ```
 
 ## Catch-up from v1.11.2
@@ -74,14 +75,14 @@ If GitHub is still at `e417a41` (v1.11.2), use the same two files — they conta
 everything since — and push the four older tags by name as well:
 
 ```bash
-git fetch /path/to/myClinic-full-v1.13.0.bundle \
+git fetch /path/to/myClinic-full-v1.13.1.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
 git push --atomic origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5 \
   refs/tags/v1.11.6 refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9 \
-  refs/tags/v1.11.10 refs/tags/v1.12.0 refs/tags/v1.13.0
+  refs/tags/v1.11.10 refs/tags/v1.12.0 refs/tags/v1.13.0 refs/tags/v1.13.1 refs/tags/v1.13.1
 ```
 
 The update bundle declares `be0711b` as its base, so for a clone still sitting on
@@ -92,6 +93,7 @@ reports the missing prerequisite rather than half-applying it.
 
 | Commit | Release | Scope |
 | --- | --- | --- |
+| `v1.13.1` | **1.13.1** · schema 13 | **The "deleted at the clinic" conflict was a missing row, not a deletion.** An account created before the database had `handle_new_user()` had no row in `profiles`, so its own save had nothing to attach to. The app now writes its own profile row on sign-in and on save, the queue treats a missing `profiles` row as a first write instead of a conflict, the review screen offers **Recreate my profile**, and schema 13 backfills every existing account. Other records keep the "needs a human" behaviour. |
 | `5781155` | **1.13.0** · schema 12 | **Two sessions a day, days off, and saves that explain themselves.** `clinics.sessions` / `staff.sessions` (at most two, the break is never a slot), `closed_weekdays` + `closed_dates` on both, a doctor's hours confined to one of the clinic's sessions by `staff_hours_guard` and by `public_book` (`booking:dayoff`, `booking:leave`, `booking:slot`). Follow-up validity becomes 3–45 days, clamping existing rows first. `profiles.send_review_request` lands, which is why *My account* now saves: the screen had been sending a key the table did not have, so PostgREST refused the whole update and a name change failed because of a notification toggle. Saves on settings screens write through and show the server's own answer (`store.updateNow`), `src/lib/errors.mjs` explains every refusal, the last five failures are listed under Settings → About, and a crashed screen reports instead of going blank. **Run `supabase/schema.sql` again** — schema 12 backfills every clinic's hours. |
 | `cf58d16` | docs | Segment fit analysis: 24 challenges from the two briefs against the code, 3 built / 13 partial / 8 missing. |
 | `e2309bd` | **1.12.0** · schema 11 | **Four messages reach the patient.** Token (with how many ahead), appointment (date/time/doctor/address), bill (total, paid, balance, UPI id) and prescription (medicines and directions in the patient's language) all leave from the clinic's own WhatsApp through one composer. Consent is a column: `patients.wa_opt_in` / `wa_opt_out_at`, with the composer refusing an opted-out patient. The send log takes all five kinds. **Run `supabase/schema.sql` again** — schema 11 is additive. |
@@ -115,9 +117,9 @@ reports the missing prerequisite rather than half-applying it.
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.13.0.bundle    # refs + required base (be0711b)
-git bundle verify myClinic-full-v1.13.0.bundle         # "complete history"
-git clone -b main myClinic-full-v1.13.0.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.13.1.bundle    # refs + required base (be0711b)
+git bundle verify myClinic-full-v1.13.1.bundle         # "complete history"
+git clone -b main myClinic-full-v1.13.1.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
@@ -134,8 +136,17 @@ cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
    sample booking page: `/#/book/sunrise-opd`.
 5. **Database**: paste `supabase/schema.sql` into the Supabase SQL editor once —
    the whole file, no parts. It is idempotent and lands the project at schema
-   **12**, which this build expects. Coming from 11 it applies just the schema 12
-   block; from 10 the 11 and 12 blocks; and so on.
+   **13**, which this build expects. Coming from 12 it applies just the schema 13
+   block; from 11 the 12 and 13 blocks; and so on.
+
+### What schema 13 changes
+
+Additive; the block only runs when `app_schema_version() < 13`.
+
+- Writes a `profiles` row for every existing `auth.users` account that has none,
+  named from the sign-up metadata. No existing row is read, changed or deleted.
+- No column, table, function or policy changes: `profiles_self` already allows a
+  user to insert their own row, which is what the client does on sign-in.
 
 ### What schema 12 changes
 

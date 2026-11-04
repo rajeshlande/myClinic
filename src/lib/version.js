@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.13.0';
-export const SCHEMA_VERSION = 12;
+export const APP_VERSION = '1.13.1';
+export const SCHEMA_VERSION = 13;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.13.1', date: '2026-11-04', schema: 13,
+    highlights: [
+      'The sync conflict that said "this record was deleted at the clinic" on the account screen is fixed at its cause: an account created before the database had the sign-up trigger had no row in profiles at all, so saving your name had nothing to attach to. Nobody had deleted anything.',
+      'The app now writes the signed-in account\'s own profile row on sign-in and on save, and the queue treats a missing profile as a first write rather than a deletion — so an offline edit to your account lands as a new row instead of becoming a conflict.',
+      'A conflict on your own profile now says what actually happened ("Your account profile row is not in the database") and offers Recreate my profile, which writes it with the values you had typed. Discard still works.',
+      'Schema 13 backfills a profile row for every existing account, with the name from sign-up, so the situation cannot come back for anyone who never opens Settings.',
+      'Conflicts on other records are unchanged and still ask a human: a patient deleted at the clinic is not resurrected by an offline edit, and the review screen now shows the record id it would recreate.',
+    ],
+  },
   {
     version: '1.13.0', date: '2026-11-04', schema: 12,
     highlights: [
