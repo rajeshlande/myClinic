@@ -24,6 +24,9 @@ export default function Billing() {
   const [formOpen, setFormOpen] = useState(params.get('new') === '1');
   const [editing, setEditing] = useState(null);
   const [payFor, setPayFor] = useState(null);
+  // Long lists are paged: 80 invoice rows is a 10,000px column on a phone.
+  const pageSize = () => (typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches ? 12 : 80);
+  const [shown, setShown] = useState(pageSize);
   const presetPatient = store.patients.find((p) => p.id === params.get('patient')) ?? null;
 
   // React Router reuses the component when only the query string changes, so this
@@ -100,7 +103,7 @@ export default function Billing() {
         <Kpi label="Average ticket" value={formatMoney(monthInvoices.length ? Math.round(billed / monthInvoices.length) : 0)} icon={TrendingUp} meta="per invoice this month" />
       </div>
 
-      <div className="row wrap" style={{ gap: 10 }}>
+      <div className="row wrap page-titlebar" style={{ gap: 10 }}>
         <div style={{ flex: 1, minWidth: 220 }}><SearchInput value={query} onChange={setQuery} placeholder="Search invoice number or patient" /></div>
         <Select value={method} onChange={(e) => setMethod(e.target.value)} style={{ maxWidth: 170 }} aria-label="Payment method">
           <option value="all">All methods</option>
@@ -123,7 +126,7 @@ export default function Billing() {
         <CardHead title={`${rows.length} invoice${rows.length === 1 ? '' : 's'}`} sub={`${formatMoney(sumBy(rows, (i) => i.total_paise))} billed · ${formatMoney(sumBy(rows, (i) => i.paid_paise))} received`} icon={CreditCard}
           action={<Badge tone="brand">{formatMoney(rows.reduce((s, i) => s + invoiceBalance(i), 0), { compact: true })} due</Badge>} />
         <div className="card-body" style={{ paddingTop: 8 }}>
-          {rows.length ? rows.slice(0, 80).map((inv) => {
+          {rows.length ? rows.slice(0, shown).map((inv) => {
             const patient = patientOf(inv.patient_id);
             const meta = invoiceStatus(inv);
             return (
@@ -149,6 +152,12 @@ export default function Billing() {
             <EmptyState icon={FileText} title="No invoices here" description="Raise an invoice from a consultation or directly from this screen."
               action={<Button size="sm" variant="primary" icon={Plus} onClick={() => setFormOpen(true)}>New invoice</Button>} />
           )}
+          {rows.length > shown ? (
+            <div className="list-more">
+              <Button variant="subtle" onClick={() => setShown((n) => n + pageSize())}>Show {Math.min(pageSize(), rows.length - shown)} more</Button>
+              <span className="tiny faint">{rows.length - shown} left of {rows.length}</span>
+            </div>
+          ) : null}
         </div>
       </Card>
 

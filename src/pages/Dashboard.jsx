@@ -111,7 +111,7 @@ export default function Dashboard() {
       </div>
 
       {/* live token strip */}
-      <Card className="pad" style={{ background: 'linear-gradient(120deg, var(--brand-50), var(--surface) 62%)', borderColor: 'var(--brand-100)' }}>
+      <Card className="pad token-strip" style={{ background: 'linear-gradient(120deg, var(--brand-50), var(--surface) 62%)', borderColor: 'var(--brand-100)' }}>
         <div className="row wrap" style={{ gap: 14 }}>
           <div className="row" style={{ gap: 9 }}>
             <span className="kpi-icon" style={{ background: 'var(--brand-500)', color: '#fff' }}><Ticket size={16} /></span>

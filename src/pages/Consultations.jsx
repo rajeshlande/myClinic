@@ -94,7 +94,7 @@ export default function Consultations() {
 
   return (
     <div className="page stack" style={{ gap: 16 }}>
-      <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
+      <div className="row wrap page-titlebar" style={{ gap: 10, alignItems: 'center' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <CardHead title="Consultations" sub="Notes, vitals and prescriptions" icon={Stethoscope}
             action={<Badge tone="brand">{total}</Badge>} />

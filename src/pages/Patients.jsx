@@ -18,6 +18,9 @@ export default function Patients() {
   const toast = useToast();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  // The register grows; a phone should not have to render all of it.
+  const pageSize = () => (typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches ? 12 : 200);
+  const [shown, setShown] = useState(pageSize);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('recent');
   const [filter, setFilter] = useState('all');
@@ -83,7 +86,7 @@ export default function Patients() {
         <Button variant="subtle" icon={Download} onClick={exportCsv}>Export</Button>
         <Button variant="primary" icon={Plus} onClick={() => { setEditing(null); setFormOpen(true); }}>Register patient</Button>
       </div>
-      <div className="row wrap" style={{ gap: 10 }}>
+      <div className="row wrap page-titlebar" style={{ gap: 10 }}>
         <div style={{ flex: 1, minWidth: 220 }}><SearchInput value={query} onChange={setQuery} placeholder="Search name, phone, patient ID or condition" /></div>
         <Select value={sort} onChange={(e) => setSort(e.target.value)} style={{ maxWidth: 190 }} aria-label="Sort">
           <option value="recent">Recent visit first</option>
@@ -109,7 +112,7 @@ export default function Patients() {
           <CardHead title={`${rows.length} patient${rows.length === 1 ? '' : 's'}`} sub={`${store.patients.length} registered in this clinic`} icon={Users}
             action={<Badge tone="neutral">{store.patients.filter((p) => (dues.get(p.id) ?? 0) > 0).length} with dues</Badge>} />
           <div className="card-body" style={{ paddingTop: 6 }}>
-            {rows.length ? rows.map((patient) => {
+            {rows.length ? rows.slice(0, shown).map((patient) => {
               const due = dues.get(patient.id) ?? 0;
               return (
                 <div key={patient.id} className="list-item patient-row" style={{ cursor: 'default' }}>
@@ -134,7 +137,7 @@ export default function Patients() {
                       {due ? <Badge tone="danger"><Wallet size={10} /> {formatMoney(due)}</Badge> : <span className="tiny faint">{patient._visits} visits</span>}
                     </span>
                   </button>
-                  <div className="patient-actions row no-print" style={{ gap: 4, flex: 'none' }}>
+                  <div className="patient-actions no-print">
                     <Button size="sm" variant="ghost" icon={CalendarPlus} onClick={() => setApptFor({ patient_id: patient.id })}>Book</Button>
                     <button className="icon-btn plain sm" aria-label="Open chart" onClick={() => navigate(`/app/patients/${patient.id}`)}><ChevronRight size={15} /></button>
                     <IconButton icon={MoreHorizontal} label="More actions" size={16} className="plain sm" style={{ color: 'var(--muted)' }} />
@@ -145,6 +148,12 @@ export default function Patients() {
               <EmptyState icon={UserRound} title="No patients match" description="Try a different search or filter — or register the patient now."
                 action={<Button size="sm" variant="primary" icon={Plus} onClick={() => setFormOpen(true)}>Register patient</Button>} />
             )}
+            {rows.length > shown ? (
+              <div className="list-more">
+                <Button variant="subtle" onClick={() => setShown((n) => n + pageSize())}>Show {Math.min(pageSize(), rows.length - shown)} more</Button>
+                <span className="tiny faint">{rows.length - shown} left of {rows.length}</span>
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>

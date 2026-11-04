@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '1.9.0';
 export const SCHEMA_VERSION = 6;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.9.0', date: '2026-11-04', schema: 6,
+    highlights: [
+      'Phones get their own layout: the appointment day board becomes an agenda, lists read down instead of across, and the consultation sheet fills the screen with its actions pinned at the bottom.',
+      'KPI tiles sit two to a row, so the dashboard is a screen and a half instead of four screens.',
+      'Long registers page themselves — 12 rows at a time on a phone — instead of scrolling through 200 invoices.',
+      'Nothing tappable is smaller than a thumb, and text fields use a 16px font so iOS stops zooming the page on focus.',
+      'Wide report tables scroll inside their card instead of crushing every column.',
+    ],
+  },
   {
     version: '1.8.0', date: '2026-11-03', schema: 6,
     highlights: [

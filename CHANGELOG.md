@@ -3,6 +3,37 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.9.0] — 2026-11-04 · schema 6
+
+A phone pass over the whole app. Desktop is untouched — every rule lives inside a
+`max-width` query — but a doctor between rooms, or a front desk on a tablet, now gets
+a layout built for a thumb instead of a squeezed desktop.
+
+### Changed
+- **Appointments day board → agenda.** On a phone each slot is a row: time and status
+  in a left rail, the patient's full name across the width, the actions underneath
+  where a thumb reaches them. Free and past slots collapse to a single quiet line.
+- **Lists read down, not across.** Consultations, patients, invoices and the "waiting
+  for notes" queue each became a two-line card with a full-width action row. The
+  waiting queue in particular was unusable: its rows were a broken column of time,
+  avatar, badge and button with the name spilling outside the card.
+- **KPI tiles two per row** and stacked internally (icon + label, value, meta), so a
+  long label can no longer collide with the number inside the accent tile.
+- **The consultation sheet fills the screen.** Header and footer are sticky, the
+  footer's committing action ("Save & bill") gets its own full-width row, and the
+  prescription grid puts the drug name full width with dose / how often / for / food
+  relation in two columns. "Recently prescribed here" is one swipeable row.
+- **Long registers page themselves** — 12 rows on a phone, 80 on a desktop, with a
+  "Show 12 more" row that says how many are left.
+- **Wide report tables scroll inside their card** rather than wrapping every heading
+  and hiding columns.
+- Every interactive element is at least 38–44px, and form fields use a 16px font so
+  iOS no longer zooms the page when a field is focused.
+
+### Fixed
+- The patient row's "Book" action was a borderless ghost button stretched across the
+  row, so it read as empty space between the name and the icons.
+
 ## [1.8.0] — 2026-11-03 · schema 6
 
 ### Added

@@ -73,7 +73,7 @@ export default function FollowUps() {
         <Kpi label="Gone quiet" value={lapsed.length} icon={Repeat} meta="no visit in 60 days" />
       </div>
 
-      <div className="row wrap" style={{ gap: 10 }}>
+      <div className="row wrap page-titlebar" style={{ gap: 10 }}>
         <div className="stack" style={{ gap: 1, flex: 1, minWidth: 220 }}>
           <h2 style={{ fontSize: '1.05rem' }}>Recall list</h2>
           <span className="tiny muted">Follow-up dates set inside consultations. Closing one keeps the clinical record.</span>

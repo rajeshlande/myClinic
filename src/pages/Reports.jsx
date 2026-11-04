@@ -69,7 +69,7 @@ export default function Reports() {
 
   return (
     <div className="page stack" style={{ gap: 16 }}>
-      <div className="row wrap" style={{ gap: 10 }}>
+      <div className="row wrap page-titlebar" style={{ gap: 10 }}>
         <div className="stack" style={{ gap: 1, flex: 1, minWidth: 180 }}>
           <span className="eyebrow">Reporting period</span>
           <strong style={{ fontSize: '0.95rem' }}>{monthLabel(month)}</strong>

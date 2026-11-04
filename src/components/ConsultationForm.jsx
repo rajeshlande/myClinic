@@ -332,7 +332,7 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
 
         <div>
           <span className="label" style={{ marginBottom: 6, display: 'block' }}><HeartPulse size={13} /> Vitals</span>
-          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+          <div className="form-grid vitals-grid">
             <Field label="Temp °F" error={errors.temperature_c}>
               <div className="row wrap" style={{ gap: 6, alignItems: 'center' }}>
                 <Input value={draft.vitals.temperature_c} onChange={setVital('temperature_c')} inputMode="decimal" placeholder="e.g. 98.6" />
@@ -408,7 +408,7 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
               <span className="tiny eyebrow" style={{ marginBottom: 4, display: 'block' }}>
                 <Sparkles size={10} /> Recently prescribed here
               </span>
-              <div className="row wrap" style={{ gap: 6 }}>
+              <div className="row wrap recent-chips" style={{ gap: 6 }}>
                 {recent.slice(0, 6).map((line, i) => (
                   <Button
                     key={`${line.drug}-${i}`} size="sm" variant="subtle" type="button"
@@ -465,7 +465,7 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
                     <IconButton icon={Trash2} label="Remove drug" size={14} className="plain sm" onClick={() => setDraft((d) => ({ ...d, prescription: d.prescription.filter((_, j) => j !== i) }))} />
                   ) : null}
                 </div>
-                <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+                <div className="form-grid rx-drug-grid">
                   <Field label="Drug" className="span-2">
                     <MedicinePicker
                       value={rx.drug}

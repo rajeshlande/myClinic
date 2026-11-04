@@ -108,9 +108,23 @@ export function suggestNext({ doctors = [], appointments = [], iso = today(), du
 }
 
 /** Minutes of the day for "now", or 0 when the date is not today. */
+/** The local calendar date of a Date, as yyyy-mm-dd (no UTC drift). */
+export function isoDate(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Minutes into `iso` at `now`, or 0 when `iso` is not `now`'s day.
+ *
+ * The clock is always the one passed in: a board built for a given `now` must not
+ * consult the wall clock, or the same input produces different output tomorrow
+ * (and a test pinned to a date silently flips when that date arrives).
+ */
 export function nowMinutes(iso, now = new Date()) {
-  if (iso !== today()) return 0;
-  return now.getHours() * 60 + now.getMinutes();
+  if (iso !== isoDate(now)) return 0;
+  const d = now instanceof Date ? now : new Date(now);
+  return d.getHours() * 60 + d.getMinutes();
 }
 
 /**
@@ -129,7 +143,8 @@ export function buildDayBoard({ doctors = [], appointments = [], iso, now = new 
     const close = mins(doctor.day_end || '13:00');
     const slots = availableSlots({ appointments, doctor, iso, duration }).map((slot) => {
       const booked = dayAppts.find((a) => intervalOf(a).start === slot.start);
-      const passed = iso < today() || (iso === today() && slot.end <= nowM);
+      const nowIso = isoDate(now);
+      const passed = iso < nowIso || (iso === nowIso && slot.end <= nowM);
       const state = booked
         ? LIVE_STATUSES.includes(booked.status) ? 'live' : booked.status === 'completed' ? 'done' : 'booked'
         : passed ? 'past' : 'free';
@@ -182,8 +197,7 @@ export function weekLoad({ doctors = [], appointments = [], startIso, days = 7, 
   const base = new Date(`${startIso}T12:00:00`);
   // "today" must follow the injected clock, otherwise a caller passing `now`
   // (tests, or a tablet that woke up past midnight) gets the wrong highlight.
-  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const todayIso = isoOf(now);
+  const todayIso = isoDate(now);
   return Array.from({ length: days }, (_, i) => {
     const d = new Date(base);
     d.setDate(base.getDate() + i);

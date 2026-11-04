@@ -1,7 +1,7 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.9.0",
   "type": "module",
   "description": "myClinic — OPD clinic management SaaS: appointments, token queue, patient records, consultations, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {

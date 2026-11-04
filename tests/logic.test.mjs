@@ -770,13 +770,32 @@ test('schedule: the day board labels every slot and computes utilisation', () =>
   const col = board.columns[0];
   const state = Object.fromEntries(col.slots.map((s) => [s.time, s.state]));
   assert.equal(state['09:00'], 'done');
-  assert.equal(state['09:15'], 'free', 'half of the completed 30-min block is bookable again');
+  // The board's clock is the one injected here (10:10), so the other half of the
+  // 09:00–09:30 block has already gone by: it is history, not a bookable slot.
+  assert.equal(state['09:15'], 'past', 'a slot behind the injected clock is past, never free');
   assert.equal(state['10:00'], 'live');
   assert.equal(state['10:30'], 'booked');
   assert.equal(col.stats.total, 3);
   assert.equal(col.stats.live, 1);
   assert.equal(col.stats.utilisation, Math.min(100, Math.round((60 / 180) * 100)), '60 booked minutes of a 180-minute session');
   assert.equal(board.summary.total, 3);
+});
+
+
+test('schedule: the board believes the injected clock, not the wall clock', () => {
+  // Guards a real bug: "past" used to be decided from today(), so the same input
+  // produced different boards on different days and a date-pinned test flipped
+  // the moment its date arrived.
+  const list = [appt('a1', '10:00', 15, 'booked')];
+  const morning = buildDayBoard({ doctors: [DOC], appointments: list, iso: on, now: new Date(`${on}T08:00:00`) });
+  const evening = buildDayBoard({ doctors: [DOC], appointments: list, iso: on, now: new Date(`${on}T20:00:00`) });
+  const dayBefore = buildDayBoard({ doctors: [DOC], appointments: list, iso: on, now: new Date(`${on}T08:00:00`) });
+
+  const stateOf = (board) => Object.fromEntries(board.columns[0].slots.map((s) => [s.time, s.state]));
+  assert.equal(stateOf(morning)['09:15'], 'free', 'before the session starts every empty slot is bookable');
+  assert.equal(stateOf(evening)['09:15'], 'past', 'after the session the same slot is history');
+  assert.equal(stateOf(dayBefore)['10:00'], 'booked', 'a booking stays booked regardless of the clock');
+  assert.equal(stateOf(evening)['10:00'], 'booked');
 });
 
 test('schedule: appointments off the slot grid are still surfaced', () => {
