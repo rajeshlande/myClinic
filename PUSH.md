@@ -16,7 +16,7 @@ Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.11.2.bundle` | ~60 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-update-to-v1.11.2.bundle` | ~72 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
 | `myClinic-full-v1.11.2.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
 Both carry `main` and the four tags GitHub does not have yet — `v1.10.1`, `v1.11.0`,
@@ -73,7 +73,7 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 
 | Commit | Release | Scope |
 |---|---|---|
-| *(release commit)* | **1.11.2** · schema 8 | Responsive pass. One set of breakpoints (`src/lib/responsive.mjs`); the marketing footer rebuilt as a real footer that stacks 3 → 2 → 1 columns; the closing CTA stacks instead of squeezing its heading to one word a line; the nav folds into a menu below 900px, the twelve feature cards into tap-to-read rows and the three plans behind a tab switch on a phone — 2200px less scrolling at 390px with nothing removed. No schema change. |
+| `5ffade1` | **1.11.2** · schema 8 | Responsive pass. One set of breakpoints (`src/lib/responsive.mjs`); the marketing footer rebuilt as a real footer that stacks 3 → 2 → 1 columns; the closing CTA stacks instead of squeezing its heading to one word a line; the nav folds into a menu below 900px, the twelve feature cards into tap-to-read rows and the three plans behind a tab switch on a phone — 2200px less scrolling at 390px with nothing removed. No schema change. |
 | `31f0e4a` | **1.11.1** · schema 8 | Staff invitations actually work: the invite row carries name/role/specialty, `accept_invite()` is claimed on first sign-in instead of leaving the invitee to create their own clinic, Pending invitations lists and can withdraw an offer, and the demo invite no longer creates a half-built doctor or demote the owner. No schema change. |
 | `7ec613b` | **1.11.0** · schema 8 | Public booking. `/#/book/<slug>` books a real slot with no account; `/#/booking/<ref>` looks it up and cancels it. Five `anon`-granted RPCs, booking references, a partial unique index so a cancelled slot can be re-sold, `source='online'` carried to Reports, and the booking settings in Settings → Clinic. Plus a landing-page CTA and 36 new tests. |
 | `a49747e` | **1.10.1** · schema 7 | Marketing only: two landing-page feature cards (day close, reminders with a paper trail), a Day close strip chip, and a headline that runs to the closed day. No app behaviour changed. |
