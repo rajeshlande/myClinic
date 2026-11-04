@@ -83,9 +83,13 @@ export function formatMoney(paise = 0, { compact = false, currency = 'INR' } = {
     if (Math.abs(amount) >= 100000) return `₹${trim(amount / 100000)}L`;
     if (Math.abs(amount) >= 1000) return `₹${trim(amount / 1000)}k`;
   }
+  // A rupee amount is either whole or carries both paise digits: "₹23,990.40",
+  // never "₹23,990.4" — the second one reads like a typo on a bill.
+  const whole = Number.isInteger(amount);
   return new Intl.NumberFormat('en-IN', {
-    style: 'currency', currency, minimumFractionDigits: 0,
-    maximumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    style: 'currency', currency,
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
   }).format(amount);
 }
 const trim = (n) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 }).format(n);

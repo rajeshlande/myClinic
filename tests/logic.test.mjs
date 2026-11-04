@@ -26,7 +26,9 @@ test('money parses rupees into integer paise without float drift', () => {
 });
 
 test('formatMoney uses Indian grouping and compact suffixes', () => {
-  assert.match(formatMoney(123450), /1,234\.5/);
+  assert.match(formatMoney(123450), /1,234\.50/);      // paise always print in pairs
+  assert.equal(formatMoney(2399040), '₹23,990.40');     // a yearly plan price
+  assert.equal(formatMoney(249900), '₹2,499');          // whole rupees stay whole
   assert.equal(formatMoney(10000000, { compact: true }), '₹1L');
   assert.equal(formatMoney(1000000000, { compact: true }), '₹1Cr');
   assert.equal(formatMoney(5000000, { compact: true }), '₹50k');

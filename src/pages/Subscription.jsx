@@ -8,9 +8,10 @@ import { useAuth } from '../lib/auth-context.jsx';
 import { Badge, Button, Card, CardHead, Modal, useToast } from '../components/ui.jsx';
 import { PLANS, downloadFile, formatMoney, toCSV, today } from '../lib/logic.mjs';
 import {
-  GRACE_DAYS, TRIAL_DAYS, canWrite, formatExpiry, licenseHeadline, licenseTone,
+  GRACE_DAYS, TRIAL_DAYS, billingPeriod, canWrite, formatExpiry, licenseHeadline, licenseTone,
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
+import { SCHEMA_VERSION } from '../lib/version.js';
 
 const PLAN_BLURB = {
   solo: 'One doctor, one front desk. The whole clinic on a single screen.',
@@ -26,7 +27,12 @@ export default function Subscription() {
   const toast = useToast();
   const license = store.license;
   const [open, setOpen] = useState(null);          // plan id being purchased
-  const [interval, setInterval] = useState(license?.interval === 'yearly' ? 'yearly' : 'monthly');
+  // Two different questions, kept apart: `period` is what the clinic actually
+  // bought (it decides the renewal term and the price on the status card), while
+  // `shopPeriod` is the toggle inside the plan dialog (it only previews prices).
+  const period = license?.interval === 'yearly' ? 'yearly' : 'monthly';
+  const term = billingPeriod({ interval: period });
+  const [shopPeriod, setShopPeriod] = useState(period);
   const [billing, setBilling] = useState({ name: store.clinic?.name ?? '', email: store.clinic?.email ?? user?.email ?? '', phone: store.clinic?.phone ?? '', gstin: store.clinic?.gstin ?? '', collection_ref: '' });
   const [busy, setBusy] = useState(false);
   const [renewOpen, setRenewOpen] = useState(false);
@@ -41,7 +47,7 @@ export default function Subscription() {
     if (!isOwner) { toast.error('Only the clinic owner can change the subscription.'); return; }
     setBusy(true);
     try {
-      await store.changePlan({ plan: open, interval, billing });
+      await store.changePlan({ plan: open, interval: shopPeriod, billing });
       toast.success(`${PLANS.find((p) => p.id === open)?.name} plan activated.`);
       setOpen(null);
     } catch (e) {
@@ -53,7 +59,9 @@ export default function Subscription() {
     if (!isOwner) { toast.error('Only the clinic owner can renew the subscription.'); return; }
     setBusy(true);
     try {
-      await store.renewSubscription({ reference: reference.trim(), months: interval === 'yearly' ? 12 : 1 });
+      // The term comes from the subscription, not from the dialog's price toggle:
+      // a yearly clinic that had been browsing monthly prices still buys a year.
+      await store.renewSubscription({ reference: reference.trim(), months: term.months });
       toast.success('Subscription renewed. The clinic is writable again.');
       setRenewOpen(false); setReference('');
     } catch (e) {
@@ -66,10 +74,10 @@ export default function Subscription() {
       clinic: store.clinic?.name ?? '',
       plan,
       status: license?.status ?? '',
-      interval: license?.interval ?? 'monthly',
+      interval: period,
       ends: license?.endsAt ? formatExpiry(license.endsAt) : '',
-      price_paise: (planPrice(plan, { interval: license?.interval ?? 'monthly' }) ?? 0) / 100,
-      reference: license?.collection_ref ?? '',
+      price_paise: (planPrice(plan, { interval: period }) ?? 0) / 100,
+      reference: license?.collectionRef ?? '',
       generated_on: today(),
     }];
     downloadFile(`myclinic-subscription-${today()}.csv`, toCSV(row, [
@@ -87,7 +95,7 @@ export default function Subscription() {
       <Card style={{ marginBottom: 16 }}>
         <CardHead
           title="Your subscription"
-          sub={`${store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'} · schema v3 licensing`}
+          sub={`${store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'} · licensing, schema ${SCHEMA_VERSION}`}
           icon={BadgeCheck}
           action={<Badge tone={licenseTone(license)} dot>{licenseHeadline(license)}</Badge>}
         />
@@ -97,11 +105,11 @@ export default function Subscription() {
               <span className="eyebrow">Plan</span>
               <div className="row" style={{ gap: 8 }}>
                 <strong style={{ fontSize: '1.35rem' }}>{PLANS.find((p) => p.id === plan)?.name ?? plan}</strong>
-                <Badge tone="neutral">{license?.interval === 'yearly' ? 'Yearly' : 'Monthly'}</Badge>
+                <Badge tone="neutral">{period === 'yearly' ? 'Yearly' : 'Monthly'}</Badge>
               </div>
               <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>
-                {money(planPrice(plan, { interval: license?.interval ?? 'monthly' }))}
-                <span className="tiny faint"> /{license?.interval === 'yearly' ? 'yr' : 'mo'}</span>
+                {money(planPrice(plan, { interval: period }))}
+                <span className="tiny faint"> /{term.short}</span>
               </div>
               <span className="tiny muted">
                 {license?.status === 'trial'
@@ -110,7 +118,7 @@ export default function Subscription() {
                     ? `${license?.status === 'active' ? 'Renews' : 'Valid until'} ${formatExpiry(license?.endsAt)}`
                     : 'No period end set'}
               </span>
-              {license?.collection_ref ? <span className="tiny faint">Collection ref: {license.collection_ref}</span> : null}
+              {license?.collectionRef ? <span className="tiny faint">Collection ref: {license.collectionRef}</span> : null}
             </div>
 
             <div className="stack" style={{ gap: 8 }}>
@@ -137,14 +145,13 @@ export default function Subscription() {
           <div className="row wrap" style={{ gap: 8, marginTop: 16 }}>
             {isOwner ? (
               <>
-                <Button variant="primary" icon={Sparkles} onClick={() => setOpen(plan === 'chain' ? 'chain' : plan)}>Change plan</Button>
+                <Button variant="primary" icon={Sparkles} onClick={() => setOpen(plan)}>Change plan</Button>
                 <Button variant="subtle" icon={CalendarClock} onClick={() => setRenewOpen(true)}>Record a payment</Button>
               </>
             ) : (
               <span className="tiny muted">Only the clinic owner can change the subscription.</span>
             )}
             <Button variant="ghost" icon={Download} onClick={exportBilling}>Export summary</Button>
-            {store.mode === 'demo' && license?.status !== 'trial' ? null : null}
             {isOwner && !writable ? (
               <Button variant="subtle" icon={BadgeCheck} onClick={() => store.startTrial().then(() => toast.success('Trial restarted.')).catch((e) => toast.error(e.message))}>
                 Restart 14-day trial
@@ -158,7 +165,7 @@ export default function Subscription() {
       <div className="grid three" style={{ gap: 14 }}>
         {PLANS.map((p) => {
           const current = p.id === plan;
-          const cost = upgradeCost(plan, p.id, { interval });
+          const cost = upgradeCost(plan, p.id, { interval: shopPeriod });
           return (
             <Card key={p.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
               {p.popular && !current ? (
@@ -173,10 +180,10 @@ export default function Subscription() {
                   <p className="tiny muted" style={{ margin: '3px 0 0' }}>{PLAN_BLURB[p.id]}</p>
                 </div>
                 <div className="row" style={{ gap: 6, alignItems: 'baseline' }}>
-                  <span className="kpi-value mono" style={{ fontSize: '1.4rem' }}>{money(planPrice(p.id, { interval }))}</span>
-                  <span className="tiny faint">/{interval === 'yearly' ? 'yr' : 'mo'}</span>
+                  <span className="kpi-value mono" style={{ fontSize: '1.4rem' }}>{money(planPrice(p.id, { interval: shopPeriod }))}</span>
+                  <span className="tiny faint">/{shopPeriod === 'yearly' ? 'yr' : 'mo'}</span>
                 </div>
-                {interval === 'yearly' ? (
+                {shopPeriod === 'yearly' ? (
                   <span className="tiny" style={{ color: 'var(--success)' }}>Two months free versus monthly</span>
                 ) : null}
                 <Badge tone="neutral">{p.limits}</Badge>
@@ -195,14 +202,14 @@ export default function Subscription() {
                     variant={p.popular ? 'primary' : 'subtle'}
                     className="block"
                     disabled={!isOwner}
-                    onClick={() => { setOpen(p.id); setInterval(prev => prev); }}
+                    onClick={() => setOpen(p.id)}
                   >
                     {cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
                   </Button>
                 )}
                 {cost && !current ? (
                   <span className="tiny faint" style={{ textAlign: 'center' }}>
-                    {cost.direction === 'downgrade' ? `Save ${money(-cost.delta)} / ${interval === 'yearly' ? 'yr' : 'mo'}` : `${money(cost.to)} billed ${interval}`}
+                    {cost.direction === 'downgrade' ? `Save ${money(-cost.delta)} / ${shopPeriod === 'yearly' ? 'yr' : 'mo'}` : `${money(cost.to)} billed ${shopPeriod}`}
                   </span>
                 ) : null}
               </div>
@@ -236,19 +243,25 @@ export default function Subscription() {
       <button id="license-export" onClick={exportBilling} style={{ display: 'none' }} aria-hidden="true" />
 
       {/* ---------------------------------------------------------- change-plan modal */}
-      <Modal open={Boolean(open)} onClose={() => setOpen(null)} title={`Switch to ${PLANS.find((p) => p.id === open)?.name ?? ''}`}>
+      <Modal
+        open={Boolean(open)}
+        onClose={() => setOpen(null)}
+        title={open && open === plan
+          ? `Billing for the ${PLANS.find((p) => p.id === open)?.name ?? ''} plan`
+          : `Switch to ${PLANS.find((p) => p.id === open)?.name ?? ''}`}
+      >
         <div className="stack" style={{ gap: 12 }}>
           <div className="segmented">
             {['monthly', 'yearly'].map((i) => (
-              <button key={i} className={interval === i ? 'active' : ''} onClick={() => setInterval(i)}>
+              <button key={i} className={shopPeriod === i ? 'active' : ''} onClick={() => setShopPeriod(i)}>
                 {i === 'yearly' ? 'Yearly · save 20%' : 'Monthly'}
               </button>
             ))}
           </div>
           <div className="card pad" style={{ background: 'var(--surface-2)', boxShadow: 'none' }}>
             <div className="row small" style={{ justifyContent: 'space-between' }}>
-              <span className="muted">{PLANS.find((p) => p.id === open)?.name} · {interval}</span>
-              <strong className="mono">{money(planPrice(open, { interval }))}</strong>
+              <span className="muted">{PLANS.find((p) => p.id === open)?.name} · {shopPeriod}</span>
+              <strong className="mono">{money(planPrice(open, { interval: shopPeriod }))}</strong>
             </div>
             <span className="tiny faint">Inclusive of the 18% GST shown on your invoice. Cancel any time — the plan stays active until the period ends.</span>
           </div>
@@ -269,7 +282,9 @@ export default function Subscription() {
 
           <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
             <Button variant="ghost" onClick={() => setOpen(null)}>Cancel</Button>
-            <Button variant="primary" loading={busy} onClick={buy} icon={CreditCard}>Activate {PLANS.find((p) => p.id === open)?.name}</Button>
+            <Button variant="primary" loading={busy} onClick={buy} icon={CreditCard}>
+              {open && open === plan ? 'Update plan' : `Activate ${PLANS.find((p) => p.id === open)?.name ?? ''}`}
+            </Button>
           </div>
         </div>
       </Modal>
@@ -279,8 +294,9 @@ export default function Subscription() {
         <div className="stack" style={{ gap: 12 }}>
           <p className="small muted" style={{ margin: 0 }}>
             Renews from {license?.endsAt && new Date(license.endsAt) > new Date() ? formatExpiry(license.endsAt) : 'today'} for{' '}
-            <strong>{interval === 'yearly' ? '12 months' : '1 month'}</strong> at{' '}
-            <strong className="mono">{money(planPrice(plan, { interval }))}</strong>.
+            <strong>{term.label}</strong> at{' '}
+            <strong className="mono">{money(planPrice(plan, { interval: period }))}</strong> — the clinic is on{' '}
+            <strong>{period}</strong> billing.
           </p>
           <label className="field" style={{ margin: 0 }}>
             <span className="tiny muted">Collection reference (UPI / bank / reseller)</span>

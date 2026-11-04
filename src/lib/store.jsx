@@ -6,7 +6,7 @@ import {
 } from './invites.mjs';
 import { nextId } from './logic.mjs';
 import { clinicSlug } from './public-booking.mjs';
-import { licenseState, canWrite, seatUsage } from './license.mjs';
+import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
 import { TRIAL_DAYS } from './license.mjs';
 import {
   TABLES, readCache, writeCache, clearAllCache, readOutbox, writeOutbox, enqueue,
@@ -625,11 +625,12 @@ export function StoreProvider({ children, session }) {
 
   const changePlan = useCallback(async ({ plan, interval = 'monthly', billing = {} }) => {
     if (mode === 'demo') {
-      const days = interval === 'yearly' ? 365 : 30;
+      const period = billingPeriod({ interval });
       return applyLicense({
         ...(stateRef.current.subscription ?? {}),
-        plan, status: 'active', interval,
-        current_period_end: new Date(Date.now() + days * 86400000).toISOString(),
+        plan, status: 'active', interval: period.interval,
+        current_period_start: new Date().toISOString(),
+        current_period_end: extendPeriod(new Date(), period.months),
         ...billing,
       });
     }
@@ -640,12 +641,17 @@ export function StoreProvider({ children, session }) {
 
   const renewSubscription = useCallback(async ({ reference = '', months = null } = {}) => {
     if (mode === 'demo') {
-      const from = new Date(stateRef.current.subscription?.current_period_end ?? Date.now()).getTime();
+      // A payment buys the subscription's own period (12 months on a yearly plan)
+      // unless the caller states a term — the demo used to hard-code 30 days, so a
+      // yearly clinic renewed for a month and looked broken.
+      const sub = stateRef.current.subscription ?? {};
+      const wanted = Number.isFinite(Number(months)) && Number(months) > 0 ? Number(months) : billingPeriod(sub).months;
       return applyLicense({
-        ...(stateRef.current.subscription ?? {}),
+        ...sub,
         status: 'active',
-        current_period_end: new Date(Math.max(from, Date.now()) + 30 * 86400000).toISOString(),
-        collection_ref: reference,
+        current_period_start: sub.current_period_start ?? new Date().toISOString(),
+        current_period_end: extendPeriod(sub.current_period_end, wanted),
+        collection_ref: reference || sub.collection_ref || '',
       });
     }
     return licenceRpc('renew_subscription', {

@@ -134,7 +134,14 @@ export default function AppLayout() {
           <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {(store.license?.plan ?? 'growth') === 'chain' ? 'Multi-clinic' : (store.license?.plan ?? 'growth') === 'solo' ? 'Solo plan' : 'Growth plan'}</div>
           <p className="tiny muted" style={{ margin: '4px 0 6px' }}>{store.mode === 'demo' ? 'Demo workspace · sample data' : 'Live workspace · Supabase synced'}</p>
           <span className={`badge ${licenseTone(store.license) === 'success' ? 'success' : licenseTone(store.license) === 'danger' ? 'danger' : 'warn'} tiny`} style={{ marginBottom: 8, display: 'inline-flex' }}>{licenseHeadline(store.license)}</span>
-          <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/subscription')}>Manage subscription</Button>
+          {/* Only the owner can open the subscription (clinic:settings), so only the
+              owner is offered the button — everyone else reads the status and knows
+              who to ask. */}
+          {can(role, 'clinic:settings') ? (
+            <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/subscription')}>Manage subscription</Button>
+          ) : (
+            <p className="tiny faint" style={{ margin: 0 }}>The clinic owner manages the plan.</p>
+          )}
         </div>
         <button className="user-chip" onClick={() => navigate('/app/settings')}>
           <Avatar name={store.profile?.full_name || user?.email || 'Clinic owner'} size="sm" />

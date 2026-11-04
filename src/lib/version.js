@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.6';
+export const APP_VERSION = '1.11.7';
 export const SCHEMA_VERSION = 10;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,17 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.7', date: '2026-11-04', schema: 10,
+    highlights: [
+      'A yearly subscription now behaves like one. The licence view dropped the billing interval and the payment reference, so a clinic paying yearly was shown as monthly, quoted the monthly price, renewed for a single month instead of twelve, and lost the UPI reference it had just recorded.',
+      'A payment now buys the term the clinic is actually on. The Monthly/Yearly toggle inside the plan dialog only previews prices — it can no longer shorten a yearly renewal because you happened to be browsing monthly.',
+      'Recording a payment in the demo workspace used to add a hard-coded 30 days whatever the plan; it now adds the term you paid for, calendar-correct, matching the database.',
+      'The sidebar no longer offers "Manage subscription" to a doctor or a front desk seat, which could not open it since the role split. They see the plan and its status, and who to ask.',
+      'Paise are shown as paise: a yearly price reads ₹23,990.40, not ₹23,990.4.',
+      'The README is rebuilt as a proper project front page — what the app is, the role table, plans, local setup, database, tests, deployment, troubleshooting and where the deeper docs live.',
+    ],
+  },
   {
     version: '1.11.6', date: '2026-11-04', schema: 10,
     highlights: [

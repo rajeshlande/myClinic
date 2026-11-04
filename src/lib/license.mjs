@@ -30,7 +30,10 @@ export const PLAN_ORDER = ['solo', 'growth', 'chain'];
 
 /**
  * @typedef {'trial'|'active'|'grace'|'read_only'|'expired'} LicenseStatus
- * @typedef {{ status: LicenseStatus, plan: string, daysLeft: number|null, endsAt: string|null }} License
+ * @typedef {{
+ *   status: LicenseStatus, plan: string, interval: 'monthly'|'yearly',
+ *   daysLeft: number|null, endsAt: string|null, collectionRef: string,
+ * }} License
  */
 
 const DAY_MS = 86_400_000;
@@ -59,27 +62,72 @@ export function daysUntil(value, now = new Date()) {
  * @returns {License}
  */
 export function licenseState(sub, now = new Date()) {
-  if (!sub) return { status: 'expired', plan: 'growth', daysLeft: 0, endsAt: null };
+  // `interval` and `collection_ref` travel with the licence on purpose: dropping
+  // them here is what made a yearly clinic read as monthly, quote a monthly price,
+  // renew for one month instead of twelve, and lose the payment reference it had
+  // just recorded.
+  const base = (row = {}) => ({
+    plan: PLAN_ORDER.includes(row.plan) ? row.plan : 'growth',
+    interval: row.interval === 'yearly' ? 'yearly' : 'monthly',
+    collectionRef: String(row.collection_ref ?? ''),
+  });
+
+  if (!sub) return { status: 'expired', ...base(), daysLeft: 0, endsAt: null };
   const row = typeof sub === 'string' ? { status: sub } : sub;
   const raw = String(row.status ?? 'expired');
-  const plan = PLAN_ORDER.includes(row.plan) ? row.plan : 'growth';
+  const plan = base(row).plan;
+  const shared = base(row);
   const endsAt = row.status === 'trial' ? row.trial_ends_at : row.current_period_end;
   const daysLeft = daysUntil(endsAt, now);
 
   if (raw === 'active') {
     if (daysLeft !== null && daysLeft < 0) {
       const overdue = Math.abs(daysLeft);
-      return { status: overdue <= GRACE_DAYS ? 'grace' : 'read_only', plan, daysLeft, endsAt };
+      return { status: overdue <= GRACE_DAYS ? 'grace' : 'read_only', ...shared, plan, daysLeft, endsAt };
     }
-    return { status: 'active', plan, daysLeft, endsAt };
+    return { status: 'active', ...shared, plan, daysLeft, endsAt };
   }
   if (raw === 'trial') {
-    if (daysLeft !== null && daysLeft < 0) return { status: 'read_only', plan, daysLeft, endsAt };
-    return { status: 'trial', plan, daysLeft, endsAt };
+    if (daysLeft !== null && daysLeft < 0) return { status: 'read_only', ...shared, plan, daysLeft, endsAt };
+    return { status: 'trial', ...shared, plan, daysLeft, endsAt };
   }
-  if (raw === 'grace') return { status: 'grace', plan, daysLeft, endsAt };
-  if (raw === 'read_only') return { status: 'read_only', plan, daysLeft, endsAt };
-  return { status: 'expired', plan, daysLeft: daysLeft ?? 0, endsAt };
+  if (raw === 'grace') return { status: 'grace', ...shared, plan, daysLeft, endsAt };
+  if (raw === 'read_only') return { status: 'read_only', ...shared, plan, daysLeft, endsAt };
+  return { status: 'expired', ...shared, plan, daysLeft: daysLeft ?? 0, endsAt };
+}
+
+/**
+ * The period a payment buys: the subscription's own interval, never a toggle in
+ * a dialog. A clinic that pays yearly renews for twelve months even if the owner
+ * had been browsing monthly prices.
+ *
+ * @param {{interval?: string}|null} sub  the subscription row (or a licence view)
+ */
+export function billingPeriod(sub) {
+  const interval = sub?.interval === 'yearly' ? 'yearly' : 'monthly';
+  return {
+    interval,
+    months: interval === 'yearly' ? 12 : 1,
+    days: interval === 'yearly' ? 365 : 30,
+    label: interval === 'yearly' ? '12 months' : '1 month',
+    short: interval === 'yearly' ? 'yr' : 'mo',
+  };
+}
+
+/**
+ * Extend a period end by whole months, never moving backwards. Calendar months,
+ * matching `make_interval(months => n)` in `renew_subscription()`.
+ *
+ * @param {string|Date|null} currentEnd
+ * @param {number} months
+ * @param {Date} now
+ */
+export function extendPeriod(currentEnd, months, now = new Date()) {
+  const from = currentEnd ? new Date(currentEnd) : null;
+  const base = from && !Number.isNaN(from.getTime()) ? Math.max(from.getTime(), now.getTime()) : now.getTime();
+  const end = new Date(base);
+  end.setMonth(end.getMonth() + Math.max(1, Math.round(Number(months) || 1)));
+  return end.toISOString();
 }
 
 /** Can the clinic change clinical or financial records? */
