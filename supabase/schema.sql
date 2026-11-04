@@ -600,11 +600,13 @@ create policy appointments_delete on public.appointments for delete to authentic
   using (public.has_role(clinic_id, array['owner','frontdesk']));
 
 -- ---------------------------------------------------------------- consultations
--- Clinical content is authored by doctors. Front desk may read the queue state it
--- needs (it never needs diagnoses) but cannot write clinical rows.
+-- Clinical content is the consulting room: owner and doctor read and write it.
+-- The front desk books, registers and bills, and reads no note at all (schema 10
+-- narrowed this — it used to include 'frontdesk', and the Team page said it did
+-- not, so the table and the policy disagreed).
 drop policy if exists consultations_read on public.consultations;
 create policy consultations_read on public.consultations for select to authenticated
-  using (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+  using (public.has_role(clinic_id, array['owner','doctor']));
 
 drop policy if exists consultations_write on public.consultations;
 create policy consultations_write on public.consultations for insert to authenticated
@@ -620,20 +622,21 @@ create policy consultations_delete on public.consultations for delete to authent
   using (public.is_clinic_owner(clinic_id));
 
 -- ---------------------------------------------------------------- invoices
--- Front desk collects money. Changing an amount after it is paid, or voiding,
--- is an owner operation (see invoice_guard()).
+-- Money is the counter's: owner and front desk raise, read and settle bills; a
+-- doctor reads and writes only the chart (schema 10). Changing an amount after it
+-- is paid, or voiding, is still an owner operation (see invoice_guard()).
 drop policy if exists invoices_read on public.invoices;
 create policy invoices_read on public.invoices for select to authenticated
-  using (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+  using (public.has_role(clinic_id, array['owner','frontdesk']));
 
 drop policy if exists invoices_write on public.invoices;
 create policy invoices_write on public.invoices for insert to authenticated
-  with check (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+  with check (public.has_role(clinic_id, array['owner','frontdesk']));
 
 drop policy if exists invoices_update on public.invoices;
 create policy invoices_update on public.invoices for update to authenticated
-  using (public.has_role(clinic_id, array['owner','doctor','frontdesk']))
-  with check (public.has_role(clinic_id, array['owner','doctor','frontdesk']));
+  using (public.has_role(clinic_id, array['owner','frontdesk']))
+  with check (public.has_role(clinic_id, array['owner','frontdesk']));
 
 drop policy if exists invoices_delete on public.invoices;
 create policy invoices_delete on public.invoices for delete to authenticated
@@ -2094,6 +2097,60 @@ begin
   update public.app_meta
      set schema_version = 9, applied_at = now(), notes = 'clinic slug'
    where schema_version < 9;
+end $migration$;
+
+-- =============================================================================
+-- §10 · WHO READS WHAT                              migration 10 · app v1.11.6
+-- =============================================================================
+-- The clinic has two halves and each role owns one: the doctor owns the clinical
+-- record, the front desk owns the money, the owner owns both. The app said so on
+-- the Team page, but the two policies below said "all three roles" — so a doctor
+-- could read and raise invoices over the API, and a front-desk member could read
+-- every consultation note, whether or not any screen offered it.
+--
+-- Nothing is deleted and nothing is added: two SELECT/INSERT/UPDATE policies are
+-- narrowed to the roles the product actually grants. The owner keeps both halves;
+-- the clinician keeps the chart; the desk keeps the till.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 10 then
+    raise notice 'schema 10 (role split) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 10 (role split)';
+
+  execute $sql$
+
+  -- Clinical notes: owner and doctor. The desk books, registers and bills; it does
+  -- not read what was written in the consulting room.
+  drop policy if exists consultations_read on public.consultations;
+  create policy consultations_read on public.consultations for select to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor']));
+
+  -- Money: owner and front desk. A doctor writes the chart, the desk raises and
+  -- collects the bill.
+  drop policy if exists invoices_read on public.invoices;
+  create policy invoices_read on public.invoices for select to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk']));
+
+  drop policy if exists invoices_write on public.invoices;
+  create policy invoices_write on public.invoices for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','frontdesk']));
+
+  drop policy if exists invoices_update on public.invoices;
+  create policy invoices_update on public.invoices for update to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk']))
+    with check (public.has_role(clinic_id, array['owner','frontdesk']));
+  $sql$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (10, 'role-split', '1.11.6', 'consultations readable by owner+doctor, invoices writable by owner+frontdesk — the split the Team page prints')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 10, applied_at = now(), notes = 'role split'
+   where schema_version < 10;
 end $migration$;
 
 commit;

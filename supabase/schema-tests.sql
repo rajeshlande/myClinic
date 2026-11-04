@@ -16,11 +16,13 @@
 --   D. naming            — clinic_slug, the one rule a clinic name becomes a URL
 --   E. the booking link  — provisioning mints a slug, the slug resolves for a
 --                          stranger, and only an owner can change it
+--   F. who reads what    — the doctor owns the chart, the desk owns the money, and
+--                          neither can reach across
 --
 -- Every assertion raises on failure, so a clean run is the proof. Success lines:
 --   "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED",
 --   "ALL BOOKING CHECKS COMPLETED", "ALL SLUG CHECKS COMPLETED" and
---   "ALL BOOKING LINK CHECKS COMPLETED".
+--   "ALL BOOKING LINK CHECKS COMPLETED" and "ALL ROLE SPLIT CHECKS COMPLETED".
 --
 -- This file is not part of the schema. `supabase/schema.sql` is the single
 -- source of truth for the database; this is the test that it behaves.
@@ -807,6 +809,186 @@ begin
   raise notice 'PASS: every clinic holds a URL-safe slug';
 
   raise notice 'ALL BOOKING LINK CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run
+
+
+-- =============================================================================
+-- SUITE F · WHO READS WHAT
+-- =============================================================================
+-- The role table the product prints — doctor: consultations, no billing; front
+-- desk: billing, no consultations — used to be a claim, not a rule: both policies
+-- said "all three roles". Schema 10 splits them. This suite holds each half to it
+-- through the API, as each member, including the two ways round it (raising an
+-- invoice, marking one paid).
+begin;
+
+do $$
+declare
+  owner_c uuid := gen_random_uuid();
+  doctor_c uuid := gen_random_uuid();
+  desk_c uuid := gen_random_uuid();
+  clinic uuid;
+  patient uuid;
+  doctor_staff uuid;
+  other_clinic uuid;
+  who uuid;
+  n integer;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values
+    (owner_c,  'split-owner@test.local',  crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (doctor_c, 'split-doctor@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (desk_c,   'split-desk@test.local',   crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  insert into public.clinics (name) values ('Split Clinic') returning id into clinic;
+  insert into public.staff (clinic_id, user_id, full_name, role) values (clinic, owner_c, 'Split Owner', 'owner');
+  insert into public.staff (clinic_id, user_id, full_name, role, specialty)
+    values (clinic, doctor_c, 'Dr Split', 'doctor', 'General Physician') returning id into doctor_staff;
+  insert into public.staff (clinic_id, user_id, full_name, role) values (clinic, desk_c, 'Split Desk', 'frontdesk');
+  insert into public.patients (clinic_id, code, full_name, phone)
+    values (clinic, 'PT-00001', 'Split Patient', '9000000777') returning id into patient;
+
+  insert into public.consultations (clinic_id, patient_id, doctor_id, visited_on, complaint)
+    values (clinic, patient, doctor_staff, current_date, 'fever since Tuesday');
+  insert into public.invoices (clinic_id, number, patient_id, total_paise, paid_paise, status)
+    values (clinic, 'INV/2526/0001', patient, 50000, 0, 'unpaid');
+
+  -- ------------------------------------------------------- 1. front desk
+  -- Books, registers, bills — and cannot read a word of the consultation.
+  perform set_config('request.jwt.claims', json_build_object('sub', desk_c, 'role', 'authenticated', 'email', 'split-desk@test.local')::text, true);
+  set local role authenticated;
+
+  select count(*) into n from public.consultations;
+  if n <> 0 then
+    raise exception 'FAIL: front desk read % consultation rows', n using errcode = 'P0002';
+  end if;
+
+  select count(*) into n from public.invoices where clinic_id = clinic;
+  if n <> 1 then
+    raise exception 'FAIL: front desk cannot see its own clinic''s bills (%)', n using errcode = 'P0002';
+  end if;
+
+  insert into public.invoices (clinic_id, number, patient_id, total_paise, paid_paise, status)
+    values (clinic, 'INV/2526/0002', patient, 20000, 0, 'unpaid');
+  raise notice 'PASS: front desk reads and raises bills, and reads no consultation note';
+  reset role;
+
+  -- ------------------------------------------------------- 2. the doctor
+  -- Owns the chart — and cannot read, raise or settle a bill.
+  perform set_config('request.jwt.claims', json_build_object('sub', doctor_c, 'role', 'authenticated', 'email', 'split-doctor@test.local')::text, true);
+  set local role authenticated;
+
+  select count(*) into n from public.consultations;
+  if n <> 1 then
+    raise exception 'FAIL: the doctor cannot read the consultation they wrote (%)', n using errcode = 'P0002';
+  end if;
+
+  select count(*) into n from public.invoices where clinic_id = clinic;
+  if n <> 0 then
+    raise exception 'FAIL: a doctor read % invoice rows', n using errcode = 'P0002';
+  end if;
+
+  begin
+    insert into public.invoices (clinic_id, number, patient_id, total_paise, paid_paise, status)
+      values (clinic, 'INV/2526/0003', patient, 10000, 0, 'unpaid');
+    raise exception 'FAIL: a doctor raised an invoice' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    raise notice 'PASS: a doctor cannot raise a bill';
+  end;
+
+  -- An update is not a way round the insert policy: the row is not visible, so
+  -- nothing is touched. Checked from the owner's side a moment later.
+  update public.invoices set paid_paise = total_paise, status = 'paid' where clinic_id = clinic;
+  reset role;
+
+  -- scoped to this suite's clinic: another clinic in the same database may well
+  -- have paid invoices of its own, and they are none of this assertion's business
+  select count(*) into n from public.invoices where clinic_id = clinic and status = 'paid';
+  if n <> 0 then
+    raise exception 'FAIL: a doctor marked % invoice(s) paid', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a doctor cannot settle a bill either';
+
+  -- ------------------------------------------------------- 3. the owner
+  -- Holds both halves of the clinic.
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_c, 'role', 'authenticated', 'email', 'split-owner@test.local')::text, true);
+  set local role authenticated;
+
+  select count(*) into n from public.consultations;
+  if n <> 1 then raise exception 'FAIL: the owner cannot read the chart (%)', n using errcode = 'P0002'; end if;
+  select count(*) into n from public.invoices where clinic_id = clinic;
+  if n <> 2 then raise exception 'FAIL: the owner cannot read both bills (%)', n using errcode = 'P0002'; end if;
+
+  update public.invoices set paid_paise = 50000, status = 'paid'
+   where clinic_id = clinic and number = 'INV/2526/0001';
+  select count(*) into n from public.invoices where clinic_id = clinic and status = 'paid';
+  if n <> 1 then raise exception 'FAIL: the owner could not settle a bill (%)', n using errcode = 'P0002'; end if;
+  raise notice 'PASS: the owner holds both halves';
+  reset role;
+
+  -- ------------------------------------------------------- 4. the diary is shared
+  -- The one record all three need: who is coming in. It must stay readable by
+  -- every member, or the queue stops working for whoever is not in this suite.
+  insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at)
+    values (clinic, patient, doctor_staff, current_date, '11:15');
+
+  foreach who in array array[owner_c, doctor_c, desk_c] loop
+    perform set_config('request.jwt.claims', json_build_object('sub', who, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    select count(*) into n from public.appointments where clinic_id = clinic;
+    if n <> 1 then
+      raise exception 'FAIL: a member of this clinic cannot see today''s diary (%)', n using errcode = 'P0002';
+    end if;
+    reset role;
+  end loop;
+  raise notice 'PASS: the diary is readable by owner, doctor and front desk alike';
+
+  -- ------------------------------------------------------- 5. no self-promotion
+  -- The split is only worth anything if a seat cannot move itself across it. The
+  -- policies refuse the insert; staff_guard() refuses the update. Pinned here so
+  -- the trigger cannot be dropped in a later migration without this failing.
+  insert into public.clinics (name) values ('Split Clinic · other') returning id into other_clinic;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', desk_c, 'role', 'authenticated', 'email', 'split-desk@test.local')::text, true);
+  set local role authenticated;
+
+  begin
+    update public.staff set role = 'owner' where user_id = desk_c;
+    raise exception 'FAIL: a front-desk seat promoted itself to owner' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    raise notice 'PASS: a seat cannot promote itself';
+  end;
+
+  begin
+    insert into public.staff (clinic_id, user_id, full_name, role)
+      values (other_clinic, desk_c, 'Split Desk elsewhere', 'owner');
+    raise exception 'FAIL: a seat joined a second clinic as its owner' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    raise notice 'PASS: a seat cannot join another clinic';
+  end;
+
+  begin
+    insert into public.staff (clinic_id, user_id, full_name, role)
+      values (clinic, desk_c, 'Split Desk, second seat', 'doctor');
+    raise exception 'FAIL: a seat enrolled itself a second time' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    raise notice 'PASS: a seat cannot enrol itself';
+  end;
+  reset role;
+
+  select count(*) into n from public.staff where clinic_id = clinic;
+  if n <> 3 then
+    raise exception 'FAIL: the clinic ended with % staff rows instead of 3', n using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.staff where clinic_id = clinic and role = 'owner';
+  if n <> 1 then
+    raise exception 'FAIL: the clinic has % owners', n using errcode = 'P0002';
+  end if;
+
+  raise notice 'ALL ROLE SPLIT CHECKS COMPLETED';
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
