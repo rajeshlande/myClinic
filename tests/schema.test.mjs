@@ -104,6 +104,29 @@ test('every dollar-quoted block is closed', () => {
   }
 });
 
+/** The `create table ... ( … );` block for one table. */
+function tableBlock(name) {
+  const start = sql.indexOf(`create table if not exists public.${name} (`);
+  assert.notEqual(start, -1, `public.${name} is not created in schema.sql`);
+  const end = sql.indexOf('\n);', start);
+  return sql.slice(start, end);
+}
+
+test('the offline capability map matches the columns the schema actually has', async () => {
+  // This is the guard for the outage that started it all: the client stamped
+  // client_updated_at on every table and sent client_id to every table, but only
+  // some of them declare those columns. PostgREST answers 400 / PGRST204 and the
+  // outbox retried forever.
+  const { OFFLINE_COLUMNS } = await import('../src/lib/offline.js');
+  for (const [table, caps] of Object.entries(OFFLINE_COLUMNS)) {
+    const block = tableBlock(table);
+    assert.equal(/\bclient_id\b/.test(block), caps.client_id,
+      `${table}.client_id: client says ${caps.client_id}, schema says ${/\bclient_id\b/.test(block)}`);
+    assert.equal(/\bclient_updated_at\b/.test(block), caps.client_updated_at,
+      `${table}.client_updated_at: client says ${caps.client_updated_at}, schema says ${/\bclient_updated_at\b/.test(block)}`);
+  }
+});
+
 test('the migration registry knows about schema 8', () => {
   assert.match(sql, /\(8, 'public-booking', '1\.11\.0'/);
   assert.match(sql, /set schema_version = 8/);

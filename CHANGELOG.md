@@ -3,6 +3,51 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.4] — 2026-11-04 · schema 8
+
+Saving a staff member failed in a live clinic with
+
+```
+PATCH /rest/v1/staff?id=eq.… 400 (Bad Request)
+{"code":"PGRST204","message":"Could not find the 'client_updated_at' column of 'staff' in the schema cache"}
+```
+
+— and then repeated every few seconds, because that operation could never succeed
+but was also never given up on. Worse, it sat at the head of the outbox, so **every
+write queued behind it stopped syncing**.
+
+### Fixed
+- **The offline layer no longer sends columns a table does not have.** `staff` and
+  `invoices` declare neither `client_id` nor `client_updated_at`, but every queued
+  update was stamped with the second and every queued create carried the first. So
+  editing a staff member, and *creating an invoice* ("Save & bill"), were both
+  rejected by PostgREST. `OFFLINE_COLUMNS` in `src/lib/offline.js` now mirrors the
+  schema, and a new guard in `tests/schema.test.mjs` fails the build if the two
+  drift apart again.
+- **Idempotent replay does not need `client_id`.** The client already generates the
+  row's primary key, so a replayed insert hits the duplicate key and is recognised
+  as already applied; where `client_id` exists it is still used, and where it does
+  not the replay dedupes on `id`. One invoice stays one invoice.
+- **A rejected change can no longer block the queue.** A permanent failure (4xx with
+  no recognised code) is retried `MAX_SYNC_ATTEMPTS` (5) times with backoff and is
+  then moved to the sync centre as a conflict with the server's message — the rest
+  of the outbox keeps draining. Network errors, rate limits, expired sessions and
+  unsynced parents still retry indefinitely, as before.
+- **Columns the database has not got yet are dropped, not fatal.** If a build is
+  newer than the SQL that was run (the normal state during an upgrade, and permanent
+  if the paste was skipped), the offending column is removed from the payload and
+  the write is retried once. `PGRST204` / `column … does not exist` is now classified
+  as a repair rather than a fatal error.
+
+### Added
+- `tests/sync.test.mjs` — 15 tests over the replay engine with a fake PostgREST that
+  rejects unknown columns exactly the way the real one does: staff edits carry no
+  stamp, clinical edits still do, an invoice create sends no `client_id` and lands
+  once when replayed, a missing column is dropped and the write still lands, a
+  permanently rejected change reaches a human instead of looping, a poison operation
+  no longer blocks the writes behind it, and a network failure is still just a
+  backoff. 240 tests total.
+
 ## [1.11.3] — 2026-11-04 · schema 8
 
 `schema.sql` could not be applied to a new Supabase project: schema 8 (public

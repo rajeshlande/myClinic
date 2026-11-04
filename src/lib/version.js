@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.3';
+export const APP_VERSION = '1.11.4';
 export const SCHEMA_VERSION = 8;
 
 /** Injected by vite.config.js define(). */

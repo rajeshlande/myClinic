@@ -44,7 +44,7 @@ Live demo data: the app boots into **Sunrise Multispecialty OPD** with six month
 ```bash
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 150 unit tests (domain, day book, offline replay, readiness)
+npm test             # 240 unit tests (domain, day book, offline replay, schema guards)
 npm run build        # production bundle in dist/
 ```
 
@@ -331,11 +331,13 @@ outbox first and replays to Supabase when the connection returns.
 | Concern | How it works |
 | --- | --- |
 | Local-first writes | `src/lib/offline.js` — the UI updates immediately, the network catches up |
-| No duplicates | every row carries a client-generated id; replay checks `client_id` before inserting |
+| No duplicates | every row carries a client-generated id; replay checks `client_id` where the table has one, and the generated primary key everywhere else |
 | Merge policy | field-by-field three-way merge against the version the device last saw |
 | Money & status | **never** auto-merged — a human picks between "this device" and "clinic database" |
 | Deleted elsewhere | the offline edit is queued for review instead of being silently dropped |
 | Retries | exponential backoff with jitter, capped at 30 s; network errors keep the change queued |
+| Columns the database lacks | `OFFLINE_COLUMNS` in `offline.js` mirrors `schema.sql`, so `client_id` / `client_updated_at` are only sent to tables that declare them; if a build is newer than the database, the unknown column is dropped and the write retried once |
+| A change the server keeps refusing | retried a handful of times, then moved to the sync centre for a human — it never sits in front of the queue forever |
 | Cache lifetime | 24 h TTL, keyed per user **and** clinic, wiped on sign-out |
 | Visibility | a bottom bar shows offline / queued / conflict state, tap for the full sync centre |
 

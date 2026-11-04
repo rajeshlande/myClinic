@@ -28,6 +28,59 @@
 
 export const TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices', 'day_closes', 'reminders'];
 
+/**
+ * Which offline bookkeeping columns each table actually has, mirroring §1 of
+ * supabase/schema.sql.
+ *
+ * Assuming they were everywhere was a real outage. `staff` and `invoices` have no
+ * `client_updated_at`, so every queued staff edit — and every queued invoice
+ * create, which sent `client_id` — came back 400 / PGRST204 ("Could not find the
+ * 'client_updated_at' column of 'staff'"). That error is neither a conflict nor a
+ * network failure, so the operation was retried forever *and* held up every write
+ * queued behind it.
+ *
+ * Idempotent replay does not depend on `client_id`: the client generates the row's
+ * primary key too, so a replayed insert hits the duplicate key and is recognised
+ * as already applied. `client_id` therefore stays an optimisation, not a
+ * requirement.
+ */
+export const OFFLINE_COLUMNS = {
+  patients:      { client_id: true,  client_updated_at: true },
+  appointments:  { client_id: true,  client_updated_at: true },
+  consultations: { client_id: true,  client_updated_at: true },
+  day_closes:    { client_id: true,  client_updated_at: false },
+  reminders:     { client_id: true,  client_updated_at: false },
+  invoices:      { client_id: false, client_updated_at: false },
+  staff:         { client_id: false, client_updated_at: false },
+};
+
+/** True when `table` declares `column` — the client must not send it otherwise. */
+export function supportsColumn(table, column) {
+  return Boolean(OFFLINE_COLUMNS[table]?.[column]);
+}
+
+/** The tables that carry a last-local-edit stamp. */
+export const CLIENT_STAMPED = Object.keys(OFFLINE_COLUMNS).filter((t) => OFFLINE_COLUMNS[t].client_updated_at);
+
+/** Add `client_updated_at` only where the database has a column to put it in. */
+export function stampUpdate(table, patch, at) {
+  return supportsColumn(table, 'client_updated_at') ? { ...patch, client_updated_at: at } : patch;
+}
+
+/**
+ * The column PostgREST or Postgres named as missing, or null.
+ *
+ *   {"code":"PGRST204","message":"Could not find the 'client_updated_at' column of 'staff' in the schema cache"}
+ *   column "client_updated_at" of relation "staff" does not exist
+ */
+export function unknownColumn(error) {
+  const msg = String(error?.message ?? error ?? '');
+  const m = msg.match(/Could not find the '([A-Za-z0-9_]+)' column/i)
+    || msg.match(/column ["']?([A-Za-z0-9_]+)["']? of relation/i)
+    || msg.match(/column ["']?([A-Za-z0-9_]+)["']? does not exist/i);
+  return m ? m[1] : null;
+}
+
 /** Fields where an automatic merge is never acceptable. */
 export const MANUAL_FIELDS = {
   invoices: ['total_paise', 'paid_paise', 'status', 'lines', 'method'],
@@ -201,9 +254,18 @@ export function classifySyncError(error, status) {
   if (code === '23503' || /foreign key/.test(msg)) return 'retry';          // parent not synced yet
   if (code === '23514' || code === '42501' || /permission denied|row-level security|violates check/.test(msg)) return 'conflict';
   if (status === 404 || code === 'PGRST116') return 'conflict';             // row vanished remotely
+  if (code === 'PGRST204' || /could not find the '.*' column|column .* does not exist/.test(msg)) return 'repair';
   if (status === 401 || status === 403) return 'retry';                     // session refresh pending
   return 'fatal';
 }
+
+/**
+ * How many times a *permanent* failure is retried before it is put in front of a
+ * human. Without a cap, one un-sendable row sits at the head of the outbox and
+ * every later write waits behind it — which is what a browser full of repeating
+ * 400s looks like from the outside.
+ */
+export const MAX_SYNC_ATTEMPTS = 5;
 
 /** Exponential backoff with jitter, hard-capped so a device never sleeps for minutes. */
 export const MAX_BACKOFF_MS = 30000;
@@ -250,10 +312,33 @@ export function describeOp(op, patients = []) {
  * still to retry, `conflicts` need a human, and `stopped` is the error that
  * halted the run (network) so the caller can back off.
  */
+/**
+ * Run one write, and if the server says a column does not exist, drop just that
+ * column and try once more.
+ *
+ * A device running a newer build than the database is normal during an upgrade
+ * (and permanent if someone forgets the SQL). Losing one field is recoverable;
+ * losing the whole write — forever — is not.
+ */
+async function writeWithColumnRepair(run, payload, onRepair) {
+  try {
+    return await run(payload);
+  } catch (e) {
+    const column = unknownColumn(e);
+    if (!column || !Object.prototype.hasOwnProperty.call(payload, column)) throw e;
+    const stripped = { ...payload };
+    delete stripped[column];
+    const saved = await run(stripped);
+    onRepair(column);
+    return saved;
+  }
+}
+
 export async function replayOutbox({ ops, db, now = () => new Date().toISOString() }) {
   const remaining = [...ops];
   const conflicts = [];
   const applied = [];
+  const repaired = [];
   let stopped = null;
 
   const drop = (op) => {
@@ -267,11 +352,21 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
       if (op.type === 'create') {
         const row = { ...op.row, client_id: op.row.client_id ?? op.client_id };
         delete row._offline;
-        if (row.client_id) {
-          const existing = await db.selectOne(op.table, { client_id: row.client_id });
+        if (!supportsColumn(op.table, 'client_id')) delete row.client_id;
+        // Dedupe on the client id where it exists, otherwise on the primary key the
+        // client generated — either way a replay of the same create lands once.
+        const probe = supportsColumn(op.table, 'client_id')
+          ? { client_id: op.row.client_id ?? op.client_id }
+          : { id: row.id };
+        if (probe.client_id || probe.id) {
+          const existing = await db.selectOne(op.table, probe);
           if (existing) { drop(op); applied.push({ op, row: existing, deduped: true }); continue; }
         }
-        const saved = await db.insert(op.table, row);
+        const saved = await writeWithColumnRepair(
+          (payload) => db.insert(op.table, payload),
+          row,
+          (column) => repaired.push({ op_id: op.op_id, table: op.table, column }),
+        );
         drop(op);
         applied.push({ op, row: saved, deduped: false });
       } else if (op.type === 'update') {
@@ -295,7 +390,11 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
           });
         }
         if (Object.keys(patch).length) {
-          const saved = await db.update(op.table, op.id, { ...patch, client_updated_at: now() });
+          const saved = await writeWithColumnRepair(
+            (payload) => db.update(op.table, op.id, payload),
+            stampUpdate(op.table, patch, now()),
+            (column) => repaired.push({ op_id: op.op_id, table: op.table, column }),
+          );
           applied.push({ op, row: saved });
         }
         drop(op);
@@ -316,8 +415,21 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
         drop(op);
         continue;
       }
-      // retry / fatal — keep it queued with a backoff stamp, stop the run.
+      // A permanent failure that has already been retried MAX_SYNC_ATTEMPTS times
+      // goes to a human instead of blocking every later write. The queue keeps
+      // draining; the sync screen shows what could not be saved.
       const attempts = (op.attempts ?? 0) + 1;
+      if ((verdict === 'fatal' || verdict === 'repair') && attempts >= MAX_SYNC_ATTEMPTS) {
+        conflicts.push({
+          id: op.op_id, table: op.table, kind: 'rejected',
+          message: e.message ?? 'The server refused this change.',
+          local: op.patch ?? op.row, remote: null, opId: op.op_id, at: now(), attempts,
+        });
+        drop(op);
+        continue;
+      }
+
+      // retry / fatal — keep it queued with a backoff stamp, stop the run.
       const i = remaining.findIndex((o) => o.op_id === op.op_id);
       if (i >= 0) {
         remaining[i] = {
@@ -330,5 +442,5 @@ export async function replayOutbox({ ops, db, now = () => new Date().toISOString
     }
   }
 
-  return { remaining, conflicts, applied, stopped };
+  return { remaining, conflicts, applied, repaired, stopped };
 }
