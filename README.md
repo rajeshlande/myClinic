@@ -88,7 +88,13 @@ select * from public.app_migrations();        -- which migration each section ap
 ```
 
 The dev-only verification suite is [`supabase/schema-tests.sql`](supabase/schema-tests.sql)
-(role matrix + licensing, all rolled back). Never run it on production.
+— four suites, all rolled back: role matrix, licensing, **public booking** (the five
+`anon` RPCs called the way a stranger with a link calls them, including every refusal)
+and the naming rules. Never run it on production.
+
+If a paste stops half-way, run the file again. Every statement is guarded, so the
+second run skips what already exists and finishes what did not — including schema 8,
+which checks for its own functions rather than trusting the version number alone.
 
 What the schema enforces:
 

@@ -110,6 +110,23 @@ begin
   return new;
 end $$;
 
+-- One clinic name → one URL segment: lower-case ASCII, hyphenated, with the
+-- hyphens the regexp leaves at either end trimmed off, and 'clinic' when nothing
+-- survives (a name written entirely in a script with no ASCII letters).
+--
+-- Two forms to avoid here, both of which look right and are not:
+--   btrim(x both '-' from y)  — `btrim` has no BOTH/FROM form, that is `trim`
+--   leaving end hyphens        — '--clinic--' reads as a broken link in an email
+--
+-- Kept out of the migration that first needed it so a clinic created or renamed
+-- later gets the same rule, and so the test suite can call it directly.
+create or replace function public.clinic_slug(p_name text)
+returns text language sql immutable set search_path = public as $$
+  select coalesce(
+    nullif(btrim(regexp_replace(lower(coalesce(p_name, '')), '[^a-z0-9]+', '-', 'g'), '-'), ''),
+    'clinic');
+$$;
+
 -- ---------------------------------------------------------------- clinics
 create table if not exists public.clinics (
   id uuid primary key default gen_random_uuid(),
@@ -1547,7 +1564,12 @@ grant execute on function public.next_invoice_number(uuid, text) to authenticate
 -- =============================================================================
 do $migration$
 begin
-  if public.app_schema_version() >= 8 then
+  -- The version number alone is not proof: a paste that stopped half-way (or a
+  -- fragment run by hand) can leave app_meta at 8 with the functions missing.
+  -- Re-applying is idempotent, so ask for the objects as well.
+  if public.app_schema_version() >= 8
+     and exists (select 1 from pg_proc f join pg_namespace ns on ns.oid = f.pronamespace
+                  where ns.nspname = 'public' and f.proname = 'public_book') then
     raise notice 'schema 8 (public booking) already applied - skipping';
     return;
   end if;
@@ -1585,7 +1607,7 @@ begin
     n integer;
   begin
     for r in select id, name, slug from public.clinics where slug is null or btrim(slug) = '' loop
-      base := left(coalesce(nullif(btrim(both '-' from regexp_replace(lower(r.name), '[^a-z0-9]+', '-', 'g')), ''), 'clinic'), 32);
+      base := left(public.clinic_slug(r.name), 32);
       candidate := base;
       n := 0;
       while exists (select 1 from public.clinics c where c.slug = candidate and c.id <> r.id) loop
@@ -1716,7 +1738,9 @@ begin
     digits text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
     clean_name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
     ref text := 'BK-';
-    code text;
+    -- Not `code`: a plpgsql variable with a column's name makes every reference
+    -- in a query ambiguous, and this one is read while generating the next one.
+    patient_code text;
     seq bigint;
     i integer;
     recent integer;
@@ -1820,13 +1844,13 @@ begin
      limit 1;
 
     if not found then
-      select coalesce(max(nullif(regexp_replace(code, '[^0-9]', '', 'g'), '')::bigint), 0) + 1
+      select coalesce(max(nullif(regexp_replace(p.code, '[^0-9]', '', 'g'), '')::bigint), 0) + 1
         into seq
-        from public.patients
-       where clinic_id = c.id and code ~ '^PT-[0-9]+$';
-      code := 'PT-' || lpad(coalesce(seq, 1)::text, 5, '0');
+        from public.patients p
+       where p.clinic_id = c.id and p.code ~ '^PT-[0-9]+$';
+      patient_code := 'PT-' || lpad(coalesce(seq, 1)::text, 5, '0');
       insert into public.patients (clinic_id, code, full_name, phone, notes)
-      values (c.id, code, clean_name, btrim(p_phone), 'Registered from the online booking page.')
+      values (c.id, patient_code, clean_name, btrim(p_phone), 'Registered from the online booking page.')
       returning * into pat;
     end if;
 

@@ -3,6 +3,56 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.3] — 2026-11-04 · schema 8
+
+`schema.sql` could not be applied to a new Supabase project: schema 8 (public
+booking, shipped in 1.11.0) stopped at `syntax error at or near "both"`, so the
+booking functions, the booking-reference column and the slug backfill were never
+created. A second defect sat behind it — every online booking that created a new
+patient would have failed at runtime. Both are fixed, and the schema is now applied
+and exercised against a real Postgres before release.
+
+### Fixed
+- **`btrim(both '-' from x)` is not SQL.** `btrim` takes two arguments
+  (`btrim(x, '-')`); the `BOTH … FROM` form belongs to `trim`. The expression is now
+  a function of its own, `public.clinic_slug(name)`, so the rule has one home:
+  32 characters of lower-case ASCII, hyphens at the ends trimmed, `clinic` when
+  nothing survives (a name written in Devanagari, for example).
+- **`public_book()` could not create a patient.** It declared a local variable named
+  `code` and then queried `patients.code` in the same statement, which Postgres
+  refuses as an ambiguous reference — but only when a booking needed a *new* patient,
+  so it would have surfaced as "the booking page does not work for new patients" after
+  the syntax error was fixed. Renamed to `patient_code`, and the column is qualified.
+- **Schema 8 now checks for its own objects.** The migration skipped itself when
+  `app_meta.schema_version` was already 8, which is exactly what a paste that stopped
+  half-way leaves behind. It now also asks whether `public_book()` exists, so a
+  half-applied database finishes on the next run instead of silently staying broken.
+
+### Added
+- `supabase/schema-tests.sql` gains **Suite C · public booking** (the five anon RPCs
+  called the way the booking page calls them: profile, book, the same tap twice, one
+  live booking per phone, a taken slot, the slot grid, the horizon, phone and name
+  validation, a closed clinic, busy minutes leaking nothing, lookup, cancel, a
+  cancelled slot being re-sold, the three-a-day flood guard, anon reading no table,
+  and the definer/pinned-`search_path` shape of the surface) and **Suite D · naming**
+  (`clinic_slug` pinned for case, punctuation, end hyphens, non-ASCII and null).
+  Both roll back.
+- `tests/schema.test.mjs` — 10 guards that run in `npm test`: no `btrim(… both … from)`,
+  no variable named after a column in `public_book`, every `security definer` function
+  pins `search_path`, the five RPCs are revoked from `public` and granted only to
+  `anon`, the file is one transaction, dollar-quotes balance. 224 tests total.
+
+### Verified
+- `supabase/schema.sql` applied to a blank PostgreSQL 17 database: exit 0, version 8.
+- Upgraded a schema-7 database carrying four clinics with null slugs (two of them
+  with the same name, one with a Devanagari name): version 8, slugs
+  `sunrise-multispecialty-opd`, `sunrise-multispecialty-opd-1`, `clinic`, `weird-name`.
+- A version-8 database whose `public_book()` had been dropped: re-running the file
+  restored it.
+- All four suites pass, 45 assertions: `ALL RLS CHECKS COMPLETED`,
+  `ALL LICENSING CHECKS COMPLETED`, `ALL BOOKING CHECKS COMPLETED`,
+  `ALL SLUG CHECKS COMPLETED`.
+
 ## [1.11.2] — 2026-11-04 · schema 8
 
 The marketing site and the app now have one set of breakpoints instead of a
