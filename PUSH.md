@@ -7,31 +7,35 @@ source of history.
 
 Current state of <https://github.com/rajeshlande/myClinic.git>: `main` at
 `e4f7f5f` *"docs: PUSH.md for the v1.10.0 bundles"*, tags `v1.2.1 … v1.10.0`.
-Everything after that — v1.10.1 and its commit — is in the bundles below.
+Everything after that is in the bundles below — and there are **two releases in
+them, because 1.10.1 was never pushed**: the landing patch (v1.10.1) and
+**1.11.0, public booking, schema 8**. One push delivers both.
 
 Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.10.1.bundle` | ~8 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed). **Recommended** — it is a delta and fast-forwards. |
-| `myClinic-full-v1.10.1.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.11.0.bundle` | ~40 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-full-v1.11.0.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` and every release tag `v1.2.1 … v1.10.1`.
+Both carry `main` and the two tags GitHub does not have yet — `v1.10.1` and `v1.11.0` —
+plus every earlier tag.
 
 ## Route A · update an existing clone, then push (recommended)
 
 The update bundle declares `e4f7f5f` as its prerequisite, so it applies to your
-existing clone as-is — no re-download of ten rounds of history.
+existing clone as-is — no re-download of ten rounds of history. It lands **two**
+commits of product (`a49747e`, `7ec613b`) plus the docs commit.
 
 ```bash
 git clone https://github.com/rajeshlande/myClinic.git myClinic   # skip if already cloned
 cd myClinic
-git fetch /path/to/myClinic-update-to-v1.10.1.bundle \
+git fetch /path/to/myClinic-update-to-v1.11.0.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
-git push origin refs/tags/v1.10.1
+git push origin refs/tags/v1.10.1 refs/tags/v1.11.0
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -45,19 +49,19 @@ the old tag moved onto this history, do it deliberately:
 `git push --force origin refs/tags/v1.2.1` (only if nothing references it).
 
 Verified from this sandbox against the live repository: `git clone` of
-github.com/rajeshlande/myClinic → fetch the bundle → `git merge --ff-only` lands
-on the v1.10.1 commit, exit code 0, working tree clean, **150/150 tests** pass,
-`npm run build` and `npm run check:pages` clean, tags `v1.3.0 … v1.10.1` present
-and `v1.2.1` untouched.
+github.com/rajeshlande/myClinic (lands on `e4f7f5f`) → fetch the bundle →
+`git merge --ff-only` lands on the v1.11.0 commit, exit code 0, working tree
+clean, **186/186 tests** pass, `npm run build` and `npm run check:pages` clean,
+tags `v1.3.0 … v1.11.0` present and `v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.10.1.bundle myClinic
+git clone -b main myClinic-full-v1.11.0.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
-git push origin refs/tags/v1.10.1
+git push origin refs/tags/v1.10.1 refs/tags/v1.11.0
 ```
 
 (A fresh clone *can* be pushed with `--follow-tags`; the explicit tag list above
@@ -67,19 +71,21 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 
 | Commit | Release | Scope |
 |---|---|---|
+| `7ec613b` | **1.11.0** · schema 8 | Public booking. `/#/book/<slug>` books a real slot with no account; `/#/booking/<ref>` looks it up and cancels it. Five `anon`-granted RPCs, booking references, a partial unique index so a cancelled slot can be re-sold, `source='online'` carried to Reports, and the booking settings in Settings → Clinic. Plus a landing-page CTA and 36 new tests. |
+| *(this commit)* | docs | This file. |
 | `a49747e` | **1.10.1** · schema 7 | Marketing only: two landing-page feature cards (day close, reminders with a paper trail), a Day close strip chip, and a headline that runs to the closed day. No app behaviour changed. |
 | `f2feaba` | **1.10.0** · schema 7 | Day close (collections by method, cash reconciliation, frozen `day_closes` snapshot), the missed-charge detector, and the reminder queue with a `reminders` send log that honours quiet hours. Plus mobile layouts for both new screens. |
-| `7dab99c` | docs | This file, for the v1.9.0 bundles. |
+| `7dab99c` | docs | PUSH.md for the v1.9.0 bundles. |
 | `3fdee7b` | **1.9.0** · schema 6 | Phone layout for every screen: agenda day board, lists that read down, full-screen consultation sheet with pinned actions, paged registers, 38px+ touch targets. Plus `buildDayBoard` now honours its injected clock. |
-| `8df4296` | **1.8.0** · schema 6 | Medicine master typeahead with dose defaults, prescription safety, acknowledgement logged to `consultations.rx_safety`, `RX/26-27/0001` numbering. |
+| `8df4296` | **1.8.0** · schema 6 | Medicine master typeahead with dose defaults, prescription safety, acknowledgement logged to `consultations.rx_safety`, `RX/<fy>/<seq>` numbering. |
 | `cc0ca35` | **1.7.0** · schema 5 | UPI QR collection, one payment sheet everywhere, rebuilt documents, `supabase/schema.sql` as the single source of truth for the database. |
 
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.10.1.bundle    # refs + required base
-git bundle verify myClinic-full-v1.10.1.bundle         # "complete history"
-git clone -b main myClinic-full-v1.10.1.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.11.0.bundle    # refs + required base
+git bundle verify myClinic-full-v1.11.0.bundle         # "complete history"
+git clone -b main myClinic-full-v1.11.0.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
@@ -91,21 +97,41 @@ cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 3. Watch the workflow: it prints `node -v` / `npm -v` (expect `v26.13.0` /
    `12.2.1`), then either `Supabase keys present` or a demo-mode warning, then deploys.
 4. Site: <https://rajeshlande.github.io/myClinic/> · self-test: `/#/setup`.
+   The sample clinic's booking page is at `/#/book/sunrise-opd`.
 5. **Run the database migration**: paste `supabase/schema.sql` into the Supabase SQL
-   editor once. It is idempotent and lands the project at schema **7** — the version
-   this build expects, adding `day_closes` and `reminders` to the schema 6 columns
-   (`rx_number`, `rx_version`, `rx_safety`). Until it is run, Day close and the
-   reminder log say so on screen and cannot write; every other screen works.
+   editor once. It is idempotent and lands the project at schema **8** — the version
+   this build expects. (Coming from schema 7 it applies just the schema 8 block.) Until it is run, the public booking page says "Online booking
+   needs schema 8" instead of booking, and every other screen works exactly as before.
 
-### What schema 7 changes
+### What schema 8 changes
 
-- New table `day_closes`: one row per clinic per day, `unique (clinic_id, closed_on)`,
-  with the frozen `totals` jsonb, `expected_cash_paise`, `counted_cash_paise`,
-  `variance_paise`, `note`, `status` (`closed` / `reopened`) and `closed_by`.
-  Read by owner, doctor and front desk; written by owner and front desk; no delete
-  policy — a close is reopened, never removed.
-- New table `reminders`: `draft_key`, `kind`, `ref_id`, `channel`, `status`
-  (`copied` / `opened` / `sent` / `skipped`), `body`, `logged_on`, `sent_at`,
-  `sent_by`. Append-only for staff; only an owner may delete a row.
-- Both are additive and guarded by `app_schema_version() >= 7`, so re-running the
-  file on a schema 6 database applies just this block and changes nothing else.
+Everything is additive except one constraint swap, and the whole block only runs
+when `app_schema_version() < 8`.
+
+- `clinics` gains `booking_enabled` (default true), `booking_horizon_days`
+  (default 14, 1–60) and `booking_note` (≤120 chars). A clinic that never had a
+  `slug` — the column arrived in migration 4 for branding and was left empty — is
+  given one derived from its name, stepping around collisions.
+- `appointments` gains `booking_ref` (unique per clinic where not null) and
+  `cancelled_at`.
+- **One constraint is replaced, not added:** the full
+  `unique (doctor_id, scheduled_on, scheduled_at)` becomes a partial unique index
+  `where status <> 'cancelled'`, so a cancelled slot can be booked again without
+  deleting history. Strictly weaker than what it replaces — no row that satisfied
+  the old rule can violate the new one.
+- Five `security definer` functions with `set search_path = public`, each granted to
+  `anon` and `authenticated` and revoked from `PUBLIC`:
+  `public_clinic_profile(text)`, `public_booking_busy(text, uuid)`,
+  `public_book(text, uuid, date, time, text, text, text)`,
+  `public_booking_lookup(text)`, `public_cancel_booking(text)`.
+  No policy is added for `anon` on any table — the functions are the whole surface,
+  and `public_booking_busy` returns times and lengths, never a patient.
+- `public_book` takes a per-doctor-per-day advisory lock, refuses a slot that
+  overlaps a live appointment, caps a phone at three online bookings a day and a
+  clinic at forty an hour, and matches an existing patient by phone digits before
+  creating a new `PT-xxxxx` card.
+- `patients_phone_digits_idx` on `(clinic_id, regexp_replace(phone, '[^0-9]', '', 'g'))`
+  so the phone match is an index lookup rather than a scan.
+
+Run `node scripts/security-check.mjs` for the anon-side checks that should follow
+(set role anon; the five RPCs answer, every table refuses).
