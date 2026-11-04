@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.8';
+export const APP_VERSION = '1.11.9';
 export const SCHEMA_VERSION = 10;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.9', date: '2026-11-04', schema: 10,
+    highlights: [
+      'The front desk gets its own workspace back: no Doctors & staff, no Day close, no Subscription and no plan box in the sidebar. Its nav is Dashboard, Token queue, Appointments, Patients, Billing, Reports and Settings.',
+      'Day close is now the owner\'s screen. Counting the drawer, writing down a variance and freezing the day\'s snapshot are reconciliation, not collection — the desk still takes payments at the counter.',
+      'Settings shows a seat only the tabs it can act on: a front-desk account gets My account, Appearance, Offline & sync and About; the clinic profile, logos, GST setup, booking link and plan are the owner\'s.',
+      'The plan panel is gone from the sidebar for anyone who cannot open it — a doctor or a desk seat no longer sees an upgrade box it cannot use.',
+      'The README follows the awesome-readme shape: centred logo and pitch, badges, screenshots, quick start, features by seat, role table, plans, structure, configuration, database, testing, deployment, troubleshooting and docs.',
+    ],
+  },
   {
     version: '1.11.8', date: '2026-11-04', schema: 10,
     highlights: [

@@ -125,7 +125,7 @@ test('the routes themselves are guarded, not just the menu', () => {
   assert.match(app, /path="consultations" element=\{<RequireCapability capability="consultation:read">/);
   assert.match(app, /path="follow-ups" element=\{<RequireCapability capability="consultation:read">/);
   assert.match(app, /path="billing" element=\{<RequireCapability capability="invoice:read">/);
-  assert.match(app, /path="day-close" element=\{<RequireCapability capability="invoice:collect">/);
+  assert.match(app, /path="day-close" element=\{<RequireCapability capability="day:close">/);
   assert.match(app, /path="reports" element=\{<RequireCapability capability="clinic:reports">/);
   assert.match(app, /path="subscription" element=\{<RequireCapability capability="clinic:settings">/);
 });
@@ -203,4 +203,54 @@ test('the shortcuts follow the same line as the screens', () => {
 test('the printable views are guarded like the pages that link to them', () => {
   assert.match(app, /path="\/invoice\/:id" element=\{<RequireCapability capability="invoice:read">/);
   assert.match(app, /path="\/prescription\/:id" element=\{<RequireCapability capability="consultation:read">/);
+});
+
+test('the front desk does not get the owner\'s back-office screens', () => {
+  // Reported from the clinic: a front-desk seat could open Doctors & staff, Day
+  // close and the subscription panel. Taking money is theirs; reconciling the
+  // drawer, the roster and the plan are not.
+  assert.equal(can('frontdesk', 'day:close'), false);
+  assert.equal(can('frontdesk', 'team:read'), false);
+  assert.equal(can('frontdesk', 'clinic:settings'), false);
+  assert.equal(can('frontdesk', 'invoice:collect'), true, 'collecting at the counter stays theirs');
+
+  // …and the seats that do own them still have them.
+  assert.equal(can('owner', 'day:close'), true);
+  assert.equal(can('owner', 'team:read'), true);
+  assert.equal(can('doctor', 'team:read'), true, 'a doctor can see the roster');
+  assert.equal(can('doctor', 'day:close'), false, 'a doctor does not close the till');
+
+  // the nav and the routes agree with the matrix
+  assert.match(layout, /to: '\/app\/day-close', label: 'Day close', icon: Sunset, capability: 'day:close'/);
+  assert.match(layout, /to: '\/app\/team', label: 'Doctors & staff', icon: ClipboardList, capability: 'team:read'/);
+  assert.equal(ROUTE_CAPABILITY['/app/day-close'], 'day:close');
+  assert.equal(ROUTE_CAPABILITY['/app/team'], 'team:read');
+
+  const dayClose = read('../src/pages/DayClose.jsx');
+  assert.match(dayClose, /const canClose = can\(store\.role \?\? 'owner', 'day:close'\)/);
+});
+
+test('the settings page shows a seat only what it can act on', () => {
+  const settings = read('../src/pages/Settings.jsx');
+  // tabs are derived; the clinic's identity, GST and plan need clinic:settings
+  assert.match(settings, /const visibleTabs = \[/);
+  assert.match(settings, /const activeTab = visibleTabs\.some\(\(t\) => t\.value === tab\) \? tab : visibleTabs\[0\]\.value/);
+  assert.match(settings, /\.\.\.\(canEdit \? \[/);
+  assert.match(settings, /{ value: 'account', label: 'My account' }/);
+  assert.match(settings, /{ value: 'appearance', label: 'Appearance & colours' }/);
+  assert.match(settings, /{ value: 'sync', label: 'Offline & sync' }/);
+  // no section is still keyed off the raw tab value
+  assert.doesNotMatch(settings, /\{tab === '/);
+
+  // what a front-desk seat keeps, and what it loses
+  for (const owner_tab of ["'clinic'", "'branding'", "'billing'", "'plan'"]) {
+    const line = settings.split('\n').find((l) => l.includes(`{ value: ${owner_tab}`));
+    assert.ok(line, `${owner_tab} tab exists`);
+  }
+  assert.match(settings, /const canEdit = can\(role, 'clinic:settings'\)/);
+});
+
+test('the sidebar plan panel is absent for a seat that cannot open the plan', () => {
+  assert.match(layout, /\{can\(role, 'clinic:settings'\) \? \(\s*<div className="plan-card">/);
+  assert.doesNotMatch(layout, /clinic owner manages the plan\./);
 });

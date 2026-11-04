@@ -36,7 +36,7 @@ export default function Dashboard() {
   const role = store.role ?? 'owner';
   const canReadConsults = can(role, 'consultation:read');
   const canSeeMoney = can(role, 'clinic:reports:money');
-  const canCollect = can(role, 'invoice:collect');
+  const canCollect = can(role, 'day:close');
 
   const totals = useMemo(() => monthTotals({
     invoices: canSeeMoney ? store.invoices : [],

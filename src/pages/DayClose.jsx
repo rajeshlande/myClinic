@@ -34,7 +34,7 @@ export default function DayClose() {
   const [busy, setBusy] = useState(false);
 
   const dayCloses = store.day_closes ?? [];
-  const canClose = can(store.role ?? 'owner', 'invoice:collect');
+  const canClose = can(store.role ?? 'owner', 'day:close');
 
   const canReadConsults = can(store.role ?? 'owner', 'consultation:read');
   const totals = useMemo(() => dayTotals({

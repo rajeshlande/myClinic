@@ -23,7 +23,7 @@ export const ROLE_LABEL = { owner: 'Owner', doctor: 'Doctor', frontdesk: 'Front 
 export const ROLE_BLURB = {
   owner: 'Full access — clinic settings, team, billing and plan. Can delete records and void invoices.',
   doctor: 'Consultations, prescriptions and follow-ups, plus the reports that read them. No billing, no clinic setup, no staff changes.',
-  frontdesk: 'Patients, appointments, token queue, invoices and payments, plus the money reports. No consultation notes, no clinic setup, no staff changes.',
+  frontdesk: 'Patients, appointments, token queue, invoices and payments, plus the money reports. No consultation notes, no day close, no staff roster, no clinic setup.',
 };
 
 /** capability → roles allowed */
@@ -44,11 +44,16 @@ const MATRIX = {
 
   'invoice:read': ['owner', 'frontdesk'],
   'invoice:create': ['owner', 'frontdesk'],
+  // Taking money at the counter is the desk's job; *closing the day* — counting
+  // the drawer, writing down a variance, freezing the snapshot — is the owner's.
   'invoice:collect': ['owner', 'frontdesk'],
+  'day:close': ['owner'],
   'invoice:void': ['owner'],
   'invoice:delete': ['owner'],
 
-  'team:read': ['owner', 'doctor', 'frontdesk'],
+  // The roster carries fees, hours and the invites of every seat; the front desk
+  // books against doctors but does not manage them.
+  'team:read': ['owner', 'doctor'],
   'team:write': ['owner'],
 
   'clinic:settings': ['owner'],
@@ -111,7 +116,7 @@ export const ROUTE_CAPABILITY = {
   '/app/follow-ups': 'consultation:read',
   '/app/reports': 'clinic:reports',
   '/app/billing': 'invoice:read',
-  '/app/day-close': 'invoice:collect',
+  '/app/day-close': 'day:close',
   '/app/team': 'team:read',
   '/app/settings': null,                    // everyone may open; sections gate themselves
 };

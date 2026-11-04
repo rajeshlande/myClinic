@@ -122,7 +122,7 @@ function ClinicApp() {
           <Route path="patients/:id" element={<PatientDetail />} />
           <Route path="consultations" element={<RequireCapability capability="consultation:read"><Consultations /></RequireCapability>} />
           <Route path="billing" element={<RequireCapability capability="invoice:read"><Billing /></RequireCapability>} />
-          <Route path="day-close" element={<RequireCapability capability="invoice:collect"><DayClose /></RequireCapability>} />
+          <Route path="day-close" element={<RequireCapability capability="day:close"><DayClose /></RequireCapability>} />
           <Route path="follow-ups" element={<RequireCapability capability="consultation:read"><FollowUps /></RequireCapability>} />
           <Route path="team" element={<RequireCapability capability="team:read"><Team /></RequireCapability>} />
           <Route path="reports" element={<RequireCapability capability="clinic:reports"><Reports /></RequireCapability>} />

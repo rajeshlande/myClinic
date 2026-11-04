@@ -27,7 +27,7 @@ const NAV = [
   { group: 'Records & money', items: [
     { to: '/app/patients', label: 'Patients', icon: Users },
     { to: '/app/billing', label: 'Billing', icon: CreditCard, capability: 'invoice:read' },
-    { to: '/app/day-close', label: 'Day close', icon: Sunset, capability: 'invoice:collect' },
+    { to: '/app/day-close', label: 'Day close', icon: Sunset, capability: 'day:close' },
     { to: '/app/reports', label: 'Reports', icon: BarChart3, capability: 'clinic:reports' },
   ] },
   { group: 'Clinic setup', items: [
@@ -130,19 +130,17 @@ export default function AppLayout() {
       ))}
 
       <div className="sidebar-foot">
-        <div className="plan-card">
-          <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {(store.license?.plan ?? 'growth') === 'chain' ? 'Multi-clinic' : (store.license?.plan ?? 'growth') === 'solo' ? 'Solo plan' : 'Growth plan'}</div>
-          <p className="tiny muted" style={{ margin: '4px 0 6px' }}>{store.mode === 'demo' ? 'Demo workspace · sample data' : 'Live workspace · Supabase synced'}</p>
-          <span className={`badge ${licenseTone(store.license) === 'success' ? 'success' : licenseTone(store.license) === 'danger' ? 'danger' : 'warn'} tiny`} style={{ marginBottom: 8, display: 'inline-flex' }}>{licenseHeadline(store.license)}</span>
-          {/* Only the owner can open the subscription (clinic:settings), so only the
-              owner is offered the button — everyone else reads the status and knows
-              who to ask. */}
-          {can(role, 'clinic:settings') ? (
+        {/* The plan panel belongs to whoever can act on it. A doctor or a front-desk
+            seat sees no plan box, no subscription link and no upgrade nudge — the
+            clinic's billing is not their screen. */}
+        {can(role, 'clinic:settings') ? (
+          <div className="plan-card">
+            <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {(store.license?.plan ?? 'growth') === 'chain' ? 'Multi-clinic' : (store.license?.plan ?? 'growth') === 'solo' ? 'Solo plan' : 'Growth plan'}</div>
+            <p className="tiny muted" style={{ margin: '4px 0 6px' }}>{store.mode === 'demo' ? 'Demo workspace · sample data' : 'Live workspace · Supabase synced'}</p>
+            <span className={`badge ${licenseTone(store.license) === 'success' ? 'success' : licenseTone(store.license) === 'danger' ? 'danger' : 'warn'} tiny`} style={{ marginBottom: 8, display: 'inline-flex' }}>{licenseHeadline(store.license)}</span>
             <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/subscription')}>Manage subscription</Button>
-          ) : (
-            <p className="tiny faint" style={{ margin: 0 }}>The clinic owner manages the plan.</p>
-          )}
-        </div>
+          </div>
+        ) : null}
         <button className="user-chip" onClick={() => navigate('/app/settings')}>
           <Avatar name={store.profile?.full_name || user?.email || 'Clinic owner'} size="sm" />
           <span style={{ minWidth: 0, flex: 1 }}>

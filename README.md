@@ -1,120 +1,125 @@
-# myClinic
+<div align="center">
+  <img src="public/icon.svg" width="88" height="88" alt="myClinic" />
+  <h1>myClinic</h1>
+  <p><strong>OPD management software for clinics that run on a queue and a bill.</strong></p>
+  <p>Appointments, public booking, token queue, patient records, consultations, prescriptions, GST billing, day close and follow-ups — one installable web app, offline-first, built for the Indian clinic desk.</p>
 
-**OPD management software for single- and multi-doctor clinics.** Appointments,
-public booking, token queue, patient records, consultations, prescriptions, GST
-billing and follow-ups — one installable web app that works on the reception
-desktop and on the doctor's phone, including when the internet does not.
+  <p>
+    <a href="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg" alt="Deploy" /></a>
+    <img src="https://img.shields.io/badge/schema-10-blue.svg" alt="schema 10" />
+    <img src="https://img.shields.io/badge/node-26.13.0-brightgreen.svg" alt="node 26" />
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
+  </p>
 
-[![CI](https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg)](https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml)
-[![Deploy](https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg)](https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-26.13.0-brightgreen.svg)](.nvmrc)
-
-[Live demo](https://rajeshlande.github.io/myClinic/) ·
-[Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) ·
-[Security policy](SECURITY.md)
+  <p>
+    <a href="https://rajeshlande.github.io/myClinic/"><strong>Live demo</strong></a> ·
+    <a href="CHANGELOG.md">Changelog</a> ·
+    <a href="docs/SUPABASE-SETUP.md">Setup guide</a> ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
+</div>
 
 ![Dashboard](screenshots/dashboard.png)
 
----
+## Table of contents
 
-## Contents
-
-- [What this is](#what-this-is)
+- [Why myClinic](#why-myclinic)
+- [Quick start](#quick-start)
+- [Screenshots](#screenshots)
 - [Features](#features)
 - [Roles and permissions](#roles-and-permissions)
 - [Plans and subscription](#plans-and-subscription)
-- [Tech stack](#tech-stack)
+- [Built with](#built-with)
 - [Project structure](#project-structure)
-- [Getting started](#getting-started)
 - [Configuration](#configuration)
-- [Database](#database)
-- [Testing and quality gates](#testing-and-quality-gates)
+- [Database and migrations](#database-and-migrations)
+- [Testing](#testing)
 - [Deployment](#deployment)
-- [Offline and PWA behaviour](#offline-and-pwa-behaviour)
 - [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
-- [Versioning and releases](#versioning-and-releases)
+- [Versioning](#versioning)
 - [Contributing](#contributing)
 - [License](#license)
 
----
+## Why myClinic
 
-## What this is
-
-A clinic's day runs on one queue and one bill. Most software makes the
-receptionist fight the software to get there. myClinic is built around three
-constraints:
+A clinic's day runs on one queue and one bill. Most software makes the receptionist
+fight the software to get there. Three constraints shaped every screen:
 
 - **The queue is the day.** Tokens, check-in, "in consult", "done" — and the day
   board is interval-accurate, so a 30-minute visit occupies 30 minutes of the
   doctor's morning.
-- **Money is integer paise, everywhere.** No floating-point rupees and no
-  rounding drift between the consultation, the invoice, the day close and the
-  report.
+- **Money is integer paise, everywhere.** No floating-point rupees and no rounding
+  drift between the consultation, the invoice, the day close and the report.
 - **The server is the authority.** Roles, seat limits and the read-only gate are
   Postgres policies and triggers, not hidden buttons. The client mirrors those
   rules so it never offers an action the server would reject.
 
-It ships as a single-page PWA: installable, offline-first, and hash-routed so it
-deploys under any sub-path without rewriting URLs.
+## Quick start
+
+Runs in **demo mode** with six months of fictional clinic data — no account, no
+configuration, no Supabase project:
+
+```bash
+git clone https://github.com/rajeshlande/myClinic.git
+cd myClinic
+npm ci
+npm run dev        # http://localhost:5173
+```
+
+To connect a real clinic, add two keys and apply the database:
+
+```bash
+cp .env.example .env.local     # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+# paste supabase/schema.sql into the Supabase SQL editor (whole file, once)
+```
+
+Requirements: **Node 26 LTS** (pinned in `.nvmrc`; anything ≥ 22.22 works) and
+**npm 12.2.1**.
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server on `0.0.0.0:5173` |
+| `npm run build` | Production bundle in `dist/` |
+| `npm test` | 286 unit tests across 13 suites |
+| `npm run check:pages` | Proves the bundle is deployable as-is |
+| `npm run verify` | `test` + `build` + `check:pages` — the gate CI runs |
+
+## Screenshots
+
+| Front desk | Doctor | Owner |
+|---|---|---|
+| ![Queue](screenshots/queue.png) | ![Consultation](screenshots/prescription.png) | ![Reports](screenshots/reports.png) |
+| ![Billing](screenshots/billing.png) | ![Patient chart](screenshots/patient-chart.png) | ![Invoice](screenshots/invoice.png) |
+
+| On a phone | Dark theme | Offline |
+|---|---|---|
+| ![Mobile dashboard](screenshots/mobile-dashboard.png) | ![Dark](screenshots/dashboard-dark.png) | ![Sync centre](screenshots/offline-center.png) |
 
 ## Features
 
-### Front desk
+**Front desk** — token queue for walk-ins; interval-accurate day board per doctor,
+week load and next-free suggestion; patient registration with auto codes
+(`PT-00001`), phone-digit dedupe and clinical flags; GST-ready invoices with line
+items, discounts, part payments and a scannable **UPI QR** on every unpaid bill;
+reminders with a send log that honours quiet hours.
 
-- **Token queue** — walk-in tokens, live waiting / in-consult / done states,
-  average wait, one tap to consult.
-- **Appointments** — day board per doctor (interval-accurate), week load, list
-  view, next-free suggestion, check-in → in-consult → completed, no-show, cancel
-  with undo, reschedule.
-- **Patient registration** — automatic patient codes (`PT-00001`), phone-digit
-  dedupe, clinical flags, and a full chart with timeline.
-- **Billing** — GST-ready invoices, line items, discounts, part payments, payer
-  method (cash / UPI / card / insurance / credit), outstanding dues per patient,
-  and a printable invoice carrying a scannable **UPI QR** with the exact balance.
-- **Day close** — collections split by method, cash counted against cash
-  expected with the variance written down, missed charges found automatically,
-  and a **frozen snapshot** per day: reopen to amend, never overwrite silently.
-- **Reminders** — one privacy-safe message per patient for tomorrow's
-  appointments, due recalls and week-old balances, with a send log that honours
-  quiet hours so nobody is chased twice.
+**Doctor** — consultations with vitals, examination, diagnoses and advice; a
+medicine master typeahead that fills dose, frequency and duration and runs safety
+checks; print-ready prescriptions in ten Indian languages with `RX/<fy>/<seq>`
+numbering; follow-up lists that close the loop.
 
-### Doctor
+**Owner** — revenue, payer mix, footfall, appointment outcomes and doctor
+performance; a public booking page at `/#/book/<clinic-slug>` that sells the same
+slots the front desk sees, with a `BK-…` reference a patient can cancel with;
+doctors and staff with their own hours, fees and calendar colour; email
+invitations claimed on first sign-in; day close with cash reconciliation, missed
+charges and a frozen snapshot per day.
 
-- **Consultations** — vitals, complaint, examination, diagnoses, prescription
-  lines, advice and the next follow-up date.
-- **Medicine master** — typeahead by brand / molecule / symptom that fills dose,
-  frequency, duration and food relation, with safety checks on every
-  prescription.
-- **Prescriptions** — `RX/<fy>/<seq>` numbering, print-ready, in ten Indian
-  languages (en, hi, mr, ta, te, bn, gu, kn, ml, pa).
-- **Follow-ups** — overdue / due-today / next-7-days lists, closed-loop "mark
-  done", and a gone-quiet cohort.
-
-### Practice owner
-
-- **Dashboard and reports** — revenue trend, payer mix, footfall, appointment
-  outcomes, doctor performance, top diagnoses, where the diary comes from
-  (walk-in / phone / online / referral) and daily collection.
-- **Public booking** — a page at `/#/book/<clinic-slug>` a patient opens with no
-  account: doctor picker, a 14-day strip that greys out full days, and real slots
-  from the same engine the front desk uses, so a patient and a receptionist
-  cannot double-book. The patient gets a `BK-…` reference to cancel with.
-- **Doctors and staff** — per-doctor hours, slot length, fees and calendar
-  colour; email invitations claimed on first sign-in; role matrix; seat count
-  against the plan.
-- **Branding and settings** — clinic profile, logos used on documents,
-  GST/billing, booking settings, theme and density, data export.
-
-### Platform
-
-- **Offline-first** — an outbox replays writes when the connection returns, and
-  conflicts surface in a sync centre instead of overwriting a clinician's edit.
-- **Multi-tenant by policy** — every row carries `clinic_id`, and RLS decides
-  access; a client-supplied claim is never trusted.
-- **Responsive** — one set of breakpoints (`src/lib/responsive.mjs`) and a bottom
-  tab bar on phones. Nothing is hidden that a wide screen shows.
+**Platform** — offline-first with an outbox and a sync centre that never merges a
+clinician's edit silently; multi-tenant by RLS; one set of breakpoints with a
+bottom tab bar on phones; installable PWA.
 
 ## Roles and permissions
 
@@ -122,63 +127,55 @@ Three seats, one table — printed on the Team page, enforced by the nav, the
 routes, the screens **and** the database (schema 10).
 
 | Capability | Owner | Doctor | Front desk |
-| --- | :--: | :--: | :--: |
+| --- | :--: | :--: | :--:|
 | Dashboard & reports | ✓ | ✓ | ✓ |
 | Patient charts | ✓ | ✓ | ✓ |
 | Consultations & prescriptions | ✓ | ✓ | — |
 | Billing & payments | ✓ | — | ✓ |
-| Clinic settings & plan | ✓ | — | — |
-| Invite or remove staff | ✓ | — | — |
+| Day close & reconciliation | ✓ | — | — |
+| Staff roster | ✓ | ✓ | — |
+| Clinic settings, plan & staff changes | ✓ | — | — |
 
-How it is enforced:
+Where each row is enforced:
 
 | Layer | Mechanism |
-| --- | --- |
-| Screens | `can(role, capability)` from `src/lib/permissions.js` drives every button, tab and section. |
+|---|---|
+| Screens | `can(role, capability)` from `src/lib/permissions.js` drives every button, tab and section — including which settings tabs exist for a seat. |
 | Routes | `<RequireCapability>` in `src/App.jsx` redirects a role that cannot open a page instead of showing a dead screen. |
-| Database | `consultations_read` = owner + doctor; `invoices_read/_write/_update` = owner + front desk; staff changes are guarded by policies and the `staff_guard()` trigger. |
+| Database | `consultations_read` = owner + doctor; `invoices_read/_write/_update` = owner + front desk; staff changes guarded by policies and the `staff_guard()` trigger. |
 | Numbers | A role without consultation access still sees its footfall: totals fall back to completed appointments, so the desk never reads a real day as an empty one. |
 
-`tests/rbac.test.mjs` fails the build if the capability map and the SQL role
-lists ever drift apart.
+`tests/rbac.test.mjs` fails the build if the capability map, the routes and the
+SQL role lists drift apart.
 
 ## Plans and subscription
 
-Three plans, seat-limited, priced in the app and enforced in the database.
-
 | Plan | Monthly | Yearly (2 months free) | Doctors | Front desk | Branches |
-| --- | --- | --- | --- | --- | --- |
+|---|---|---|---|---|---|
 | Solo | ₹999 | ₹9,590 | 1 | 1 | 1 |
 | Growth | ₹2,499 | ₹23,990 | 5 | 3 | 1 |
 | Multi-clinic | ₹5,999 | ₹57,590 | unlimited | unlimited | unlimited |
 
 Lifecycle: **14-day trial** → **active** → **7-day grace** after the period ends
-(writes still work, with a banner) → **read-only**. No card processing happens
-inside the app: a payment is recorded against a UPI / bank / reseller reference,
-and the term is always the subscription's own interval — a yearly clinic renews
-for twelve months, whatever a price toggle says.
+(writes still work, with a banner) → **read-only**. No card processing happens in
+the app: a payment is recorded against a UPI / bank / reseller reference, and the
+term is always the subscription's own interval — a yearly clinic renews for twelve
+months. Only the owner sees the plan panel or can change it.
 
-What licensing never does, enforced the same way:
+What licensing never does: hold data hostage (expired clinics read and export
+everything), delete anything (lapsing pauses writes), or trust the client (seat
+limits and the write gate are Postgres triggers and RLS).
 
-- **Never holds data hostage.** An expired clinic can read and export everything.
-- **Never deletes anything.** Lapsing pauses writes; records, staff and history
-  stay exactly where they were.
-- **Never trusts the client.** Seat limits and the write gate are Postgres
-  triggers and RLS, mirrored by the UI so the refusal is explained before it
-  happens.
+## Built with
 
-Only the **owner** can change the plan or record a payment (`clinic:settings`).
-
-## Tech stack
-
-| Layer | Choice | Why |
-| --- | --- | --- |
-| UI | React 19, React Router 8 (hash routing), hand-written CSS | No component-library churn; hash routing deploys under any sub-path. |
-| Build | Vite 8 | Fast dev server, relative-asset production bundles. |
-| Data | Supabase (Postgres + Auth + RLS) | The database is the security boundary, not the client. |
-| Offline | `src/lib/offline.js` | Cache keyed per user and clinic, 24 h TTL, separate outbox. |
-| Tests | `node --test`, `supabase/schema-tests.sql` | Domain logic in plain JS; policies tested in a real Postgres. |
-| Deploy | GitHub Actions → GitHub Pages | Nothing to run, nothing to pay for the demo. |
+| Layer | Choice |
+|---|---|
+| UI | React 19, React Router 8 (hash routing), hand-written CSS |
+| Build | Vite 8 |
+| Data | Supabase — Postgres, Auth, row-level security |
+| Icons | lucide-react |
+| QR | qrcode-generator (UPC/UPI QR encoded locally, nothing sent to a service) |
+| Tests | `node --test`, plus SQL suites run against a real PostgreSQL |
 
 ## Project structure
 
@@ -192,48 +189,16 @@ src/
     permissions.js        the capability matrix: one source for UI and tests
     store.jsx             the single data store (live Supabase or demo mode)
     offline.js            cache, outbox, conflict resolution
-    demo-data.js          six months of fictional clinic data for demo mode
-  pages/                  one file per screen (Dashboard, Billing, DayClose, …)
+    demo-data.js          six months of fictional clinic data
+  pages/                  one file per screen
   components/             forms, layout, charts, document shells
 supabase/
-  schema.sql              the database: tables, policies, functions, migrations 1→10
-  schema-tests.sql        six rolled-back SQL suites (roles, licensing, booking, …)
-tests/                    276 unit tests across 12 suites
+  schema.sql              the whole database: tables, policies, functions, migrations 1→10
+  schema-tests.sql        six rolled-back SQL suites
+tests/                    286 unit tests across 13 suites
 docs/                     setup, security, dependency and gap analysis
 scripts/                  check-pages.mjs, security-check.mjs
 ```
-
-## Getting started
-
-### Prerequisites
-
-- **Node 26 LTS** (pinned in `.nvmrc` / `.node-version` → 26.13.0); any Node
-  **≥ 22.22** also works
-- **npm 12.2.1** (`packageManager`)
-- A Supabase project — only when you want real accounts and cloud persistence
-
-### Demo mode (no configuration)
-
-```bash
-npm ci
-npm run dev            # http://localhost:5173
-```
-
-With no keys the app boots into **Sunrise Multispecialty OPD** with six months of
-fictional patients, appointments, consultations and invoices. Everything is kept
-in this browser's `localStorage`; **Settings → Plan & data** resets it.
-
-### Scripts
-
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Vite dev server on `0.0.0.0:5173` |
-| `npm run build` | Production bundle in `dist/` |
-| `npm run preview` | Serve the built bundle |
-| `npm test` | 276 unit tests (domain, day book, licensing, RBAC, sync, schema guards) |
-| `npm run check:pages` | Verifies the bundle is deployable (relative assets, SPA fallback, no absolute paths) |
-| `npm run test:security` | The anon-side checklist: tables refuse, RPCs answer |
-| `npm run verify` | `test` + `build` + `check:pages` — the gate CI runs |
 
 ## Configuration
 
@@ -241,7 +206,7 @@ Copy `.env.example` to `.env.local`. Only **public** values belong in a `VITE_`
 variable.
 
 | Variable | Required | Purpose |
-| --- | --- | --- |
+|---|---|---|
 | `VITE_SUPABASE_URL` | live mode | `https://<ref>.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | live mode | Publishable / anon key. **Never** a service-role key. |
 | `VITE_BASE` | no | Force an absolute asset base; leave empty for relative assets. |
@@ -249,35 +214,26 @@ variable.
 Missing keys are not an error: the build runs in demo mode and says so in the
 deploy log.
 
-## Database
+## Database and migrations
 
-`supabase/schema.sql` is the whole database — tables, policies, `security definer`
-functions and every migration up to the current schema version, gated by
-`app_schema_version()`. It is **idempotent and additive**: run it whole, as often
-as you like, and it applies only the blocks you are missing.
+`supabase/schema.sql` is the whole database, and it is **idempotent and
+additive** — run it whole, as often as you like, and it applies only the blocks you
+are missing.
 
 ```bash
-# once per project, in the Supabase SQL editor (whole file), or:
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
-
-# then prove it, against a scratch project:
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql    # migrate
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql  # prove it
 ```
 
-Current schema: **10**. The app warns when the database is behind it, and every
-upgrade path is exercised before a release — a fresh install and an N → N+1
-upgrade, both followed by the SQL suites.
+Current schema level: **10**, exposed by `app_schema_version()`. The app warns
+when the database is behind it, and every upgrade path is exercised before a
+release — a fresh install and an N → N+1 upgrade, both followed by the SQL suites.
 
-Data rules that never change:
+Rules that never change: every tenant row carries `clinic_id` and policies read it
+(never a client claim); ids are `uuid`, codes (`PT-…`, `INV/…`, `RX/…`) are minted
+server-side; money is `bigint` paise; timestamps are `timestamptz`.
 
-- Every tenant row carries `clinic_id`; policies read it, never a client claim.
-- Ids are `uuid` (`gen_random_uuid()`); codes (`PT-…`, `INV/…`, `RX/…`) are minted
-  server-side.
-- Money is `bigint` paise; timestamps are `timestamptz`.
-- Deleting a clinic cascades to its records; deleting a patient is restricted
-  while invoices exist.
-
-## Testing and quality gates
+## Testing
 
 ```bash
 npm run verify                 # unit tests, build, deployability
@@ -285,14 +241,13 @@ node scripts/security-check.mjs
 ```
 
 | Gate | Scope |
-| --- | --- |
-| `npm test` | **276 tests / 12 suites**: domain logic, day book, licensing, RBAC matrix, invites, medicines, payments, public booking, offline replay, responsive breakpoints, schema-shaped guards. |
+|---|---|
+| `npm test` | **286 tests / 13 suites** — domain logic, day book, licensing, RBAC, invites, medicines, payments, public booking, offline replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
 | `supabase/schema-tests.sql` | **Six SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion. |
-| CI (`ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
+| CI (`.github/workflows/ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
 
 SQL is never shipped unverified: it is applied to a real PostgreSQL 17 and the
-suites run against it, on a fresh database and as an upgrade from the previous
-schema.
+suites run against it.
 
 ## Deployment
 
@@ -302,32 +257,22 @@ GitHub Pages, driven by `.github/workflows/pages.yml` on every push to `main`
 1. **Settings → Secrets and variables → Actions**: add `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` (optional — without them the deploy is a demo build).
 2. **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Push to `main`. The workflow tests, builds, checks the bundle, adds a
-   `404.html` fallback and deploys.
+3. Push to `main`. The workflow tests, builds, checks the bundle, adds a `404.html`
+   fallback and deploys.
 
 The site lives at `https://<owner>.github.io/<repo>/`. Assets are relative, so a
 project page, a custom domain and `localhost` all work from the same build.
-`/#/setup` is the in-app self-test: environment, schema version, RLS, and what
-this build expects.
-
-## Offline and PWA behaviour
-
-- Installable, standalone display, theme-aware icons, and shortcuts (queue /
-  book / register / billing).
-- An **outbox** queues writes while offline and replays them in order when the
-  connection returns.
-- The cache is keyed per user **and** per clinic, expires after 24 h, and is
-  purged on sign-out — a shared reception machine leaves no patient data behind.
-- Conflicts appear in a **sync centre**: nothing is merged automatically, money
-  fields hold back as a set, and a human resolves them.
+`/#/setup` is the in-app self-test: environment, schema version, RLS, and what this
+build expects.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
-| --- | --- |
+|---|---|
 | Pushed to `main`, no deploy ran | GitHub Actions was degraded, or the run was never created. **Actions → Deploy to GitHub Pages → Run workflow**; check `githubstatus.com`. |
 | The app says the schema is behind | Paste `supabase/schema.sql` into the SQL editor, whole file. It is additive; nothing is lost. |
 | A doctor cannot open Billing, or the desk cannot open Consultations | Intended since schema 10 — see [Roles and permissions](#roles-and-permissions). Move the person to the seat that owns the job. |
+| The front desk has no Day close or Doctors & staff | Also intended: those are the owner's reconciliation and roster screens. Only the owner sees the plan panel. |
 | Booking link 404s | The clinic has no slug. Schema 9 backfills it; **Settings → Clinic → Public booking → Save** mints one. |
 | Demo data looks stale | **Settings → Plan & data → Reset demo workspace**. |
 | Deploy builds but shows demo mode | The two Supabase secrets did not reach the build; the deploy log names the missing one. |
@@ -335,7 +280,7 @@ this build expects.
 ## Documentation
 
 | Document | Contents |
-| --- | --- |
+|---|---|
 | [`docs/SUPABASE-SETUP.md`](docs/SUPABASE-SETUP.md) | Project creation, redirect URLs, secrets, deploy, self-test. |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, findings and their remediation status. |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability, privately. |
@@ -345,11 +290,11 @@ this build expects.
 | [`docs/PRODUCT-GAP-ANALYSIS.md`](docs/PRODUCT-GAP-ANALYSIS.md) | What is deliberately **not** built yet, and why. |
 | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Dependencies and licences. |
 
-## Versioning and releases
+## Versioning
 
 Two numbers travel together and must not be confused:
 
-- **App version** (`package.json`, `src/lib/version.js`) — semantic, e.g. `1.11.7`.
+- **App version** (`package.json`, `src/lib/version.js`) — semantic, e.g. `1.11.9`.
 - **Schema version** (`app_schema_version()`) — a migration level. A release that
   needs a new one says so in its changelog entry and in the app.
 

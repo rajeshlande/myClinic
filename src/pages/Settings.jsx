@@ -54,6 +54,23 @@ export default function Settings() {
   useEffect(() => { applyDensity(prefs.density); }, [prefs.density]);
 
   const canEdit = can(role, 'clinic:settings');
+  // A seat only sees the settings it can act on: the clinic's identity, GST setup,
+  // booking link and plan are the owner's screens, so a front-desk account gets its
+  // own details, the look of the app and the sync status — nothing it would only be
+  // able to read and not change.
+  const visibleTabs = [
+    ...(canEdit ? [
+      { value: 'clinic', label: 'Clinic' },
+      { value: 'branding', label: 'Logos & branding' },
+      { value: 'billing', label: 'Billing & invoices' },
+    ] : []),
+    { value: 'account', label: 'My account' },
+    { value: 'appearance', label: 'Appearance & colours' },
+    { value: 'sync', label: 'Offline & sync' },
+    { value: 'about', label: 'About & version' },
+    ...(canEdit ? [{ value: 'plan', label: 'Plan & data' }] : []),
+  ];
+  const activeTab = visibleTabs.some((t) => t.value === tab) ? tab : visibleTabs[0].value;
   const clinicState = clinic ?? {};
   // The link Settings hands out has to be the link that works, so it is built from
   // the slug the *database* has — not from the name, and never from the demo
@@ -153,20 +170,11 @@ export default function Settings() {
       </div>
 
       <Tabs
-        value={tab} onChange={setTab}
-        tabs={[
-          { value: 'clinic', label: 'Clinic' },
-          { value: 'branding', label: 'Logos & branding' },
-          { value: 'billing', label: 'Billing & invoices' },
-          { value: 'account', label: 'My account' },
-          { value: 'appearance', label: 'Appearance & colours' },
-          { value: 'sync', label: 'Offline & sync' },
-          { value: 'about', label: 'About & version' },
-          { value: 'plan', label: 'Plan & data' },
-        ]}
+        value={activeTab} onChange={setTab}
+        tabs={visibleTabs}
       />
 
-      {tab === 'branding' ? (
+      {activeTab === 'branding' ? (
         <Card>
           <CardHead
             title="Logos & branding"
@@ -213,7 +221,7 @@ export default function Settings() {
         </Card>
       ) : null}
 
-      {tab === 'clinic' ? (
+      {activeTab === 'clinic' ? (
         <Card>
           <CardHead title="Clinic profile" sub="Appears on invoices, prescriptions and reminders" icon={Building2}
             action={<Button size="sm" variant="primary" icon={Save} onClick={saveClinic} loading={saving}>Save</Button>} />
@@ -252,7 +260,7 @@ export default function Settings() {
         </Card>
       ) : null}
 
-      {tab === 'clinic' ? (
+      {activeTab === 'clinic' ? (
         <Card>
           <CardHead
             title="Public booking" icon={CalendarDays}
@@ -354,7 +362,7 @@ export default function Settings() {
         </Card>
       ) : null}
 
-      {tab === 'billing' ? (
+      {activeTab === 'billing' ? (
         <Card>
           <CardHead title="Billing & invoices" sub="GST treatment and invoice numbering" icon={CreditCard}
             action={<Button size="sm" variant="primary" icon={Save} onClick={saveClinic} loading={saving}>Save</Button>} />
@@ -396,7 +404,7 @@ export default function Settings() {
         </Card>
       ) : null}
 
-      {tab === 'billing' ? (
+      {activeTab === 'billing' ? (
         <Card>
           <CardHead title="Payments &amp; UPI" sub="How patients settle an unpaid invoice" icon={QrCode}
             action={<Button size="sm" variant="primary" icon={Save} onClick={saveClinic} loading={saving}>Save</Button>} />
@@ -457,7 +465,7 @@ export default function Settings() {
         </Card>
       ) : null}
 
-      {tab === 'account' ? (
+      {activeTab === 'account' ? (
         <div className="stack" style={{ gap: 16 }}>
           <Card>
             <CardHead title="My account" sub={user?.email ?? 'Demo workspace — no live account'} icon={UserRound}
@@ -506,7 +514,7 @@ export default function Settings() {
         </div>
       ) : null}
 
-      {tab === 'appearance' ? (
+      {activeTab === 'appearance' ? (
         <div className="stack" style={{ gap: 16 }}>
           <Card>
             <CardHead title="Appearance" sub="Applies to this device" icon={Sun} />
@@ -600,7 +608,7 @@ export default function Settings() {
         </div>
       ) : null}
 
-      {tab === 'sync' ? (
+      {activeTab === 'sync' ? (
         <div className="stack">
           <Card>
             <CardHead title="Offline & sync" sub="Work through a power cut or a dead hotspot" icon={CloudOff} />
@@ -641,7 +649,7 @@ export default function Settings() {
         </div>
       ) : null}
 
-      {tab === 'about' ? (
+      {activeTab === 'about' ? (
         <div className="stack">
           <Card>
             <CardHead title="Version" sub="What this device is running" icon={GitBranch} />
@@ -685,8 +693,10 @@ export default function Settings() {
                 ['Issue tokens at the front desk', can(role, 'appointment:token')],
                 ['Write consultations and prescriptions', can(role, 'consultation:write')],
                 ['Collect payments', can(role, 'invoice:collect')],
+                ['Close the day and freeze the snapshot', can(role, 'day:close')],
                 ['Void a paid invoice', can(role, 'invoice:void')],
                 ['See money reports', can(role, 'clinic:reports:money')],
+                ['See the staff roster', can(role, 'team:read')],
                 ['Manage team and roles', can(role, 'team:write')],
                 ['Change clinic settings', can(role, 'clinic:settings')],
               ].map(([label, allowed]) => (
@@ -704,7 +714,7 @@ export default function Settings() {
         </div>
       ) : null}
 
-      {tab === 'plan' ? (
+      {activeTab === 'plan' ? (
         <div className="stack" style={{ gap: 16 }}>
           <Card>
             <CardHead title="Your plan" sub={store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'} icon={Sparkles}

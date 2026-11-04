@@ -173,6 +173,7 @@ test('the demo workspace honours the term it is given', () => {
 });
 
 test('only a seat that can open the subscription is offered it', () => {
-  assert.match(LAYOUT, /can\(role, 'clinic:settings'\) \? \(/);
-  assert.match(LAYOUT, /The clinic owner manages the plan\./);
+  // The panel is not merely disabled for a doctor or front desk — it is absent.
+  assert.match(LAYOUT, /\{can\(role, 'clinic:settings'\) \? \(\s*<div className="plan-card">/);
+  assert.doesNotMatch(LAYOUT, /clinic owner manages the plan\./);
 });

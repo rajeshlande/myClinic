@@ -3,6 +3,39 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.9] — 2026-11-04 · schema 10
+
+**The front desk gets its own workspace.** Reported from a live clinic: a
+front-desk seat could open **Doctors & staff**, **Day close** and the
+**subscription panel**, and Settings showed it the clinic's GST setup, booking
+link, logos and plan — screens it could only read, never change.
+
+Its nav is now Dashboard · Token queue · Appointments · Patients · Billing ·
+Reports · Settings. Day close moved to the owner: counting the drawer, writing
+down the variance and freezing the day's snapshot is reconciliation, not
+collection — **the desk still takes payments at the counter** (`invoice:collect`
+is unchanged; the new `day:close` capability owns the close).
+
+Doctors keep the roster (they need to see who they share a clinic with) but lost
+Day close too, and the plan panel is gone from the sidebar for anyone who cannot
+open it, rather than sitting there disabled.
+
+**Settings is per-seat.** The tab list is derived from capabilities: a front-desk
+account gets *My account · Appearance & colours · Offline & sync · About &
+version*; *Clinic · Logos & branding · Billing & invoices · Plan & data* are the
+owner's, and "Your access" in the About tab now spells out what the seat can and
+cannot do — including day close and the roster.
+
+**README** is rebuilt in the [awesome-readme](https://github.com/matiassingers/awesome-readme)
+shape: centred logo, pitch and badges; screenshots; quick start that runs in demo
+mode; features by seat; the role table with the layer that enforces each row;
+plans; structure; configuration; database; testing; deployment; troubleshooting;
+docs index.
+
+No database change — schema 10 covers this build. 286 tests in 13 suites; the new
+`day:close` and `team:read` rules, and the derived Settings tabs, are pinned by
+`tests/rbac.test.mjs`.
+
 ## [1.11.8] — 2026-11-04 · schema 10
 
 **One demo door.** The marketing page had four ways into the demo clinic — a hero
