@@ -5,42 +5,44 @@ hands over a **git bundle**: one file containing real git objects, refs and tags
 Your clone stays a normal clone; `git bundle verify` reports it as a complete
 source of history.
 
-GitHub is already at **v1.11.6**: `main` is `d9869c8` and the tags `v1.11.3 …
-v1.11.6` are published. This bundle carries **three releases on top of it** — v1.11.7 (the
-subscription fix and the rebuilt README), v1.11.8 (one demo door, no reference
-project) and v1.11.9 (the front desk's own workspace) — plus their docs commits. If you have not pushed since
-`e417a41` (v1.11.2), use the [catch-up](#catch-up-from-v1112) section below.
+**State of the remote:** `main` is at `be0711b` — v1.11.7, v1.11.8 and v1.11.9
+are **deployed** (Pages run #7, live bundle reports 1.11.9 / schema 10). The
+**tags** are not: that push was rejected with `remote: Internal Server Error`
+during GitHub's 2026-11-04 Git Operations incident, and the remote still lists
+only `v1.11.6` and older.
+
+So this bundle carries **one commit** — v1.11.10, the demo door fix — and the tag
+`v1.11.10`; the tags `v1.11.7`, `v1.11.8` and `v1.11.9` are still in the same
+bundle and still need pushing. If you have not pushed since `e417a41` (v1.11.2),
+use the [catch-up](#catch-up-from-v1112) section below.
 
 Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 | --- | --- | --- |
-| `myClinic-update-to-v1.11.9.bundle` | ~36 KB | You already have the repo at `d9869c8` (v1.11.6 pushed) — **recommended**. It is a delta and fast-forwards. |
-| `myClinic-full-v1.11.9.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.11.10.bundle` | ~5 KB | You already have the repo at `be0711b` (main pushed) — **recommended**. It is a delta and fast-forwards. |
+| `myClinic-full-v1.11.10.bundle` | ~11 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` and the tags `v1.11.7`, `v1.11.8` and `v1.11.9`.
-
-Checked against the live site today: <https://rajeshlande.github.io/myClinic/>
-still serves bundle `assets/index-t-8H4Y3H.js` and reports **1.11.6**. After this
-push the deployed bundle should report **1.11.9** and schema **10**.
+Both carry `main` and the tags `v1.11.7`, `v1.11.8`, `v1.11.9` and `v1.11.10`.
 
 ## Route A · update the clone you already pushed (recommended)
 
 ```bash
 cd ~/path/to/myClinic
-git status                      # expect: clean, HEAD at d9869c8
+git status                      # expect: clean, HEAD at be0711b
 git remote -v                   # expect: origin → github.com/rajeshlande/myClinic.git
 
-git fetch /path/to/myClinic-update-to-v1.11.9.bundle \
+git fetch /path/to/myClinic-update-to-v1.11.10.bundle \
   'refs/heads/main:refs/remotes/bundle/main' \
   'refs/tags/*:refs/tags/*'
 
 git merge --ff-only refs/remotes/bundle/main
 
-git log --oneline -3            # docs / a36008a fix(subscription) / d9869c8
+git log --oneline -2            # fix(demo) 1.11.10 / be0711b docs
 
 git push origin main
-git push origin refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9
+git push --atomic origin refs/tags/v1.11.7 refs/tags/v1.11.8 \
+  refs/tags/v1.11.9 refs/tags/v1.11.10
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -48,16 +50,20 @@ expects and you should stop rather than invent a merge.
 
 Tags are pushed **by name** rather than with `--tags`/`--follow-tags` because
 `v1.2.1` already exists on GitHub pointing at `53c0957`, while in this history it
-points at `5224806`. Nothing published gets rewritten.
+points at `5224806`. Nothing published gets rewritten. `--atomic` matters here:
+four tags go up and either all of them land or none do, so a repeat of the
+2026-11-04 server error cannot leave you with `v1.11.8` published and `v1.11.9`
+missing.
 
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.11.9.bundle myClinic
+git clone -b main myClinic-full-v1.11.10.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
-git push origin refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9
+git push --atomic origin refs/tags/v1.11.7 refs/tags/v1.11.8 \
+  refs/tags/v1.11.9 refs/tags/v1.11.10
 ```
 
 ## Catch-up from v1.11.2
@@ -66,16 +72,17 @@ If GitHub is still at `e417a41` (v1.11.2), use the same two files — they conta
 everything since — and push the four older tags by name as well:
 
 ```bash
-git fetch /path/to/myClinic-update-to-v1.11.9.bundle \
+git fetch /path/to/myClinic-full-v1.11.10.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
-git push origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5 \
-  refs/tags/v1.11.6 refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9
+git push --atomic origin refs/tags/v1.11.3 refs/tags/v1.11.4 refs/tags/v1.11.5 \
+  refs/tags/v1.11.6 refs/tags/v1.11.7 refs/tags/v1.11.8 refs/tags/v1.11.9 \
+  refs/tags/v1.11.10
 ```
 
-The update bundle declares `d9869c8` as its base, so for a clone still sitting on
+The update bundle declares `be0711b` as its base, so for a clone still sitting on
 `e417a41` ask for the full bundle's history instead — `git fetch` on a bundle
 reports the missing prerequisite rather than half-applying it.
 
@@ -83,6 +90,7 @@ reports the missing prerequisite rather than half-applying it.
 
 | Commit | Release | Scope |
 | --- | --- | --- |
+| `fix(demo)` *(top of `main`)* | **1.11.10** · schema 10 | **The demo door opens the demo.** On the one deployment with Supabase configured — the published site — the footer's *Open Demo* button routed a signed-out visitor to `/login`, so the single entrance promised in 1.11.8 ended on a sign-in form. It always opens the workspace now; with no session the store is already in demo mode against `localStorage`, and nothing is sent to the clinic database. `tests/landing.test.mjs` pins it (287 tests). |
 | `47873a3` | **1.11.9** · schema 10 | The front desk's own workspace: no Doctors & staff, no Day close, no Subscription and no plan panel; Settings shows a seat only the tabs it can act on. `day:close` becomes an owner capability (the desk still collects), `team:read` drops to owner + doctor, and the README follows the awesome-readme shape. |
 | `c9e683a` | **1.11.8** · schema 10 | One demo door: the marketing page keeps a single entry into the demo workspace — the footer button **Open Demo** — and the hero, closing band, plan cards and footer links lead to plans or sign up instead. The reference project myClinic grew out of is no longer named anywhere in the repo, including `THIRD_PARTY_NOTICES.md`. `tests/landing.test.mjs` guards both. |
 | `a36008a` | **1.11.7** · schema 10 | **Subscription.** The licence view dropped `interval` and `collection_ref`, so a yearly clinic read as monthly, was priced monthly, **renewed for one month instead of twelve**, and lost the payment reference it had just recorded. The view carries both now; `billingPeriod()`/`extendPeriod()` decide the term a payment buys (calendar months, matching `renew_subscription()`); the dialog's Monthly/Yearly toggle only previews prices; the demo workspace stops hard-coding 30 days. The sidebar offers "Manage subscription" only to the owner. Paise print in pairs (`₹23,990.40`). **README rebuilt** as a project front page. |
@@ -102,14 +110,16 @@ reports the missing prerequisite rather than half-applying it.
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.11.9.bundle    # refs + required base (d9869c8)
-git bundle verify myClinic-full-v1.11.9.bundle         # "complete history"
-git clone -b main myClinic-full-v1.11.9.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.11.10.bundle    # refs + required base (be0711b)
+git bundle verify myClinic-full-v1.11.10.bundle         # "complete history"
+git clone -b main myClinic-full-v1.11.10.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
 ## After the push (nothing in the bundle can do this for you)
 
+0. **Already deployed:** Pages run #7 published `be0711b` at 10:40Z; the live
+   bundle reports 1.11.9. This push adds v1.11.10 on top — watch run #8 for it.
 1. **Settings → Secrets and variables → Actions** → `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` (omit them and the deploy is a demo build).
 2. **Settings → Pages → Build and deployment → Source: GitHub Actions**.

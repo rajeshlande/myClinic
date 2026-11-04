@@ -38,7 +38,7 @@ const WORKFLOW = [
 
 export default function Landing({ anchor }) {
   const navigate = useNavigate();
-  const { configured, user } = useAuth();
+  const { configured } = useAuth();
   const [theme, setTheme] = useState(readTheme());
   const [menuOpen, setMenuOpen] = useState(false);
   const [planTab, setPlanTab] = useState(0);
@@ -67,7 +67,13 @@ export default function Landing({ anchor }) {
   // The marketing page has exactly one way into the demo workspace: the footer's
   // "Open Demo" button. Everything else on this page is the product — plans, sign
   // up, the deployment guide — so a visitor never lands in sample data by accident.
-  const enterDemo = () => navigate(configured ? (user ? '/app/dashboard' : '/login') : '/app/dashboard');
+  //
+  // It always goes to the workspace, whether or not this deployment is configured.
+  // On a live build a signed-out visitor has no session, so the store runs in demo
+  // mode against localStorage and the shell labels the screen "Demo data" — sending
+  // them to /login instead means the published site has a demo door that opens onto
+  // a sign-in form. "Sign in" is the button for signing in.
+  const enterDemo = () => navigate('/app/dashboard');
   const startFree = () => navigate(configured ? '/signup' : '/pricing');
 
   return (

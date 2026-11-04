@@ -25,6 +25,22 @@ test('the marketing page has exactly one demo entry, and it is the footer button
   assert.ok(LANDING.indexOf('onClick={enterDemo}') > footerStart, 'the demo button is inside <footer>');
 });
 
+test('the demo door opens the workspace on a live-configured deployment too', () => {
+  // The published site runs with VITE_SUPABASE_URL set. A signed-out visitor there
+  // has no session, so the store is already in demo mode and the shell prints
+  // "Demo data" — the button must reach that workspace, not a sign-in form.
+  const helper = LANDING.split('\n').find((l) => l.includes('const enterDemo'));
+  assert.ok(helper, 'enterDemo exists');
+  assert.match(helper, /navigate\('\/app\/dashboard'\)/);
+  assert.doesNotMatch(helper, /\/login/, 'the demo button must not open the sign-in form');
+  assert.doesNotMatch(helper, /configured|\buser\b/, 'the door does not branch on deployment or session');
+
+  // Signing in has its own button; the page keeps that route, and no longer needs
+  // the session just to decide where the demo door goes.
+  assert.match(LANDING, /navigate\('\/login'\)/, '"Sign in" still goes to /login');
+  assert.doesNotMatch(LANDING, /const \{ configured, user \} = useAuth\(\)/);
+});
+
 test('no other copy on the marketing page offers the demo', () => {
   for (const phrase of ['Explore the live demo', 'Explore the demo', 'Sample patients', 'Open demo', 'See it with sample patients']) {
     assert.ok(!LANDING.includes(phrase), `"${phrase}" is a second way into the demo`);

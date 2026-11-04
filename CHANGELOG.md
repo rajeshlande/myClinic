@@ -3,6 +3,22 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.10] — 2026-11-04 · schema 10
+
+**The demo door opens the demo.** On the published site — the one deployment with
+Supabase configured — the footer's **Open Demo** button routed a signed-out
+visitor to `/login`. The single entrance the 1.11.8 notes promised therefore
+ended on a sign-in form, and the URL the README calls *Live demo* had no demo
+behind it. It now always opens the workspace: with no session the store is
+already in demo mode against `localStorage`, the shell reads *“Demo workspace ·
+sample data”*, and nothing is sent to the clinic database.
+
+Signing in keeps its own button in the marketing nav, and it is the only other
+route off the page. `tests/landing.test.mjs` pins both facts — the door does not
+branch on `configured` or `user`, and `/login` survives as the Sign in target.
+
+No database change — schema 10 covers this build. 287 tests in 13 suites.
+
 ## [1.11.9] — 2026-11-04 · schema 10
 
 **The front desk gets its own workspace.** Reported from a live clinic: a

@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.9';
+export const APP_VERSION = '1.11.10';
 export const SCHEMA_VERSION = 10;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,13 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.10', date: '2026-11-04', schema: 10,
+    highlights: [
+      'The demo door now opens the demo. On a deployment with Supabase configured — which is what the published site is — the footer\'s "Open Demo" button sent a signed-out visitor to the sign-in form, so the one entrance the release notes promised landed on a login screen. It opens the workspace now: a visitor without a session is already in demo mode, and the shell says so.',
+      'Signing in keeps its own button in the marketing nav, and nothing else on the page enters the app. The demo still writes only to this browser — it never reaches the clinic database.',
+    ],
+  },
   {
     version: '1.11.9', date: '2026-11-04', schema: 10,
     highlights: [
