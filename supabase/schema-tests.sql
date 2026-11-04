@@ -14,10 +14,13 @@
 --   C. public booking    — the five anon-granted RPCs, called the way a stranger
 --                          with a link calls them, including every refusal
 --   D. naming            — clinic_slug, the one rule a clinic name becomes a URL
+--   E. the booking link  — provisioning mints a slug, the slug resolves for a
+--                          stranger, and only an owner can change it
 --
 -- Every assertion raises on failure, so a clean run is the proof. Success lines:
 --   "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED",
---   "ALL BOOKING CHECKS COMPLETED" and "ALL SLUG CHECKS COMPLETED".
+--   "ALL BOOKING CHECKS COMPLETED", "ALL SLUG CHECKS COMPLETED" and
+--   "ALL BOOKING LINK CHECKS COMPLETED".
 --
 -- This file is not part of the schema. `supabase/schema.sql` is the single
 -- source of truth for the database; this is the test that it behaves.
@@ -636,6 +639,174 @@ begin
 
   raise notice 'PASS: clinic_slug is stable, trimmed, ASCII and never empty';
   raise notice 'ALL SLUG CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run
+
+
+-- =============================================================================
+-- SUITE E · THE BOOKING LINK
+-- =============================================================================
+-- The link Settings hands out is `<host>/#/book/<slug>`, and everything after
+-- the last slash is the only part the database sees. Schema 8 backfilled slugs
+-- for the clinics that already existed but left `create_clinic()` alone, so
+-- every clinic onboarded afterwards had `slug is null`: Settings displayed a
+-- link built from a name-derived slug, and the patient who opened it got
+-- "no clinic is published at this address". Schema 9 closes that loop. This
+-- suite follows one link from provisioning to the public profile.
+begin;
+
+do $$
+declare
+  owner_x uuid := gen_random_uuid();
+  desk_x  uuid := gen_random_uuid();
+  clinic_a uuid;
+  clinic_b uuid;
+  clinic_c uuid;
+  slug_a text;
+  slug_b text;
+  got text;
+  profile jsonb;
+  n integer;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values
+    (owner_x, 'owner-x@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (desk_x,  'desk-x@test.local',  crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_x, 'role', 'authenticated', 'email', 'owner-x@test.local')::text, true);
+  set local role authenticated;
+
+  -- ------------------------------------------------------------------ 1. the
+  -- Signing up is the only thing a new clinic owner does before sharing a link.
+  -- It has to mint the address there and then; nothing downstream can invent it.
+  clinic_a := public.create_clinic(
+    jsonb_build_object('name', 'Dr. Mehta Family Clinic'),
+    jsonb_build_object('full_name', 'Dr Mehta'));
+  reset role;
+
+  select slug into slug_a from public.clinics where id = clinic_a;
+  if slug_a is null or btrim(slug_a) = '' then
+    raise exception 'FAIL: create_clinic left the new clinic with no slug, so its booking link goes nowhere' using errcode = 'P0002';
+  end if;
+  if slug_a <> 'dr-mehta-family-clinic' then
+    raise exception 'FAIL: create_clinic minted % instead of dr-mehta-family-clinic', slug_a using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: create_clinic gives a new clinic a slug (%)', slug_a;
+
+  -- ------------------------------------------------------------------ 2. the
+  -- Two clinics with the same name is a Tuesday, not an error. The second one
+  -- gets its own address rather than a duplicate-key failure during onboarding.
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_x, 'role', 'authenticated', 'email', 'owner-x@test.local')::text, true);
+  set local role authenticated;
+  clinic_b := public.create_clinic(
+    jsonb_build_object('name', 'Dr. Mehta Family Clinic'),
+    jsonb_build_object('full_name', 'Dr Mehta'));
+  clinic_c := public.create_clinic(
+    jsonb_build_object('name', '   '),
+    jsonb_build_object('full_name', ''));
+  reset role;
+
+  select slug into slug_b from public.clinics where id = clinic_b;
+  if slug_b = slug_a then
+    raise exception 'FAIL: the second clinic with the same name took the first one''s address (%)', slug_b using errcode = 'P0002';
+  end if;
+  if slug_b <> 'dr-mehta-family-clinic-1' then
+    raise exception 'FAIL: the collision produced % instead of dr-mehta-family-clinic-1', slug_b using errcode = 'P0002';
+  end if;
+  select slug into got from public.clinics where id = clinic_c;
+  if got is null or btrim(got) = '' then
+    raise exception 'FAIL: a clinic with a blank name got no slug' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a name collision steps aside (% and %)', slug_a, slug_b;
+
+  -- ------------------------------------------------------------------ 3. the
+  -- The whole point: a stranger with the link, holding only the anon key, asks
+  -- for the profile at the slug create_clinic minted and gets the clinic back.
+  set local role anon;
+  profile := public.public_clinic_profile(slug_b);
+  reset role;
+
+  if profile is null then
+    raise exception 'FAIL: the slug from provisioning (%) returns no public profile', slug_b using errcode = 'P0002';
+  end if;
+  if profile->'clinic'->>'slug' is distinct from slug_b then
+    raise exception 'FAIL: the public profile resolves to the wrong clinic (%). URL would show a different clinic', profile->'clinic'->>'slug' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the provisioned slug resolves for an anon visitor';
+
+  -- ------------------------------------------------------------------ 4. the
+  -- What the owner types into "Booking address" is not a slug yet: it has
+  -- spaces, capitals and punctuation, and possibly a name another clinic holds.
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_x, 'role', 'authenticated', 'email', 'owner-x@test.local')::text, true);
+  set local role authenticated;
+
+  got := public.set_clinic_slug(clinic_a, '  Dr. Mehta ENT!  ');
+  if got <> 'dr-mehta-ent' then
+    raise exception 'FAIL: set_clinic_slug did not normalise what the owner typed (%)', got using errcode = 'P0002';
+  end if;
+
+  got := public.set_clinic_slug(clinic_a, 'dr-mehta-family-clinic-1');   -- held by clinic_b
+  if got = 'dr-mehta-family-clinic-1' then
+    raise exception 'FAIL: set_clinic_slug moved a clinic onto an address another clinic answers on' using errcode = 'P0002';
+  end if;
+  if got <> 'dr-mehta-family-clinic-1-1' then
+    raise exception 'FAIL: an owner collision produced % instead of dr-mehta-family-clinic-1-1', got using errcode = 'P0002';
+  end if;
+
+  -- Clearing the field must not empty the address: fall back to the clinic name.
+  got := public.set_clinic_slug(clinic_a, '   ');
+  if got is null or btrim(got) = '' then
+    raise exception 'FAIL: clearing the booking address left the clinic with no link' using errcode = 'P0002';
+  end if;
+  reset role;
+  raise notice 'PASS: set_clinic_slug normalises, steps aside and never empties the address';
+
+  -- ------------------------------------------------------------------ 5. the
+  -- A front-desk colleague cannot repoint the clinic's public link, and neither
+  -- can an anonymous visitor, no matter what they send.
+  insert into public.staff (clinic_id, user_id, full_name, role)
+    values (clinic_a, desk_x, 'Desk X', 'frontdesk');
+
+  perform set_config('request.jwt.claims', json_build_object('sub', desk_x, 'role', 'authenticated', 'email', 'desk-x@test.local')::text, true);
+  set local role authenticated;
+  begin
+    perform public.set_clinic_slug(clinic_a, 'hijacked');
+    raise exception 'FAIL: front desk renamed the clinic''s public booking address' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    raise notice 'PASS: only an owner can change the booking address';
+  end;
+  reset role;
+
+  begin
+    set local role anon;
+    perform public.set_clinic_slug(clinic_a, 'hijacked');
+    raise exception 'FAIL: anon could call set_clinic_slug' using errcode = 'P0002';
+  exception
+    when insufficient_privilege then
+      raise notice 'PASS: anon cannot change a booking address';
+    when undefined_function then
+      raise notice 'PASS: anon cannot change a booking address';
+  end;
+  reset role;
+
+  -- ------------------------------------------------------------------ 6. the
+  -- Property, not an example: whatever the row holds has to be openable as a
+  -- URL. A capital letter or a space here is a link that 404s for a patient.
+  select count(*) into n from public.clinics
+   where slug is not null and (slug !~ '^[a-z0-9][a-z0-9-]*$' or char_length(slug) > 40);
+  if n <> 0 then
+    raise exception 'FAIL: % clinic slug(s) cannot be put in a URL', n using errcode = 'P0002';
+  end if;
+
+  select count(*) into n from public.clinics where slug is null;
+  if n <> 0 then
+    raise exception 'FAIL: % clinic(s) have no booking address at all', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: every clinic holds a URL-safe slug';
+
+  raise notice 'ALL BOOKING LINK CHECKS COMPLETED';
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run

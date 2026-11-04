@@ -1411,17 +1411,85 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- ------------------------------------------------------------- the booking link
+-- `public.clinic_slug()` (see §1) turns a name into the shape; this steps around
+-- the clinics that already answer on that shape: sunrise-opd, sunrise-opd-1, …
+create or replace function public.next_clinic_slug(p_name text, p_exclude uuid default null)
+returns text language plpgsql stable security definer set search_path = public as $$
+declare
+  base text := btrim(left(public.clinic_slug(p_name), 32), '-');
+  candidate text;
+  n integer := 0;
+begin
+  if base is null or base = '' then base := 'clinic'; end if;
+  candidate := base;
+  while exists (
+    select 1 from public.clinics c
+     where c.slug = candidate and (p_exclude is null or c.id <> p_exclude)
+  ) loop
+    n := n + 1;
+    candidate := base || '-' || n;
+  end loop;
+  return candidate;
+end $$;
+
+-- The one write path for the address Settings shows. Normalises what the owner
+-- typed, refuses to hand back an address another clinic already answers on, and
+-- falls back to the clinic's name when the field is cleared.
+create or replace function public.set_clinic_slug(p_clinic uuid, p_slug text)
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  requested text := btrim(coalesce(p_slug, ''));
+  current public.clinics;
+  wanted text;
+begin
+  if not public.is_clinic_owner(p_clinic) then
+    raise exception 'only a clinic owner can change the booking link' using errcode = '42501';
+  end if;
+
+  select * into current from public.clinics where id = p_clinic;
+  if not found then
+    raise exception 'clinic not found' using errcode = 'P0002';
+  end if;
+
+  if requested = '' then
+    wanted := public.next_clinic_slug(current.name, p_clinic);
+  else
+    wanted := btrim(left(public.clinic_slug(requested), 40), '-');
+    if wanted is null or wanted = '' then
+      wanted := public.next_clinic_slug(current.name, p_clinic);
+    elsif exists (select 1 from public.clinics c where c.slug = wanted and c.id <> p_clinic) then
+      wanted := public.next_clinic_slug(wanted, p_clinic);
+    end if;
+  end if;
+
+  update public.clinics set slug = wanted where id = p_clinic;
+  return wanted;
+end $$;
+
+-- Functions are executable by PUBLIC unless told otherwise, so an anon visitor
+-- holding the anon key could otherwise rename a clinic's booking address.
+revoke all on function public.set_clinic_slug(uuid, text) from public;
+grant execute on function public.set_clinic_slug(uuid, text) to authenticated;
+
 -- Atomic clinic creation: clinic + owner staff row in one transaction.
+-- The clinic's public address is minted here: a clinic that is created without a
+-- slug is a clinic whose booking link goes nowhere, and its owner has no reason
+-- to suspect it.
 create or replace function public.create_clinic(p_clinic jsonb, p_owner jsonb)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare
   new_clinic uuid;
-  owner_name text := coalesce(p_owner->>'full_name', 'Clinic owner');
+  -- An onboarding form submitted before the name was typed used to fail on
+  -- staff.full_name's check constraint. Fill it in instead of erroring.
+  owner_name text := coalesce(nullif(btrim(p_owner->>'full_name'), ''), 'Clinic owner');
+  clinic_name text := coalesce(nullif(btrim(p_clinic->>'name'), ''), 'My clinic');
 begin
   if auth.uid() is null then raise exception 'not authenticated'; end if;
-  insert into public.clinics (name, clinic_type, phone, email, address, consultation_fee_paise, follow_up_fee_paise, slot_minutes)
+  insert into public.clinics (name, slug, clinic_type, phone, email, address, consultation_fee_paise, follow_up_fee_paise, slot_minutes)
   values (
-    coalesce(p_clinic->>'name', 'My clinic'),
+    clinic_name,
+    public.next_clinic_slug(clinic_name),
     coalesce(p_clinic->>'clinic_type', 'General Practice'),
     coalesce(p_clinic->>'phone', ''),
     coalesce(p_clinic->>'email', ''),
@@ -1958,6 +2026,74 @@ begin
   update public.app_meta
      set schema_version = 8, applied_at = now(), notes = 'public booking'
    where schema_version < 8;
+end $migration$;
+
+-- =============================================================================
+-- §9 · EVERY CLINIC HAS A PUBLIC ADDRESS              migration 9 · app v1.11.5
+-- =============================================================================
+-- A booking link is only as good as the slug inside it. `create_clinic()` never
+-- set one, so a clinic created after schema 8 was reachable at nothing: Settings
+-- showed a link built from a slug the database did not have, and every patient
+-- who opened it was told "no clinic is published at this address".
+--
+-- Three things change here, and nothing else:
+--   * a new clinic gets a free slug at insert time (in create_clinic, above)
+--   * an existing clinic with no slug (or one that can never match, because the
+--     lookup lowercases the incoming address) is given one
+--   * the owner can set it explicitly, and a collision steps aside instead of
+--     failing with a duplicate key
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 9 then
+    raise notice 'schema 9 (clinic slug) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 9 (clinic slug)';
+
+  execute $sql$
+
+  -- ---------------------------------------------------------- fill in the gaps
+  -- Row by row, not one UPDATE: each pass has to see the slug the previous pass
+  -- took, or two clinics with the same name would fight over the same address.
+  -- An upper-case slug is included because the lookup lowercases what a patient
+  -- typed, so 'Sunrise' could never be reached.
+  do $backfill$
+  declare
+    r record;
+  begin
+    -- Anything the lookup can never match is rewritten too: an empty slug, an
+    -- upper-case one (the lookup lowercases the address), punctuation the URL
+    -- cannot carry, or a slug longer than the column's constraint allows.
+    for r in select id, name, slug from public.clinics
+              where slug is null
+                 or btrim(slug) = ''
+                 or slug !~ '^[a-z0-9][a-z0-9-]*$'
+                 or char_length(slug) > 40
+    loop
+      update public.clinics
+         set slug = public.next_clinic_slug(coalesce(nullif(btrim(r.slug), ''), r.name), r.id)
+       where id = r.id;
+    end loop;
+  end $backfill$;
+
+  do $constraints$
+  begin
+    if not exists (select 1 from pg_constraint where conname = 'clinics_slug_format') then
+      alter table public.clinics
+        add constraint clinics_slug_format
+        check (slug is null or (slug ~ '^[a-z0-9][a-z0-9-]*$' and char_length(slug) between 1 and 40));
+    end if;
+  end $constraints$;
+  $sql$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (9, 'clinic-slug', '1.11.5', 'every clinic has a public address: slug on provisioning, backfill, and an owner-editable set_clinic_slug()')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 9, applied_at = now(), notes = 'clinic slug'
+   where schema_version < 9;
 end $migration$;
 
 commit;
