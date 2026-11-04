@@ -3,6 +3,51 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.5] — 2026-11-05 · schema 9
+
+A clinic created after schema 8 had no public address. `create_clinic()` never
+set `slug`, so the booking link Settings handed over — and every poster, WhatsApp
+message and Google listing carrying it — opened a page that said *no clinic is
+published at this address*. Settings did not make it obvious, because it filled
+the gap with the sample clinic's slug (`sunrise-opd`): the owner copied a link
+that looked right and went somewhere else.
+
+Three things were wrong and all three are fixed.
+
+**The address is minted when the clinic is created.** `create_clinic()` now
+inserts `slug`, using a new `public.next_clinic_slug(name)`, which steps around
+an address another clinic already holds (`dr-mehta-clinic`, `dr-mehta-clinic-1`).
+Provisioning also no longer fails when the owner left their name blank.
+
+**Schema 9 gives every existing clinic one.** A row-by-row backfill (not one
+`UPDATE` — each pass has to see what the previous pass took) fills in a missing
+slug and rewrites any that the public lookup could never match: capitals (the
+lookup lowercases the address), punctuation, or a slug past 40 characters. A
+`clinics_slug_format` check constraint keeps it that way.
+
+**The owner can change it, safely.** New `public.set_clinic_slug(clinic, slug)`,
+owner-only and revoked from `public`/`anon`, normalises what was typed, steps
+aside on a collision and falls back to the clinic's name when the field is
+cleared. It returns the address that is now live, so Settings can show exactly
+that.
+
+On the client: Settings shows the link the database answers on and nothing else —
+Copy and Open stay disabled until a link exists instead of offering the demo
+clinic's — and a changed name reads *"Not saved yet — patients stay on
+/book/old-name until you save."* `clinicSlug()` in `public-booking.mjs` mirrors
+`clinic_slug()` in SQL, and `tests/booking-link.test.mjs` holds both to the same
+examples. `/book` with nothing after it no longer renders the sample clinic.
+
+The public page also stopped waiting for the staff workspace: `/book/:slug` and
+`/booking/:ref` now render outside `StoreProvider`, so a patient sees the clinic
+instead of "Opening your clinic…" while the clinic's patients, invoices and diary
+load (or fail to) on their phone.
+
+**Run `supabase/schema.sql` again.** It is idempotent and additive; it registers
+migration 9 and fills in every existing clinic's address. Schema 8 projects keep
+working without it (the client falls back to a plain row write), but a clinic
+created there still has no slug.
+
 ## [1.11.4] — 2026-11-04 · schema 8
 
 Saving a staff member failed in a live clinic with

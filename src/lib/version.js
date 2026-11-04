@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.4';
-export const SCHEMA_VERSION = 8;
+export const APP_VERSION = '1.11.5';
+export const SCHEMA_VERSION = 9;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,17 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.5', date: '2026-11-05', schema: 9,
+    highlights: [
+      'The booking link works the moment a clinic is created. A new clinic used to be provisioned with no public address at all, so the link Settings handed over — and every poster, WhatsApp message and Google listing carrying it — opened a page that said no clinic is published at this address.',
+      'Settings now shows the link the database actually answers on, and only that one. Copy and Open are disabled until a link exists, instead of silently offering the sample clinic\'s address.',
+      'Clearing the link name no longer empties the address: it falls back to the clinic\'s name. A name another clinic already holds gets a free one (-1) instead of a failed save.',
+      'Changing the link name says so until you save — "patients stay on /book/old-name until you save" — so you never hand out a link that has not gone live yet.',
+      'The public booking page no longer waits for the staff workspace to load: it renders on its own, so a patient on a slow phone sees the clinic instead of "Opening your clinic…".',
+      'Schema 9 fills in an address for every existing clinic, including one saved with capitals or punctuation, and blocks anything that cannot be put in a URL.',
+    ],
+  },
   {
     version: '1.11.1', date: '2026-11-04', schema: 8,
     highlights: [

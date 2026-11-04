@@ -5,6 +5,7 @@ import {
   inviteDefaults, recallInviteError, recallInviteToken, rememberInviteError, rememberInviteToken,
 } from './invites.mjs';
 import { nextId } from './logic.mjs';
+import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage } from './license.mjs';
 import { TRIAL_DAYS } from './license.mjs';
 import {
@@ -13,6 +14,10 @@ import {
 } from './offline.js';
 
 const DEMO_KEY = 'myclinic.demo.v1';
+
+/** A project that has not run schema 9 yet answers with this instead of a slug. */
+const missingFunction = (error) => error?.code === 'PGRST202' || error?.code === '42883'
+  || /could not find the function|function .* does not exist/i.test(error?.message ?? '');
 const StoreContext = createContext(null);
 
 const emptyState = {
@@ -402,6 +407,51 @@ export function StoreProvider({ children, session }) {
     if (navigator.onLine) flush();
   }, [mode, persistLocal, userId, flush]);
 
+  /**
+   * Claim the clinic's public booking address.
+   *
+   * `slug` is not just another column: it is the last part of a link the owner is
+   * about to print, so it has to end up as *the* address the public page answers
+   * on. `set_clinic_slug()` (schema 9) normalises what was typed, steps aside if
+   * another clinic holds it, fills it from the clinic's name when the field is
+   * empty, and returns the address that is now live — so the caller can show the
+   * saved link instead of guessing at it.
+   *
+   * Two fallbacks keep older deployments and a flat network working: a database
+   * still on schema 8 has no such function, and a queue that is offline cannot
+   * call one, so both write the row the ordinary way (the offline queue replays it).
+   */
+  const saveBookingSlug = useCallback(async (desired) => {
+    const clinic = stateRef.current.clinic;
+    if (!clinic?.id) throw new Error('Open a clinic before setting a booking link.');
+    const wanted = clinicSlug(desired || clinic.slug || clinic.name || '');
+    if (!wanted) throw new Error('Give the clinic a name, or type a link name.');
+
+    const mirror = (slug) => persistLocal((prev) => (
+      prev.clinic ? { ...prev, clinic: { ...prev.clinic, slug } } : prev
+    ));
+
+    // Demo, or a queue with no network: the row write is the only honest answer.
+    if (mode === 'demo' || !navigator.onLine) {
+      mirror(wanted);
+      if (mode === 'demo') return wanted;
+      await update('clinic', clinic.id, { slug: wanted });
+      return wanted;
+    }
+
+    const { data, error: e } = await supabase.rpc('set_clinic_slug', { p_clinic: clinic.id, p_slug: wanted });
+    if (!e && typeof data === 'string' && data) {
+      mirror(data);
+      return data;
+    }
+    // PGRST202/42883 = this project has not run schema 9 yet. Anything else is a
+    // real refusal (not the owner, clinic gone) and belongs to the caller.
+    if (e && !missingFunction(e)) throw e;
+    mirror(wanted);
+    await update('clinic', clinic.id, { slug: wanted });
+    return wanted;
+  }, [mode, persistLocal, update]);
+
   const createClinic = useCallback(async ({ clinic, owner }) => {
     if (mode === 'demo') {
       const clinicId = nextId('clinic');
@@ -635,14 +685,15 @@ export function StoreProvider({ children, session }) {
     // sync surface
     online, pending, conflicts, syncState, lastSyncedAt, usingCache,
     flushNow: flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, inviteStaff, revokeInvite, acceptInvite,
+    create, update, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
     refresh, resetDemo, enterDemo: bootDemo,
     // licensing
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, remove, createClinic, inviteStaff, revokeInvite, acceptInvite, resetDemo, bootDemo, refresh,
+    create, update, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
+    resetDemo, bootDemo, refresh,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial]);
 

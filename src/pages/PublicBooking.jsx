@@ -20,7 +20,11 @@ import {
  * the practice leaks into a page a stranger can open.
  */
 export default function PublicBooking() {
-  const { slug = BOOKING_SLUG_FALLBACK } = useParams();
+  const { slug: routeSlug } = useParams();
+  // `/#/book` with nothing after it is a truncated link, not a reason to show the
+  // sample clinic — a real clinic's owner clicking "Open" on a clinic that has no
+  // address used to land on the *demo* clinic's page and believe it was theirs.
+  const [slug, setSlug] = useState(routeSlug ?? '');
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -49,19 +53,31 @@ export default function PublicBooking() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    bookingApi.profile(slug)
-      .then((data) => {
-        if (!alive) return;
-        if (!data) { setLoadError('No clinic is published at this address.'); return; }
-        setProfile(data);
-        if (data.enabled === false) return;
-        const first = data.doctors?.[0] ?? null;
-        setDoctorId(first?.id ?? null);
-      })
+    setLoadError('');
+
+    (async () => {
+      // Only the demo workspace (no Supabase configured) has a clinic to fall
+      // back to; a live build answers a truncated link honestly.
+      const address = routeSlug || ((await bookingApi.mode()) === 'demo' ? BOOKING_SLUG_FALLBACK : '');
+      if (!alive) return;
+      if (!address) {
+        setLoadError('This link is missing the clinic’s address. Ask the clinic to send the full link.');
+        setLoading(false);
+        return;
+      }
+      setSlug(address);
+      const data = await bookingApi.profile(address);
+      if (!alive) return;
+      if (!data) { setLoadError('No clinic is published at this address.'); return; }
+      setProfile(data);
+      if (data.enabled === false) return;
+      const first = data.doctors?.[0] ?? null;
+      setDoctorId(first?.id ?? null);
+    })()
       .catch((e) => alive && setLoadError(e.message ?? 'Could not reach the clinic.'))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [slug]);
+  }, [routeSlug]);
 
   /* --------------------------------------------------- busy feed per doctor */
   useEffect(() => {

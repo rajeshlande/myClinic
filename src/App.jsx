@@ -40,12 +40,12 @@ function ScrollToTop() {
   return null;
 }
 
-function Loading() {
+function Loading({ label = 'Opening your clinic…' }) {
   return (
     <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', gap: 10, color: 'var(--muted)' }}>
       <div className="stack" style={{ alignItems: 'center', gap: 10 }}>
         <Spinner size={26} />
-        <span className="small">Opening your clinic…</span>
+        <span className="small">{label}</span>
       </div>
     </div>
   );
@@ -61,7 +61,42 @@ function DataGate({ children }) {
   return children;
 }
 
+/**
+ * A patient's link (`/#/book/<clinic>`, `/#/booking/<ref>`) is not part of the
+ * staff workspace, so it must not wait for one.
+ *
+ * These three routes used to sit inside <StoreProvider> alongside the app, which
+ * meant a stranger who opened a booking link at 9pm watched "Opening your clinic…"
+ * while the clinic's whole workspace — patients, invoices, the diary — loaded (or
+ * failed to) on their phone. They now render on their own, from the booking RPCs,
+ * and nothing about the practice is fetched to show them.
+ */
+function PublicScreen() {
+  return (
+    <>
+      <ScrollToTop />
+      <Suspense fallback={<Loading label="Opening the booking page…" />}>
+        <Routes>
+          <Route path="/book" element={<PublicBooking />} />
+          <Route path="/book/:slug" element={<PublicBooking />} />
+          <Route path="/booking/:ref" element={<BookingManage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </>
+  );
+}
+
+/** Every path a patient, not a member of staff, can open. */
+const PUBLIC_SCREEN = /^\/(book(\/|$)|booking\/)/;
+
 export default function App() {
+  const { pathname } = useLocation();
+  if (PUBLIC_SCREEN.test(pathname)) return <PublicScreen />;
+  return <ClinicApp />;
+}
+
+function ClinicApp() {
   const { session, loading } = useAuth();
   if (loading) return <Loading />;
 
@@ -95,10 +130,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
 
-        {/* Public, no account: a patient books and manages one appointment. */}
-        <Route path="/book" element={<Suspense fallback={<Loading />}><PublicBooking /></Suspense>} />
-        <Route path="/book/:slug" element={<Suspense fallback={<Loading />}><PublicBooking /></Suspense>} />
-        <Route path="/booking/:ref" element={<Suspense fallback={<Loading />}><BookingManage /></Suspense>} />
+        {/* The booking screens live in <PublicScreen>, outside this shell. */}
 
         <Route path="/invoice/:id" element={<Suspense fallback={<Loading />}><InvoiceView /></Suspense>} />
         <Route path="/prescription/:id" element={<Suspense fallback={<Loading />}><PrescriptionView /></Suspense>} />

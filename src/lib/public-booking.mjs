@@ -19,7 +19,7 @@
  * unique (doctor, date, time) constraint inside an advisory lock, so two patients
  * tapping the last slot at 11pm cannot both win.
  */
-import { addDays, localISO, timeToMinutes, today } from './logic.mjs';
+import { addDays, localISO, slugify, timeToMinutes, today } from './logic.mjs';
 import { availableSlots, groupSlots, isoDate } from './schedule.mjs';
 import { makeDemoWorkspace } from './demo-data.js';
 import { whatsappLink } from './daybook.mjs';
@@ -28,9 +28,41 @@ export const BOOKING_HORIZON_DAYS = 14;
 /** A patient cannot book a slot that starts sooner than this. */
 export const BOOKING_LEAD_MINUTES = 30;
 export const BOOKING_SLUG_FALLBACK = 'sunrise-opd';
+/** Longest address the database will store (`clinics_slug_format`). */
+export const BOOKING_SLUG_MAX = 40;
 const DEMO_KEY = 'myclinic.demo.v1';
 
 /* ------------------------------------------------------------------ helpers */
+
+/**
+ * The one rule a clinic name (or what an owner types) becomes in a URL.
+ *
+ * It mirrors `public.clinic_slug()` in schema.sql, and `tests/booking-link.test.mjs`
+ * pins both to the same examples: a link shown in Settings has to be the link the
+ * database answers on, so the two rules cannot be allowed to drift.
+ *
+ * Deliberately returns '' rather than a made-up slug. A clinic with no address is
+ * a clinic whose link does not work yet, and pretending otherwise is how the
+ * booking page came to hand out a link to the demo clinic.
+ */
+export function clinicSlug(value = '') {
+  const raw = String(value ?? '').trim();
+  const slug = slugify(raw).slice(0, BOOKING_SLUG_MAX).replace(/-+$/, '');
+  // A name with no ASCII letters still gets an address, because the database mints
+  // one anyway (`clinic_slug()` falls back to the literal 'clinic'). Nothing at all
+  // is different: that is a clinic with no address, and saying so is the point.
+  return slug || (raw ? 'clinic' : '');
+}
+
+/**
+ * The address Settings should offer for a clinic: the saved slug if the database
+ * has one, otherwise what the name would become — never the demo clinic's slug.
+ */
+export function bookingSlugFor(clinic = {}) {
+  const saved = clinicSlug(clinic.slug ?? '');
+  if (saved) return saved;
+  return clinicSlug(clinic.name ?? '');
+}
 
 export function bookingUrl(slug) {
   const clean = String(slug || '').trim();

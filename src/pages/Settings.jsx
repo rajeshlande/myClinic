@@ -16,11 +16,11 @@ import { SyncCenter } from '../components/SyncCenter.jsx';
 import { BrandingFields, BrandMark } from '../components/Branding.jsx';
 import { APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION } from '../lib/version.js';
 import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
-import { BOOKING_HORIZON_DAYS, bookingUrl } from '../lib/public-booking.mjs';
+import { BOOKING_HORIZON_DAYS, bookingUrl, clinicSlug } from '../lib/public-booking.mjs';
 import { CloudOff, GitBranch, History, Palette, QrCode, RefreshCcw, Scale } from 'lucide-react';
 import {
   CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput,
-  slugify, today, toCSV, patientSearch,
+  today, toCSV, patientSearch,
 } from '../lib/logic.mjs';
 
 export default function Settings() {
@@ -55,7 +55,13 @@ export default function Settings() {
 
   const canEdit = can(role, 'clinic:settings');
   const clinicState = clinic ?? {};
-  const publicLink = bookingUrl(clinicState.slug || slugify(clinicState.name || '') || 'sunrise-opd');
+  // The link Settings hands out has to be the link that works, so it is built from
+  // the slug the *database* has — not from the name, and never from the demo
+  // clinic's address (which is what a clinic with no slug used to be shown).
+  const savedSlug = clinicSlug(store.clinic?.slug ?? '');
+  const typedSlug = clinicSlug(clinicState.slug || clinicState.name || '');
+  const publicLink = savedSlug ? bookingUrl(savedSlug) : '';
+  const slugPending = Boolean(typedSlug) && typedSlug !== savedSlug;
 
   async function saveClinic() {
     setSaving(true);
@@ -75,7 +81,6 @@ export default function Settings() {
         booking_enabled: clinicState.booking_enabled !== false,
         booking_horizon_days: Number(clinicState.booking_horizon_days) || BOOKING_HORIZON_DAYS,
         booking_note: (clinicState.booking_note ?? '').slice(0, 120),
-        slug: clinicState.slug || slugify(clinicState.name || '') || 'clinic',
         // Branding travels with the clinic row so it survives offline and appears
         // on every document without a second fetch.
         logo_square_url: clinic.logo_square_url ?? null,
@@ -86,7 +91,16 @@ export default function Settings() {
         upi_payee_name: String(clinic.upi_payee_name ?? '').trim(),
         upi_qr_on_invoices: clinic.upi_qr_on_invoices !== false,
       });
-      toast.success('Clinic profile saved.');
+      // `slug` is written separately: set_clinic_slug() normalises it, steps aside
+      // if another clinic holds the address and hands back the one that is live, so
+      // the field ends up showing exactly what a patient will open.
+      if (typedSlug !== savedSlug) {
+        const live = await store.saveBookingSlug(typedSlug || clinicState.name);
+        setClinic((c) => ({ ...c, slug: live }));
+        toast.success(`Clinic profile saved. Booking link is /book/${live}.`);
+      } else {
+        toast.success('Clinic profile saved.');
+      }
     } catch (e) { toast.error(e.message ?? 'Could not save.'); } finally { setSaving(false); }
   }
 
@@ -261,29 +275,49 @@ export default function Settings() {
               </span>
             </label>
 
-            <Field label="Booking link" hint="Paste it on WhatsApp, your Google listing, or print the QR at the desk.">
+            <Field
+              label="Booking link"
+              hint={savedSlug
+                ? 'Paste it on WhatsApp, your Google listing, or print the QR at the desk.'
+                : 'This clinic has no link yet — press “Save booking settings” and one is created from the link name below.'}
+            >
               <div className="row" style={{ gap: 8 }}>
-                <Input readOnly value={publicLink} onFocus={(e) => e.target.select()} aria-label="Public booking link" />
+                <Input
+                  readOnly value={publicLink} onFocus={(e) => e.target.select()} aria-label="Public booking link"
+                  placeholder="Not created yet"
+                />
                 <Button
-                  size="sm" variant="subtle" icon={Copy} type="button"
-                  onClick={() => navigator.clipboard?.writeText(publicLink)
+                  size="sm" variant="subtle" icon={Copy} type="button" disabled={!savedSlug}
+                  onClick={() => navigator.clipboard?.writeText(bookingUrl(savedSlug))
                     .then(() => toast.success('Booking link copied.'))
                     .catch(() => toast.error('Clipboard blocked.'))}
                 >
                   Copy
                 </Button>
-                <Button size="sm" variant="ghost" icon={ExternalLink} type="button" onClick={() => navigate(`/book/${clinicState.slug || ''}`)}>
+                <Button
+                  size="sm" variant="ghost" icon={ExternalLink} type="button" disabled={!savedSlug}
+                  onClick={() => navigate(`/book/${savedSlug}`)}
+                >
                   Open
                 </Button>
               </div>
             </Field>
 
             <div className="form-grid">
-              <Field label="Link name" hint="Lowercase, no spaces — this is the last part of the link.">
+              <Field
+                label="Link name"
+                hint={!slugPending
+                  ? 'Lowercase, no spaces — this is the last part of the link.'
+                  : savedSlug
+                    ? `Not saved yet — patients stay on /book/${savedSlug} until you save.`
+                    : 'Not saved yet — saving creates this link.'}
+              >
                 <Input
                   value={clinicState.slug ?? ''} disabled={!canEdit}
-                  onChange={(e) => setClinic((c) => ({ ...c, slug: slugify(e.target.value).slice(0, 40) }))}
-                  placeholder="sunrise-opd"
+                  onChange={(e) => setClinic((c) => ({ ...c, slug: clinicSlug(e.target.value) }))}
+                  onBlur={(e) => setClinic((c) => ({ ...c, slug: clinicSlug(e.target.value || clinicState.name) }))}
+                  placeholder={clinicSlug(clinicState.name) || 'your-clinic'}
+                  aria-label="Booking link name"
                 />
               </Field>
               <Field label="Diary opens for" hint="How far ahead a stranger may book.">
@@ -308,7 +342,7 @@ export default function Settings() {
               <Button variant="primary" icon={Save} onClick={saveClinic} loading={saving} disabled={!canEdit}>
                 Save booking settings
               </Button>
-              <Button variant="ghost" icon={ExternalLink} onClick={() => navigate(`/book/${clinicState.slug || ''}`)}>
+              <Button variant="ghost" icon={ExternalLink} disabled={!savedSlug} onClick={() => navigate(`/book/${savedSlug}`)}>
                 Preview what patients see
               </Button>
             </div>
