@@ -17,7 +17,7 @@ Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.11.4.bundle` | ~72 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-update-to-v1.11.4.bundle` | ~93 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed) — which is where GitHub is now. **Recommended** — it is a delta and fast-forwards. |
 | `myClinic-full-v1.11.4.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
 Both carry `main` and the six tags GitHub does not have yet — `v1.10.1`, `v1.11.0`,
@@ -74,7 +74,7 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 
 | Commit | Release | Scope |
 |---|---|---|
-| *(release commit)* | **1.11.4** · schema 8 | Offline sync stopped dead after a staff edit: the replay stamped `client_updated_at` and sent `client_id` to tables that have neither (`staff`, `invoices`), so PostgREST answered 400 / PGRST204 forever and every write behind it waited. The client now mirrors the schema (`OFFLINE_COLUMNS`, guarded by a test), a missing column is dropped and the write retried, and a change the server keeps refusing goes to the sync centre after five attempts instead of blocking the queue. No schema change. |
+| `b7c64cd` | **1.11.4** · schema 8 | Offline sync stopped dead after a staff edit: the replay stamped `client_updated_at` and sent `client_id` to tables that have neither (`staff`, `invoices`), so PostgREST answered 400 / PGRST204 forever and every write behind it waited. The client now mirrors the schema (`OFFLINE_COLUMNS`, guarded by a test), a missing column is dropped and the write retried, and a change the server keeps refusing goes to the sync centre after five attempts instead of blocking the queue. No schema change. |
 | `436efe2` | **1.11.3** · schema 8 | `schema.sql` could not be applied to a new project: schema 8 stopped at `syntax error at or near "both"` (`btrim(both '-' from …)` — that is `trim`, not `btrim`), and `public_book()` would then have failed for every new patient because a local variable was named `code`. The slug rule is now `public.clinic_slug(name)`, the variable is `patient_code`, schema 8 re-applies itself when its functions are missing, and two new rolled-back SQL suites plus 10 `npm test` guards cover both. **Run `supabase/schema.sql` again — no re-paste in parts.** |
 | `5ffade1` | **1.11.2** · schema 8 | Responsive pass. One set of breakpoints (`src/lib/responsive.mjs`); the marketing footer rebuilt as a real footer that stacks 3 → 2 → 1 columns; the closing CTA stacks instead of squeezing its heading to one word a line; the nav folds into a menu below 900px, the twelve feature cards into tap-to-read rows and the three plans behind a tab switch on a phone — 2200px less scrolling at 390px with nothing removed. No schema change. |
 | `31f0e4a` | **1.11.1** · schema 8 | Staff invitations actually work: the invite row carries name/role/specialty, `accept_invite()` is claimed on first sign-in instead of leaving the invitee to create their own clinic, Pending invitations lists and can withdraw an offer, and the demo invite no longer creates a half-built doctor or demote the owner. No schema change. |
