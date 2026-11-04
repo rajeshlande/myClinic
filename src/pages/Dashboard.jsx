@@ -6,6 +6,7 @@ import {
   Ticket, Volume2, Sunset,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
+import { can } from '../lib/permissions.js';
 import { useToast, Badge, Button, Card, CardHead, Kpi, EmptyState, Avatar, Modal } from '../components/ui.jsx';
 import { TrendChart, BarList, Donut, WeekStrip, Columns } from '../components/Charts.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
@@ -30,8 +31,23 @@ export default function Dashboard() {
   const t = today();
   const month = currentMonth();
 
-  const totals = useMemo(() => monthTotals({ invoices: store.invoices, consultations: store.consultations, patients: store.patients, month }), [store.invoices, store.consultations, store.patients, month]);
-  const prev = useMemo(() => monthTotals({ invoices: store.invoices, consultations: store.consultations, patients: store.patients, month: shiftMonth(month, -1) }), [store.invoices, store.consultations, store.patients, month]);
+  // Who is looking decides what is on the page: a doctor sees the clinic's work,
+  // the front desk sees its money. Both see today's diary.
+  const role = store.role ?? 'owner';
+  const canReadConsults = can(role, 'consultation:read');
+  const canSeeMoney = can(role, 'clinic:reports:money');
+  const canCollect = can(role, 'invoice:collect');
+
+  const totals = useMemo(() => monthTotals({
+    invoices: canSeeMoney ? store.invoices : [],
+    consultations: store.consultations, patients: store.patients, appointments: store.appointments,
+    month, canSeeConsultations: canReadConsults,
+  }), [store.invoices, store.consultations, store.patients, store.appointments, month, canSeeMoney, canReadConsults]);
+  const prev = useMemo(() => monthTotals({
+    invoices: canSeeMoney ? store.invoices : [],
+    consultations: store.consultations, patients: store.patients, appointments: store.appointments,
+    month: shiftMonth(month, -1), canSeeConsultations: canReadConsults,
+  }), [store.invoices, store.consultations, store.patients, store.appointments, month, canSeeMoney, canReadConsults]);
 
   const todayAppts = useMemo(() => appointmentsForDate(store.appointments, t), [store.appointments, t]);
   const seenToday = todayAppts.filter((a) => a.status === 'completed').length;
@@ -43,7 +59,10 @@ export default function Dashboard() {
   const duesCount = useMemo(() => [...outstandingByPatient(store.invoices).values()].filter((v) => v > 0).length, [store.invoices]);
 
   const revSeries = useMemo(() => revenueSeries({ invoices: store.invoices, month, count: 6 }), [store.invoices, month]);
-  const footfall = useMemo(() => footfallSeries({ consultations: store.consultations, month, count: 6 }), [store.consultations, month]);
+  const footfall = useMemo(() => footfallSeries({
+    consultations: store.consultations, appointments: store.appointments, month, count: 6,
+    canSeeConsultations: canReadConsults,
+  }), [store.consultations, store.appointments, month, canReadConsults]);
   const cats = useMemo(() => categoryRevenue({ invoices: store.invoices, month }).slice(0, 5), [store.invoices, month]);
   const recalls = useMemo(() => followUpDue(store.consultations, { withinDays: 7 }).slice(0, 5), [store.consultations]);
   const performers = useMemo(() => doctorPerformance({ appointments: store.appointments, consultations: store.consultations, invoices: store.invoices, doctors: store.doctors, month }), [store.appointments, store.consultations, store.invoices, store.doctors, month]);
@@ -90,13 +109,13 @@ export default function Dashboard() {
           <div className="sub">
             {queue.length ? `${queue.length} patient${queue.length > 1 ? 's' : ''} still to be seen` : 'The queue is clear.'}
             {recalls.length ? ` · ${recalls.length} follow-up${recalls.length > 1 ? 's' : ''} due this week` : ''}
-            {duesCount ? ` · ${duesCount} invoice${duesCount > 1 ? 's' : ''} unpaid` : ''}.
+            {canSeeMoney && duesCount ? ` · ${duesCount} invoice${duesCount > 1 ? 's' : ''} unpaid` : ''}.
           </div>
         </div>
         <div className="row wrap hero-actions" style={{ gap: 8 }}>
           <Button variant="subtle" icon={UserPlus} onClick={() => setPatientOpen(true)}>Register patient</Button>
           <Button variant="subtle" icon={CalendarPlus} onClick={() => setApptOpen(true)}>Book appointment</Button>
-          <Button variant="ghost" icon={Sunset} onClick={() => navigate('/app/day-close')}>Day close</Button>
+          {canCollect ? <Button variant="ghost" icon={Sunset} onClick={() => navigate('/app/day-close')}>Day close</Button> : null}
           <Button variant="primary" icon={Ticket} onClick={() => setTokenOpen(true)}>Issue token</Button>
         </div>
       </div>
@@ -104,10 +123,16 @@ export default function Dashboard() {
       {/* KPIs */}
       <div className="grid kpis kpi-compactable">
         <Kpi label="Today’s appointments" value={todayAppts.length} icon={CalendarPlus} meta={`${seenToday} seen · ${queue.length} waiting`} />
-        <Kpi label="Collected this month" value={formatMoney(totals.collected, { compact: totals.collected >= 100000 })} icon={IndianRupee}
-          trend={revenueDelta == null ? null : { dir: revenueDelta >= 0 ? 'up' : 'down', label: `${revenueDelta >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(revenueDelta * 100))}% vs last month` }}
-          meta={`${formatMoney(collectedToday, { compact: true })} today`} accent />
-        <Kpi label="Outstanding dues" value={formatMoney(dues, { compact: dues >= 100000 })} icon={Wallet} meta={`${duesCount} open invoice${duesCount === 1 ? '' : 's'}`} />
+        {canSeeMoney ? (
+          <>
+            <Kpi label="Collected this month" value={formatMoney(totals.collected, { compact: totals.collected >= 100000 })} icon={IndianRupee}
+              trend={revenueDelta == null ? null : { dir: revenueDelta >= 0 ? 'up' : 'down', label: `${revenueDelta >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(revenueDelta * 100))}% vs last month` }}
+              meta={`${formatMoney(collectedToday, { compact: true })} today`} accent />
+            <Kpi label="Outstanding dues" value={formatMoney(dues, { compact: dues >= 100000 })} icon={Wallet} meta={`${duesCount} open invoice${duesCount === 1 ? '' : 's'}`} />
+          </>
+        ) : (
+          <Kpi label="Waiting now" value={waited.length} icon={Users} meta={`${seenToday} seen today`} />
+        )}
         <Kpi label="Visits this month" value={totals.visits} icon={Stethoscope} meta={`${totals.newPatients} new patients`} />
       </div>
 
@@ -190,6 +215,7 @@ export default function Dashboard() {
             </div>
           </Card>
 
+          {canSeeMoney ? (
           <Card>
             <CardHead title="Revenue vs billed" sub="Last six months · collected is what actually landed" icon={TrendingUp}
               action={<div className="legend"><span><i className="swatch" style={{ background: '#0f766e' }} />Collected</span><span><i className="swatch" style={{ background: '#a5d9d0' }} />Billed</span></div>} />
@@ -204,6 +230,7 @@ export default function Dashboard() {
               </div>
             </div>
           </Card>
+          ) : null}
 
           <div className="grid two">
             <Card>
@@ -219,6 +246,7 @@ export default function Dashboard() {
 
         {/* Right rail */}
         <div className="stack" style={{ gap: 16 }}>
+          {canReadConsults ? (
           <Card className="pad">
             <div className="row" style={{ gap: 8, marginBottom: 12 }}>
               <span className="kpi-icon"><BellRing size={15} /></span>
@@ -247,18 +275,22 @@ export default function Dashboard() {
               <p className="small muted">Nothing due in the next week. Follow-up dates set during consultations show up here automatically.</p>
             )}
           </Card>
+          ) : null}
 
-          <Card>
-            <CardHead title="Revenue mix" sub={monthLabel(month)} icon={CreditCard} />
-            <div className="card-body">
-              <Donut
-                items={cats.map((c) => ({ label: c.category, value: c.amount }))}
-                centerValue={formatMoney(totals.collected, { compact: true })}
-                centerLabel="collected"
-              />
-            </div>
-          </Card>
+          {canSeeMoney ? (
+            <Card>
+              <CardHead title="Revenue mix" sub={monthLabel(month)} icon={CreditCard} />
+              <div className="card-body">
+                <Donut
+                  items={cats.map((c) => ({ label: c.category, value: c.amount }))}
+                  centerValue={formatMoney(totals.collected, { compact: true })}
+                  centerLabel="collected"
+                />
+              </div>
+            </Card>
+          ) : null}
 
+          {canReadConsults && canSeeMoney ? (
           <Card>
             <CardHead title="Doctor performance" sub={monthLabel(month)} icon={Stethoscope}
               action={<Button size="sm" variant="ghost" icon={ChevronRight} onClick={() => navigate('/app/team')}>Team</Button>} />
@@ -277,6 +309,7 @@ export default function Dashboard() {
               </div>
             </div>
           </Card>
+          ) : null}
 
           <Card className="pad" style={{ background: 'linear-gradient(160deg, var(--brand-50), var(--surface) 65%)' }}>
             <div className="row" style={{ gap: 8, marginBottom: 8 }}>
@@ -288,7 +321,7 @@ export default function Dashboard() {
               <Button size="sm" variant="primary" icon={Ticket} className="block" onClick={() => setTokenOpen(true)}>Issue token</Button>
               <Button size="sm" variant="subtle" icon={UserPlus} className="block" onClick={() => setPatientOpen(true)}>New patient</Button>
               <Button size="sm" variant="subtle" icon={CalendarPlus} className="block" onClick={() => setApptOpen(true)}>Book appointment</Button>
-              <Button size="sm" variant="ghost" icon={CreditCard} className="block" onClick={() => navigate('/app/billing?new=1')}>Raise invoice</Button>
+              {canSeeMoney ? <Button size="sm" variant="ghost" icon={CreditCard} className="block" onClick={() => navigate('/app/billing?new=1')}>Raise invoice</Button> : null}
             </div>
           </Card>
         </div>

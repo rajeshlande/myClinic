@@ -427,6 +427,22 @@ export function visitFrequency(consultations, patientId, months = 12) {
   return consultations.filter((c) => c.patient_id === patientId && c.visited_on >= from).length;
 }
 
+/**
+ * The same two answers as lastVisit/visitFrequency, read from appointments — for a
+ * member who may not read consultation rows. A completed appointment is a visit.
+ */
+export function lastAppointmentVisit(appointments = [], patientId) {
+  const done = appointments
+    .filter((a) => a.patient_id === patientId && a.status === 'completed')
+    .sort((a, b) => String(b.scheduled_on).localeCompare(String(a.scheduled_on)));
+  return done[0] ?? null;
+}
+
+export function appointmentVisitsSince(appointments = [], patientId, months = 12) {
+  const from = addDays(today(), -Math.round(months * 30.44));
+  return appointments.filter((a) => a.patient_id === patientId && a.status === 'completed' && a.scheduled_on >= from).length;
+}
+
 export function lastVisit(consultations, patientId) {
   return patientVisits(consultations, patientId)[0] ?? null;
 }
@@ -446,13 +462,29 @@ export function inMonth(list, month, field = 'visited_on') {
   return list.filter((item) => String(item[field] || '').startsWith(month));
 }
 
-export function monthTotals({ invoices = [], consultations = [], patients = [], month }) {
+/**
+ * Month totals.
+ *
+ * `visits` normally counts consultations. A member who may not read consultations
+ * (the front desk — schema 10 denies the table) still runs a clinic, so the count
+ * falls back to appointments that actually happened. Pass `canSeeConsultations:
+ * false` rather than letting an empty array read as "nobody came in".
+ */
+export function monthTotals({
+  invoices = [], consultations = [], patients = [], appointments = [], month,
+  canSeeConsultations = true,
+}) {
   const inv = inMonth(invoices.filter((i) => i.status !== 'void'), month, 'issued_on');
   const collected = inv.reduce((t, i) => t + Number(i.paid_paise || 0), 0);
   const billed = inv.reduce((t, i) => t + Number(i.total_paise || 0), 0);
   const consults = inMonth(consultations, month);
+  const seen = inMonth(appointments.filter((a) => a.status === 'completed'), month, 'scheduled_on');
   const newPatients = patients.filter((p) => String(p.created_at || '').startsWith(month));
-  return { billed, collected, outstanding: billed - collected, visits: consults.length, newPatients: newPatients.length, invoices: inv.length };
+  return {
+    billed, collected, outstanding: billed - collected,
+    visits: canSeeConsultations ? consults.length : seen.length,
+    newPatients: newPatients.length, invoices: inv.length,
+  };
 }
 
 export function revenueSeries({ invoices = [], month, count = 6 }) {
@@ -467,8 +499,16 @@ export function revenueSeries({ invoices = [], month, count = 6 }) {
   });
 }
 
-export function footfallSeries({ consultations = [], month, count = 6 }) {
-  return recentMonths(month, count).map((m) => ({ month: m, label: monthLabel(m, true).split(' ')[0], visits: inMonth(consultations, m).length }));
+export function footfallSeries({
+  consultations = [], appointments = [], month, count = 6, canSeeConsultations = true,
+}) {
+  const completed = appointments.filter((a) => a.status === 'completed');
+  return recentMonths(month, count).map((m) => ({
+    month: m,
+    label: monthLabel(m, true).split(' ')[0],
+    visits: inMonth(canSeeConsultations ? consultations : completed, m,
+      canSeeConsultations ? 'visited_on' : 'scheduled_on').length,
+  }));
 }
 
 export function categoryRevenue({ invoices = [], month }) {

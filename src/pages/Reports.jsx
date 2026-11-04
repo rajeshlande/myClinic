@@ -5,6 +5,7 @@ import {
   CalendarRange, ArrowUpRight, PieChart, Activity, Printer,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
+import { can } from '../lib/permissions.js';
 import { useToast, Badge, Button, Card, CardHead, Kpi, Segmented, Select } from '../components/ui.jsx';
 import { TrendChart, BarList, Donut, Columns } from '../components/Charts.jsx';
 import {
@@ -21,10 +22,28 @@ export default function Reports() {
   const [month, setMonth] = useState(currentMonth());
   const [doctorId, setDoctorId] = useState('all');
 
-  const totals = useMemo(() => monthTotals({ invoices: store.invoices, consultations: store.consultations, patients: store.patients, month }), [store.invoices, store.consultations, store.patients, month]);
-  const prev = useMemo(() => monthTotals({ invoices: store.invoices, consultations: store.consultations, patients: store.patients, month: shiftMonth(month, -1) }), [store.invoices, store.consultations, store.patients, month]);
+  // Both halves of the clinic may open this page (the desk needs the money, the
+  // doctor needs the work). Each sees only their half — the same split schema 10
+  // enforces on the tables behind it.
+  const role = store.role ?? 'owner';
+  const canReadConsults = can(role, 'consultation:read');
+  const canSeeMoney = can(role, 'clinic:reports:money');
+
+  const totals = useMemo(() => monthTotals({
+    invoices: canSeeMoney ? store.invoices : [],
+    consultations: store.consultations, patients: store.patients, appointments: store.appointments,
+    month, canSeeConsultations: canReadConsults,
+  }), [store.invoices, store.consultations, store.patients, store.appointments, month, canSeeMoney, canReadConsults]);
+  const prev = useMemo(() => monthTotals({
+    invoices: canSeeMoney ? store.invoices : [],
+    consultations: store.consultations, patients: store.patients, appointments: store.appointments,
+    month: shiftMonth(month, -1), canSeeConsultations: canReadConsults,
+  }), [store.invoices, store.consultations, store.patients, store.appointments, month, canSeeMoney, canReadConsults]);
   const rev = useMemo(() => revenueSeries({ invoices: store.invoices, month, count: 6 }), [store.invoices, month]);
-  const foot = useMemo(() => footfallSeries({ consultations: store.consultations, month, count: 6 }), [store.consultations, month]);
+  const foot = useMemo(() => footfallSeries({
+    consultations: store.consultations, appointments: store.appointments, month, count: 6,
+    canSeeConsultations: canReadConsults,
+  }), [store.consultations, store.appointments, month, canReadConsults]);
 
   const monthInvoices = useMemo(() => inMonth(store.invoices.filter((i) => i.status !== 'void'), month, 'issued_on').filter((i) => doctorId === 'all' || i.doctor_id === doctorId), [store.invoices, month, doctorId]);
   const monthConsults = useMemo(() => inMonth(store.consultations, month).filter((c) => doctorId === 'all' || c.doctor_id === doctorId), [store.consultations, month, doctorId]);
@@ -90,14 +109,21 @@ export default function Reports() {
       </div>
 
       <div className="grid kpis kpi-compactable">
-        <Kpi label="Collected" value={formatMoney(totals.collected, { compact: totals.collected >= 100000 })} icon={IndianRupee}
-          trend={prev.collected ? { dir: delta >= 0 ? 'up' : 'down', label: `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% on last month` } : null}
-          meta={`${formatMoney(prev.collected, { compact: true })} last month`} accent />
-        <Kpi label="Billed" value={formatMoney(totals.billed, { compact: totals.billed >= 100000 })} icon={CreditCard} meta={`${totals.invoices} invoices`} />
+        {canSeeMoney ? (
+          <>
+            <Kpi label="Collected" value={formatMoney(totals.collected, { compact: totals.collected >= 100000 })} icon={IndianRupee}
+              trend={prev.collected ? { dir: delta >= 0 ? 'up' : 'down', label: `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% on last month` } : null}
+              meta={`${formatMoney(prev.collected, { compact: true })} last month`} accent />
+            <Kpi label="Billed" value={formatMoney(totals.billed, { compact: totals.billed >= 100000 })} icon={CreditCard} meta={`${totals.invoices} invoices`} />
+          </>
+        ) : null}
         <Kpi label="Visits" value={totals.visits} icon={Stethoscope} meta={`${totals.newPatients} new patients`} />
-        <Kpi label="Outstanding" value={formatMoney(totals.outstanding, { compact: totals.outstanding >= 100000 })} icon={Wallet} meta={`${apptStats.noShow} no-shows`} />
+        {canSeeMoney
+          ? <Kpi label="Outstanding" value={formatMoney(totals.outstanding, { compact: totals.outstanding >= 100000 })} icon={Wallet} meta={`${apptStats.noShow} no-shows`} />
+          : <Kpi label="No-shows" value={apptStats.noShow} icon={CalendarRange} meta={`${apptStats.total} booked`} />}
       </div>
 
+      {canSeeMoney ? (
       <div className="split">
         <Card>
           <CardHead title="Revenue trend" sub="Six months · collected vs billed" icon={TrendingUp}
@@ -116,20 +142,24 @@ export default function Reports() {
           </div>
         </Card>
       </div>
+      ) : null}
 
       <div className="grid two" style={{ gap: 16 }}>
+        {canSeeMoney ? (
         <Card>
           <CardHead title="Revenue by category" sub="Where the money comes from" icon={BarChart3} />
           <div className="card-body">
             <BarList items={cats.map((c) => ({ label: `${c.category} · ${Math.round(c.share * 100)}%`, value: c.amount }))} format={(v) => formatMoney(v, { compact: true })} />
           </div>
         </Card>
+        ) : null}
         <Card>
           <CardHead title="Footfall" sub="Consultations per month" icon={Users} />
           <div className="card-body"><Columns series={foot} height={150} /></div>
         </Card>
       </div>
 
+      {canReadConsults ? (
       <Card>
         <CardHead title="Doctor performance" sub={monthLabel(month)} icon={Stethoscope}
           action={<Badge tone="brand">{performers.reduce((s, d) => s + d.visits, 0)} total visits</Badge>} />
@@ -174,14 +204,17 @@ export default function Reports() {
           </div>
         </div>
       </Card>
+      ) : null}
 
       <div className="grid" style={{ gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+        {canReadConsults ? (
         <Card>
           <CardHead title="Top diagnoses" sub="This month" icon={Activity} />
           <div className="card-body">
             {diagnoses.length ? <BarList items={diagnoses.map((d) => ({ label: d.diagnosis, value: d.visits }))} format={(v) => `${v} visits`} color="var(--violet)" /> : <p className="small muted">No diagnoses recorded.</p>}
           </div>
         </Card>
+        ) : null}
         <Card>
           <CardHead title="Appointment outcome" sub={monthLabel(month)} icon={CalendarRange} />
           <div className="card-body">
@@ -226,6 +259,7 @@ export default function Reports() {
         </Card>
       </div>
 
+      {canSeeMoney ? (
       <Card>
         <CardHead title="Daily collection" sub={`${dailyCollection.length} collecting day${dailyCollection.length === 1 ? '' : 's'} in ${monthLabel(month)}`} icon={Download}
           action={<Badge tone="success">{formatMoney(sumBy(monthInvoices, (i) => i.paid_paise))}</Badge>} />
@@ -248,6 +282,7 @@ export default function Reports() {
           ) : <p className="small muted">No collections recorded for this month.</p>}
         </div>
       </Card>
+      ) : null}
     </div>
   );
 }

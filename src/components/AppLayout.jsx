@@ -26,13 +26,13 @@ const NAV = [
   ] },
   { group: 'Records & money', items: [
     { to: '/app/patients', label: 'Patients', icon: Users },
-    { to: '/app/billing', label: 'Billing', icon: CreditCard },
-    { to: '/app/day-close', label: 'Day close', icon: Sunset },
+    { to: '/app/billing', label: 'Billing', icon: CreditCard, capability: 'invoice:read' },
+    { to: '/app/day-close', label: 'Day close', icon: Sunset, capability: 'invoice:collect' },
     { to: '/app/reports', label: 'Reports', icon: BarChart3, capability: 'clinic:reports' },
   ] },
   { group: 'Clinic setup', items: [
     { to: '/app/team', label: 'Doctors & staff', icon: ClipboardList, capability: 'team:read' },
-    { to: '/app/subscription', label: 'Subscription', icon: Ticket },
+    { to: '/app/subscription', label: 'Subscription', icon: Ticket, capability: 'clinic:settings' },
     { to: '/app/settings', label: 'Settings', icon: SettingsIcon },
   ] },
 ];
@@ -42,7 +42,7 @@ const TABS = [
   { to: '/app/queue', label: 'Queue', icon: Ticket, badgeKey: 'waiting' },
   { to: '/app/appointments', label: 'Calendar', icon: CalendarDays },
   { to: '/app/patients', label: 'Patients', icon: Users },
-  { to: '/app/billing', label: 'Billing', icon: CreditCard },
+  { to: '/app/billing', label: 'Billing', icon: CreditCard, capability: 'invoice:read' },
 ];
 
 function pageTitle(pathname) {
@@ -237,12 +237,16 @@ function CommandPalette({ open, onClose }) {
   const [q, setQ] = useState('');
   useEffect(() => { if (!open) setQ(''); }, [open]);
 
+  const role = store.role ?? 'owner';
   const patients = useMemo(() => patientSearch(store.patients, q).slice(0, 5), [store.patients, q]);
+  // A doctor cannot open an invoice, so the palette must not surface one either —
+  // in the demo workspace (and before RLS answers) the rows are still in memory.
+  const canReadInvoices = can(role, 'invoice:read');
   const invoices = useMemo(() => {
-    if (!q.trim()) return [];
+    if (!q.trim() || !canReadInvoices) return [];
     const t = q.toLowerCase();
     return store.invoices.filter((i) => i.number.toLowerCase().includes(t)).slice(0, 3);
-  }, [store.invoices, q]);
+  }, [store.invoices, q, canReadInvoices]);
   const appts = useMemo(() => store.appointments.filter((a) => appointmentMatchesQuery(a, store.patients, q)).slice(0, 3), [store.appointments, store.patients, q]);
 
   const go = (path) => { onClose(); navigate(path); };
@@ -258,10 +262,10 @@ function CommandPalette({ open, onClose }) {
               { label: 'Issue a token for a walk-in', icon: Ticket, path: '/app/queue' },
               { label: 'Book an appointment', icon: CalendarDays, path: '/app/appointments?new=1' },
               { label: 'Register a new patient', icon: Users, path: '/app/patients?new=1' },
-              { label: 'Raise an invoice', icon: CreditCard, path: '/app/billing?new=1' },
+              { label: 'Raise an invoice', icon: CreditCard, path: '/app/billing?new=1', capability: 'invoice:create' },
               { label: "Today's queue", icon: Stethoscope, path: '/app/appointments' },
-              { label: 'Open reports', icon: BarChart3, path: '/app/reports' },
-            ].map((a) => (
+              { label: 'Open reports', icon: BarChart3, path: '/app/reports', capability: 'clinic:reports' },
+            ].filter((a) => !a.capability || can(role, a.capability)).map((a) => (
               <button key={a.label} className="list-item" onClick={() => go(a.path)}>
                 <span className="kpi-icon" style={{ width: 30, height: 30 }}><a.icon size={14} /></span>
                 <span className="li-main"><span className="li-title">{a.label}</span></span>

@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.11.5';
-export const SCHEMA_VERSION = 9;
+export const APP_VERSION = '1.11.6';
+export const SCHEMA_VERSION = 10;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,17 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.11.6', date: '2026-11-04', schema: 10,
+    highlights: [
+      'The clinic now keeps the two halves of the work apart, exactly as the Team page has always described them: the doctor owns the chart, the front desk owns the till, the owner owns both. Until now the app said that and the database did not — anyone holding a seat could read it all.',
+      'A doctor no longer sees Billing, the Billing tab on a patient, or the ability to raise an invoice from a consultation. "Save & bill" is gone from the consultation form; the visit is saved and the front desk bills it.',
+      'Front desk no longer opens Consultations, Follow-ups or any consultation note. It keeps registration, the diary, billing, payments, reports and the day close.',
+      'The money and clinical numbers each role still needs keep working: the front desk\'s dashboard, reports and day close count visits from the appointments that actually happened instead of reporting a quiet clinic, and a doctor\'s dashboard keeps its footfall while the collected/outstanding figures give way to the queue.',
+      'Reports is now open to the front desk (it was the one row the Team page promised and the app refused), with money panels for the desk and clinical panels for the doctor.',
+      'Schema 10 puts the same line in Postgres. The invoice policies drop the doctor seat and the consultation policy drops the front-desk seat, so the API refuses what the screens no longer offer — a hidden button is not the only thing standing between a role and the wrong half of the clinic.',
+    ],
+  },
   {
     version: '1.11.5', date: '2026-11-05', schema: 9,
     highlights: [

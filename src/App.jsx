@@ -121,19 +121,21 @@ function ClinicApp() {
           <Route path="patients" element={<Patients />} />
           <Route path="patients/:id" element={<PatientDetail />} />
           <Route path="consultations" element={<RequireCapability capability="consultation:read"><Consultations /></RequireCapability>} />
-          <Route path="billing" element={<Billing />} />
-          <Route path="day-close" element={<RequireCapability capability="invoice:read"><DayClose /></RequireCapability>} />
+          <Route path="billing" element={<RequireCapability capability="invoice:read"><Billing /></RequireCapability>} />
+          <Route path="day-close" element={<RequireCapability capability="invoice:collect"><DayClose /></RequireCapability>} />
           <Route path="follow-ups" element={<RequireCapability capability="consultation:read"><FollowUps /></RequireCapability>} />
           <Route path="team" element={<RequireCapability capability="team:read"><Team /></RequireCapability>} />
           <Route path="reports" element={<RequireCapability capability="clinic:reports"><Reports /></RequireCapability>} />
-          <Route path="subscription" element={<Subscription />} />
+          <Route path="subscription" element={<RequireCapability capability="clinic:settings"><Subscription /></RequireCapability>} />
           <Route path="settings" element={<Settings />} />
         </Route>
 
         {/* The booking screens live in <PublicScreen>, outside this shell. */}
 
-        <Route path="/invoice/:id" element={<Suspense fallback={<Loading />}><InvoiceView /></Suspense>} />
-        <Route path="/prescription/:id" element={<Suspense fallback={<Loading />}><PrescriptionView /></Suspense>} />
+        {/* The printable views are routes of their own, so they carry the same
+            capability as the screens that link to them. */}
+        <Route path="/invoice/:id" element={<RequireCapability capability="invoice:read"><Suspense fallback={<Loading />}><InvoiceView /></Suspense></RequireCapability>} />
+        <Route path="/prescription/:id" element={<RequireCapability capability="consultation:read"><Suspense fallback={<Loading />}><PrescriptionView /></Suspense></RequireCapability>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

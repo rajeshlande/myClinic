@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   Archive, ArrowUpDown, CalendarPlus, Download, Phone, Plus, Users, UserRound,
@@ -9,9 +9,10 @@ import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import {
-  ageLabel, downloadFile, formatDate, formatMoney, lastVisit, outstandingByPatient,
-  patientSearch, patientVisits, toCSV, today, visitFrequency,
+  ageLabel, appointmentVisitsSince, downloadFile, formatDate, formatMoney, lastAppointmentVisit,
+  lastVisit, outstandingByPatient, patientSearch, patientVisits, toCSV, today, visitFrequency,
 } from '../lib/logic.mjs';
+import { can } from '../lib/permissions.js';
 
 export default function Patients() {
   const store = useStore();
@@ -38,6 +39,17 @@ export default function Patients() {
     }
   }, [params, setParams]);
 
+  // The register is the front desk's screen, and the front desk may not read
+  // consultation rows (schema 10) — so "last visit"/"visits" fall back to
+  // completed appointments rather than silently reading "never seen".
+  const canReadConsults = can(store.role ?? 'owner', 'consultation:read');
+  const lastSeen = useCallback((patientId) => (canReadConsults
+    ? lastVisit(store.consultations, patientId)
+    : lastAppointmentVisit(store.appointments, patientId)), [canReadConsults, store.consultations, store.appointments]);
+  const visitCount = useCallback((patientId) => (canReadConsults
+    ? visitFrequency(store.consultations, patientId)
+    : appointmentVisitsSince(store.appointments, patientId)), [canReadConsults, store.consultations, store.appointments]);
+
   const dues = useMemo(() => outstandingByPatient(store.invoices), [store.invoices]);
   const searchFn = useMemo(() => patientSearch(store.patients, query), [store.patients, query]);
   const rows = useMemo(() => {
@@ -46,17 +58,17 @@ export default function Patients() {
     if (filter === 'chronic') list = list.filter((p) => (p.tags ?? []).length > 0);
     if (filter === 'new') list = list.filter((p) => String(p.created_at).slice(0, 10) >= today().slice(0, 8) + '01');
     if (filter === 'inactive') list = list.filter((p) => {
-      const lv = lastVisit(store.consultations, p.id);
+      const lv = lastSeen(p.id);
       return !lv || lv.visited_on < today().slice(0, 8) + '01';
     });
-    const withVisit = list.map((p) => ({ ...p, _last: lastVisit(store.consultations, p.id), _visits: visitFrequency(store.consultations, p.id) }));
+    const withVisit = list.map((p) => ({ ...p, _last: lastSeen(p.id), _visits: visitCount(p.id) }));
     return withVisit.sort((a, b) => {
       if (sort === 'name') return a.full_name.localeCompare(b.full_name);
       if (sort === 'newest') return String(b.created_at).localeCompare(String(a.created_at));
       if (sort === 'visits') return b._visits - a._visits;
       return String(b._last?.visited_on ?? '').localeCompare(String(a._last?.visited_on ?? ''));
     });
-  }, [searchFn, filter, sort, dues, store.consultations]);
+  }, [searchFn, filter, sort, dues, store.consultations, store.appointments, lastSeen, visitCount]);
 
   const exportCsv = () => {
     const csv = toCSV(rows, [

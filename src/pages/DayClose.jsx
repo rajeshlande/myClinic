@@ -36,10 +36,12 @@ export default function DayClose() {
   const dayCloses = store.day_closes ?? [];
   const canClose = can(store.role ?? 'owner', 'invoice:collect');
 
+  const canReadConsults = can(store.role ?? 'owner', 'consultation:read');
   const totals = useMemo(() => dayTotals({
     invoices: store.invoices, consultations: store.consultations,
     patients: store.patients, appointments: store.appointments, iso,
-  }), [store.invoices, store.consultations, store.patients, store.appointments, iso]);
+    canSeeConsultations: canReadConsults,
+  }), [store.invoices, store.consultations, store.patients, store.appointments, iso, canReadConsults]);
 
   const leaks = useMemo(() => missedCharges({
     appointments: store.appointments, consultations: store.consultations,

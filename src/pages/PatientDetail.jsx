@@ -6,6 +6,7 @@ import {
   HandCoins, Receipt,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
+import { can } from '../lib/permissions.js';
 import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, Modal, Tabs, Progress } from '../components/ui.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
@@ -30,6 +31,16 @@ export default function PatientDetail() {
   const [payFor, setPayFor] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // What this member may see of the chart. The clinical half and the money half
+  // are separate roles in this product (schema 10 enforces the same split), so a
+  // front-desk member gets registration, appointments and invoices — never a note.
+  const role = store.role ?? 'owner';
+  const canReadConsults = can(role, 'consultation:read');
+  const canWriteConsults = can(role, 'consultation:write');
+  const canReadInvoices = can(role, 'invoice:read');
+  const canCreateInvoice = can(role, 'invoice:create');
+  const canCollect = can(role, 'invoice:collect');
+
   const patient = store.patients.find((p) => p.id === id);
   const visits = useMemo(() => (patient ? patientVisits(store.consultations, patient.id) : []), [store.consultations, patient]);
   const appts = useMemo(() => store.appointments.filter((a) => a.patient_id === id).sort((a, b) => `${b.scheduled_on}${b.scheduled_at}`.localeCompare(`${a.scheduled_on}${a.scheduled_at}`)), [store.appointments, id]);
@@ -44,6 +55,10 @@ export default function PatientDetail() {
   const invoiceForVisit = (visit) => invoices.find((i) => i.status !== 'void'
     && ((visit.appointment_id && i.appointment_id === visit.appointment_id) || i.issued_on === visit.visited_on));
   const unbilledVisits = visits.filter((v) => !invoiceForVisit(v));
+  const availableTabs = ['overview', 'appointments']
+    .concat(canReadConsults ? ['visits', 'prescriptions'] : [])
+    .concat(canReadInvoices ? ['billing'] : []);
+  const activeTab = availableTabs.includes(tab) ? tab : 'overview';
 
   if (!patient) {
     return (
@@ -72,7 +87,9 @@ export default function PatientDetail() {
         <span className="spacer" />
         <Button size="sm" variant="ghost" icon={Printer} onClick={() => window.print()}>Print chart</Button>
         <Button size="sm" variant="subtle" icon={Pencil} onClick={() => setEditOpen(true)}>Edit</Button>
-        <Button size="sm" variant="primary" icon={Stethoscope} onClick={() => setConsultOpen(true)}>New consultation</Button>
+        {canWriteConsults ? (
+          <Button size="sm" variant="primary" icon={Stethoscope} onClick={() => setConsultOpen(true)}>New consultation</Button>
+        ) : null}
       </div>
 
       {/* Identity card */}
@@ -102,16 +119,24 @@ export default function PatientDetail() {
             <div className="row" style={{ gap: 8 }}>
               <Button size="sm" variant="subtle" icon={CalendarPlus} className="block" onClick={() => setApptOpen(true)}>Book appointment</Button>
             </div>
-            <Button size="sm" variant="subtle" icon={CreditCard} className="block" onClick={() => setInvoiceOpen(true)}>Raise invoice</Button>
-            {dues ? <Badge tone="danger"><Wallet size={11} /> {formatMoney(dues)} outstanding</Badge> : <Badge tone="success"><Wallet size={11} /> No dues</Badge>}
+            {canCreateInvoice ? (
+              <Button size="sm" variant="subtle" icon={CreditCard} className="block" onClick={() => setInvoiceOpen(true)}>Raise invoice</Button>
+            ) : null}
+            {canReadInvoices
+              ? (dues
+                ? <Badge tone="danger"><Wallet size={11} /> {formatMoney(dues)} outstanding</Badge>
+                : <Badge tone="success"><Wallet size={11} /> No dues</Badge>)
+              : null}
           </div>
         </div>
 
         <div className="row wrap" style={{ gap: 22, marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
           {[
-            ['Total visits', visits.length],
-            ['Lifetime billed', formatMoney(lifetime, { compact: true })],
-            ['Last visit', visits[0] ? formatDate(visits[0].visited_on, { withYear: false }) : '—'],
+            ...(canReadConsults ? [
+              ['Total visits', visits.length],
+              ['Last visit', visits[0] ? formatDate(visits[0].visited_on, { withYear: false }) : '—'],
+            ] : []),
+            ...(canReadInvoices ? [['Lifetime billed', formatMoney(lifetime, { compact: true })]] : []),
             ['Registered', formatDate(String(patient.created_at).slice(0, 10), { withYear: false })],
             ['Upcoming', upcoming[0] ? relativeDay(upcoming[0].scheduled_on) : 'None'],
           ].map(([label, value]) => (
@@ -122,7 +147,7 @@ export default function PatientDetail() {
 
       {/* The one thing to do next with this patient: settle money, or bill a visit
           that was never invoiced. Everything else is a tab away. */}
-      {openInvoices.length || unbilledVisits.length ? (
+      {canReadInvoices && (openInvoices.length || unbilledVisits.length) ? (
         <div className={`flow-strip ${openInvoices.length ? 'due' : 'unbilled'}`}>
           <span className="flow-strip-icon">{openInvoices.length ? <Wallet size={16} /> : <Receipt size={16} />}</span>
           <div className="flow-strip-text">
@@ -147,11 +172,13 @@ export default function PatientDetail() {
           {openInvoices.length ? (
             <>
               <Button size="sm" variant="subtle" onClick={() => setTab('billing')}>Invoices</Button>
-              <Button size="sm" variant="primary" icon={HandCoins} onClick={() => setPayFor(openInvoices[0])}>Collect {formatMoney(invoiceBalance(openInvoices[0]))}</Button>
+              {canCollect ? (
+                <Button size="sm" variant="primary" icon={HandCoins} onClick={() => setPayFor(openInvoices[0])}>Collect {formatMoney(invoiceBalance(openInvoices[0]))}</Button>
+              ) : null}
             </>
-          ) : (
+          ) : canCreateInvoice ? (
             <Button size="sm" variant="primary" icon={CreditCard} onClick={() => setInvoiceOpen(true)}>Raise invoice</Button>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -165,22 +192,29 @@ export default function PatientDetail() {
       ) : null}
 
       <Tabs
-        value={tab} onChange={setTab}
+        value={activeTab} onChange={setTab}
         tabs={[
           { value: 'overview', label: 'Overview' },
-          { value: 'visits', label: 'Visits', count: visits.length },
-          { value: 'prescriptions', label: 'Prescriptions' },
-          { value: 'billing', label: 'Billing', count: invoices.length },
+          ...(canReadConsults ? [
+            { value: 'visits', label: 'Visits', count: visits.length },
+            { value: 'prescriptions', label: 'Prescriptions' },
+          ] : []),
+          ...(canReadInvoices ? [{ value: 'billing', label: 'Billing', count: invoices.length }] : []),
           { value: 'appointments', label: 'Appointments', count: appts.length },
         ]}
       />
 
-      {tab === 'overview' ? (
+      {activeTab === 'overview' ? (
         <div className="split">
           <Card>
-            <CardHead title="Clinical timeline" sub="Most recent first" icon={Activity} />
+            <CardHead title={canReadConsults ? 'Clinical timeline' : 'Appointments & records'} sub="Most recent first" icon={Activity} />
             <div className="card-body" style={{ paddingTop: 14 }}>
-              {visits.length ? (
+              {!canReadConsults ? (
+                <p className="small muted" style={{ margin: 0 }}>
+                  Consultation notes belong to the doctors in this clinic. You can still book
+                  appointments, register the patient and take payment.
+                </p>
+              ) : visits.length ? (
                 <div className="timeline">
                   {visits.slice(0, 6).map((visit) => (
                     <div className="timeline-item" key={visit.id}>
@@ -214,6 +248,7 @@ export default function PatientDetail() {
           </Card>
 
           <div className="stack" style={{ gap: 16 }}>
+            {canReadConsults ? (
             <Card>
               <CardHead title="Latest vitals" sub={visits[0] ? formatDate(visits[0].visited_on) : 'No data'} icon={HeartPulse} />
               <div className="card-body" style={{ paddingTop: 10 }}>
@@ -236,7 +271,9 @@ export default function PatientDetail() {
                 ) : <p className="small muted">Vitals are recorded during a consultation.</p>}
               </div>
             </Card>
+            ) : null}
 
+            {canReadInvoices ? (
             <Card>
               <CardHead title="Outstanding" sub="Billing summary" icon={Wallet} />
               <div className="card-body" style={{ paddingTop: 10 }}>
@@ -255,9 +292,12 @@ export default function PatientDetail() {
                   <Progress value={lifetime ? (lifetime - dues) / lifetime : 1} />
                   <p className="tiny faint" style={{ marginTop: 6 }}>{lifetime ? Math.round(((lifetime - dues) / lifetime) * 100) : 100}% of lifetime billing collected</p>
                 </div>
-                <Button size="sm" variant="subtle" className="block" icon={CreditCard} style={{ marginTop: 10 }} onClick={() => setInvoiceOpen(true)}>Raise an invoice</Button>
+                {canCreateInvoice ? (
+                  <Button size="sm" variant="subtle" className="block" icon={CreditCard} style={{ marginTop: 10 }} onClick={() => setInvoiceOpen(true)}>Raise an invoice</Button>
+                ) : null}
               </div>
             </Card>
+            ) : null}
 
             <Card className="pad">
               <div className="row" style={{ gap: 8, marginBottom: 6 }}>
@@ -265,13 +305,17 @@ export default function PatientDetail() {
                 <strong className="small">Record controls</strong>
               </div>
               <p className="tiny muted" style={{ marginBottom: 10 }}>Archiving hides the patient from lists but keeps every clinical and billing record.</p>
-              <Button size="sm" variant="danger" icon={Trash2} onClick={() => setDeleteOpen(true)}>Archive patient</Button>
+              {can(role, 'patient:archive') ? (
+                <Button size="sm" variant="danger" icon={Trash2} onClick={() => setDeleteOpen(true)}>Archive patient</Button>
+              ) : (
+                <p className="tiny faint" style={{ margin: 0 }}>Only a doctor or the owner can archive a patient.</p>
+              )}
             </Card>
           </div>
         </div>
       ) : null}
 
-      {tab === 'visits' ? (
+      {activeTab === 'visits' ? (
         <div className="stack" style={{ gap: 12 }}>
           {visits.length ? visits.map((visit) => (
             <Card key={visit.id}>
@@ -314,7 +358,7 @@ export default function PatientDetail() {
         </div>
       ) : null}
 
-      {tab === 'prescriptions' ? (
+      {activeTab === 'prescriptions' ? (
         <Card>
           <CardHead title="Prescription history" sub="Every medication issued to this patient" icon={Pill} />
           <div className="card-body" style={{ paddingTop: 10 }}>
@@ -332,7 +376,7 @@ export default function PatientDetail() {
         </Card>
       ) : null}
 
-      {tab === 'billing' ? (
+      {activeTab === 'billing' ? (
         <Card>
           <CardHead title="Invoices" sub={`${formatMoney(dues)} outstanding across ${invoices.filter((i) => invoiceBalance(i) > 0).length} invoice(s)`} icon={CreditCard}
             action={<Button size="sm" variant="primary" icon={CreditCard} onClick={() => setInvoiceOpen(true)}>New invoice</Button>} />
@@ -362,7 +406,7 @@ export default function PatientDetail() {
         </Card>
       ) : null}
 
-      {tab === 'appointments' ? (
+      {activeTab === 'appointments' ? (
         <Card>
           <CardHead title="Appointment history" sub="Booked, completed and missed visits" icon={CalendarPlus}
             action={<Button size="sm" variant="primary" icon={CalendarPlus} onClick={() => setApptOpen(true)}>Book</Button>} />

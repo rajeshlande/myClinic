@@ -94,7 +94,10 @@ export function collectionsFor({ invoices = [], iso }) {
  * Everything a day close needs, in one object. The page prints it; `closeSummary`
  * stores it as the immutable snapshot on the day-close row.
  */
-export function dayTotals({ invoices = [], consultations = [], patients = [], appointments = [], iso }) {
+export function dayTotals({
+  invoices = [], consultations = [], patients = [], appointments = [], iso,
+  canSeeConsultations = true,
+}) {
   const live = liveInvoices(invoices);
   const issued = live.filter((i) => i.issued_on === iso);
   const collected = collectionsFor({ invoices, iso });
@@ -118,8 +121,11 @@ export function dayTotals({ invoices = [], consultations = [], patients = [], ap
     byMethod: collected,
     dues: duesOpen.reduce((t, i) => t + invoiceBalance(i), 0),
     duesCount: duesOpen.length,
-    // people
-    visits: consultations.filter((c) => c.visited_on === iso).length,
+    // people — a member who cannot read consultations counts the appointments
+    // that actually happened instead of reporting a day with no patients in it
+    visits: canSeeConsultations
+      ? consultations.filter((c) => c.visited_on === iso).length
+      : appts.filter((a) => a.status === 'completed').length,
     newPatients: patients.filter((p) => String(p.created_at || '').startsWith(iso)).length,
     appointments: appts.length,
     seen: appts.filter((a) => a.status === 'completed').length,

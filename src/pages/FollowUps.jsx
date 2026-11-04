@@ -5,6 +5,7 @@ import {
   UserX, X,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
+import { can } from '../lib/permissions.js';
 import {
   useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, Kpi, Modal, Segmented,
 } from '../components/ui.jsx';
@@ -48,10 +49,14 @@ export default function FollowUps() {
   // window, recalls that are due, and money that has been owed for a week. The
   // send log is the memory — anything logged inside its window drops out by itself.
   const log = store.reminders ?? [];
+  // Balance reminders are read off invoices, which a doctor may not open
+  // (schema 10). Leave them out rather than drafting "₹X pending" from rows the
+  // role cannot see — and the empty count is not mistaken for "nobody owes".
+  const canReadInvoices = can(store.role ?? 'owner', 'invoice:read');
   const queue = useMemo(() => reminderDrafts({
     appointments: store.appointments,
     consultations: store.consultations,
-    invoices: store.invoices,
+    invoices: canReadInvoices ? store.invoices : [],
     patients: store.patients,
     doctors: store.doctors,
     clinic: store.clinic,
@@ -59,7 +64,7 @@ export default function FollowUps() {
     now: new Date(),
     leadHours: store.profile?.reminder_lead_hours ?? 24,
     quiet: store.profile?.quiet_hours ?? '21:00-08:00',
-  }), [store.appointments, store.consultations, store.invoices, store.patients, store.doctors, store.clinic, store.profile, log]);
+  }), [store.appointments, store.consultations, store.invoices, store.patients, store.doctors, store.clinic, store.profile, log, canReadInvoices]);
 
   const loggedToday = useMemo(
     () => reminderLog({ log, patients: store.patients, iso: t }),
@@ -197,7 +202,9 @@ export default function FollowUps() {
       <Card>
         <CardHead
           title="Reminder queue" icon={Send}
-          sub="Tomorrow's appointments, recalls that are due, and balances older than a week — one message each"
+          sub={canReadInvoices
+            ? "Tomorrow's appointments, recalls that are due, and balances older than a week — one message each"
+            : "Tomorrow's appointments and recalls that are due — one message each"}
           action={queue.total
             ? <Badge tone="info">{queue.total} to send</Badge>
             : <Badge tone="success">All clear</Badge>}

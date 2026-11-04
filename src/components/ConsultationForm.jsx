@@ -8,6 +8,7 @@ import {
   FORMULARY_VERSION, SCHEDULES, checkPrescriptionSafety, medicineToLine, recentMedicines, requiresAcknowledgement,
 } from '../lib/medicines.mjs';
 import { useStore } from '../lib/store.jsx';
+import { can } from '../lib/permissions.js';
 import { useToast, Button, Field, Input, Select, Textarea, Modal, Avatar, Badge, IconButton } from './ui.jsx';
 import { addDays, ageLabel, formatDate, formatMoney, nextRxNumber, today, validateConsultation } from '../lib/logic.mjs';
 import { FREQUENCIES, RELATIONS, RX_LANGUAGES, patientInstruction } from '../lib/rx-language.js';
@@ -55,6 +56,9 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
   const [historyOpen, setHistoryOpen] = useState(false);
   // Safety acknowledgements survive re-renders: keyed by the warning's stable id.
   const [acked, setAcked] = useState({});
+  // A doctor sees the chart, not the counter (schema 10 denies them invoices), so
+  // the form offers "Save notes" and nothing that would be refused.
+  const canBill = can(store.role ?? 'owner', 'invoice:create');
   const recent = useMemo(() => recentMedicines(store.consultations, 40), [store.consultations]);
   const safety = useMemo(
     () => checkPrescriptionSafety(draft.prescription, { allergies: activePatient?.allergies }),
@@ -158,7 +162,7 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
       if (appointment) await store.update('appointments', appointment.id, { status: 'completed' });
 
       let raised = null;
-      if (createInvoice) {
+      if (createInvoice && canBill) {
         const fee = appointment?.kind === 'Follow-up' ? (doctor?.follow_up_fee_paise ?? 25000) : (doctor?.fee_paise ?? 50000);
         const count = store.invoices.length + 1;
         raised = await store.create('invoices', {
@@ -230,7 +234,9 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
         <Button variant="subtle" onClick={() => submit(false)} loading={saving} disabled={!activePatient} type="button">
           <Save size={14} /> Save notes
         </Button>
-        <Button variant="primary" onClick={() => submit(true)} loading={saving} disabled={!activePatient} type="button" icon={Plus}>Save &amp; bill {formatMoney(fee)}</Button>
+        {canBill ? (
+          <Button variant="primary" onClick={() => submit(true)} loading={saving} disabled={!activePatient} type="button" icon={Plus}>Save &amp; bill {formatMoney(fee)}</Button>
+        ) : null}
       </>}
     >
       <div className="stack" ref={formRef}>

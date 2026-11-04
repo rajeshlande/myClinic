@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Activity, Plus, Stethoscope, MoreHorizontal, Printer, FileText, Clock as ClockIcon, Clock, History, X } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
+import { can } from '../lib/permissions.js';
 import { Avatar, Badge, Button, Card, CardHead, EmptyState, SearchInput, Select, Segmented, Kpi } from '../components/ui.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import {
@@ -15,6 +16,9 @@ const VISIT_COUNT_LABEL = (n) => n === 1 ? '1 visit' : `${n} visits`;
 
 export default function Consultations() {
   const store = useStore();
+  // Billing belongs to the front desk and the owner; a doctor's chart has no Bill
+  // button because the database would refuse the invoice behind it.
+  const canBill = can(store.role ?? 'owner', 'invoice:create');
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [range, setRange] = useState('month');
@@ -183,7 +187,9 @@ export default function Consultations() {
                     </div>
                     <div className="actions">
                       <Button size="sm" variant="ghost" icon={Printer} onClick={(e) => { e.stopPropagation(); handlePrint(visit); }} type="button" title="Print prescription">Rx</Button>
-                      <Button size="sm" variant="subtle" onClick={(e) => { e.stopPropagation(); handleInvoice(visit); }} type="button">Bill</Button>
+                      {canBill ? (
+                        <Button size="sm" variant="subtle" onClick={(e) => { e.stopPropagation(); handleInvoice(visit); }} type="button">Bill</Button>
+                      ) : null}
                       {visit.follow_up_on && !visit.follow_up_done ? (
                         <Button size="sm" variant="subtle" onClick={(e) => { e.stopPropagation(); handleFollowUpDone(visit); }} type="button">F/U done</Button>
                       ) : null}

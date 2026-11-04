@@ -7,7 +7,7 @@ import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
 import { ROLES, formatMoney, moneyToPaise, paiseToInput, slugify } from '../lib/logic.mjs';
 import { canAddSeat } from '../lib/license.mjs';
-import { can } from '../lib/permissions.js';
+import { can, roleMatrixFor } from '../lib/permissions.js';
 import {
   daysLeft, inviteDefaults, inviteEmailError, inviteLink as buildInviteLink, inviteState,
   pendingInvites, rememberInviteToken,
@@ -234,15 +234,8 @@ export default function Team() {
               </div>
               <p className="tiny muted" style={{ marginBottom: 10 }}>{role.hint}</p>
               <div className="stack" style={{ gap: 6 }}>
-                {[
-                  ['Dashboard & reports', true],
-                  ['Patient charts', role.id !== 'frontdesk' || true],
-                  ['Consultations & prescriptions', role.id !== 'frontdesk'],
-                  ['Billing & payments', role.id !== 'doctor'],
-                  ['Clinic settings & plan', role.id === 'owner'],
-                  ['Invite or remove staff', role.id === 'owner'],
-                ].map(([label, allowed]) => (
-                  <div key={label} className="row tiny" style={{ gap: 7, color: allowed ? 'var(--text-2)' : 'var(--faint)' }}>
+                {roleMatrixFor(role.id).map(({ label, capability, allowed }) => (
+                  <div key={capability} className="row tiny" style={{ gap: 7, color: allowed ? 'var(--text-2)' : 'var(--faint)' }}>
                     <span style={{ color: allowed ? 'var(--success)' : 'var(--faint)', fontWeight: 800 }}>{allowed ? '✓' : '—'}</span>
                     {label}
                   </div>
