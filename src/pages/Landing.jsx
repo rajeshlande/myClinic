@@ -5,7 +5,7 @@ import {
   ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarCheck, Check, ChevronRight,
   CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar, PlayCircle,
   ShieldCheck, Smartphone, Sparkles, Stethoscope, Sun, Users, WifiOff, Zap, Ticket,
-  CloudOff, Languages, Paintbrush, KeyRound, Send, Sunset,
+  CloudOff, Languages, Paintbrush, KeyRound, Send, Sunset, Menu, X, Plus, Minus,
 } from 'lucide-react';
 import { PLANS, formatMoney } from '../lib/logic.mjs';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -13,6 +13,8 @@ import { applyTheme, readTheme } from '../lib/theme.js';
 import { Button, Badge } from '../components/ui.jsx';
 import { APP_VERSION } from '../lib/version.js';
 import { BOOKING_SLUG_FALLBACK, bookingUrl } from '../lib/public-booking.mjs';
+import { FOOTER_GROUPS, isCompact } from '../lib/responsive.mjs';
+import { useLayout } from '../lib/use-layout.js';
 
 /** The sample clinic's booking page — what a patient sees. */
 const DEMO_SLUG = BOOKING_SLUG_FALLBACK;
@@ -43,6 +45,22 @@ export default function Landing({ anchor }) {
   const navigate = useNavigate();
   const { configured, user } = useAuth();
   const [theme, setTheme] = useState(readTheme());
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [planTab, setPlanTab] = useState(0);
+  const layout = useLayout();
+  const compact = isCompact(layout);
+
+  // A phone menu that stays open across a scroll or an Escape press is a trap.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!compact) setMenuOpen(false);
+  }, [compact]);
 
   useEffect(() => {
     if (anchor === 'pricing') {
@@ -73,8 +91,33 @@ export default function Landing({ anchor }) {
         <button className="icon-btn plain" aria-label="Toggle theme" onClick={() => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; applyTheme(next); setTheme(next); }}>
           {theme === 'dark' || document.documentElement.dataset.theme === 'dark' ? <Sun size={17} /> : <MoonStar size={17} />}
         </button>
-        <Button variant="ghost" onClick={() => navigate('/login')}>Sign in</Button>
+        <Button variant="ghost" className="mk-signin" onClick={() => navigate('/login')}>Sign in</Button>
         <Button variant="primary" onClick={() => navigate('/signup')}>Start free</Button>
+        <button
+          type="button"
+          className="mk-menu-btn"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls="mk-menu"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          {menuOpen ? <X size={18} /> : <Menu size={18} />}
+        </button>
+
+        {menuOpen ? (
+          <div className="mk-menu" id="mk-menu">
+            {[
+              ['#features', 'Features'],
+              ['#workflow', 'How it works'],
+              ['#pricing', 'Pricing'],
+              ['#security', 'Security'],
+            ].map(([href, label]) => (
+              <a key={href} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
+            ))}
+            <Link to="/setup" onClick={() => setMenuOpen(false)}>Deployment guide</Link>
+            <Link to="/book/sunrise-multispecialty" onClick={() => setMenuOpen(false)}>Patient booking page</Link>
+          </div>
+        ) : null}
       </nav>
 
       <header className="mk-hero">
@@ -84,7 +127,7 @@ export default function Landing({ anchor }) {
             <Badge tone="neutral"><Sparkles size={11} /> v{APP_VERSION}</Badge>
           </div>
           <h1 className="mk-h1">
-            Everything you need for<br />
+            Everything you need for{' '}<br className="mk-br" />
             <span style={{ color: 'var(--brand-500)' }}>smarter OPD</span> clinic management
           </h1>
           <p className="mk-sub">
@@ -130,13 +173,9 @@ export default function Landing({ anchor }) {
           <h2 style={{ fontSize: 'clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem)' }}>One clinic, from the first token to the closed day</h2>
           <p className="muted">Every module talks to the others. A booking becomes a consultation, a consultation becomes an invoice, an invoice becomes a follow-up — and the day closes with the drawer counted.</p>
         </div>
-        <div className="mk-cards">
+        <div className={`mk-cards${compact ? ' compact' : ''}`}>
           {FEATURES.map((f) => (
-            <article className="mk-card" key={f.title}>
-              <span className="ic"><f.icon size={18} /></span>
-              <h3>{f.title}</h3>
-              <p className="small muted">{f.body}</p>
-            </article>
+            <FeatureCard key={f.title} feature={f} compact={compact} />
           ))}
         </div>
       </section>
@@ -191,8 +230,24 @@ export default function Landing({ anchor }) {
           <h2 style={{ fontSize: 'clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem)' }}>Priced per clinic, not per patient</h2>
           <p className="muted">Start on Solo. Move up when you add a second doctor or a second branch. Annual billing saves two months.</p>
         </div>
-        <div className="mk-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(262px, 1fr))' }}>
-          {PLANS.map((plan) => (
+        {compact ? (
+          <div className="mk-plan-tabs" role="tablist" aria-label="Plans">
+            {PLANS.map((plan, i) => (
+              <button
+                key={plan.id}
+                type="button"
+                role="tab"
+                aria-selected={i === Math.min(planTab, PLANS.length - 1)}
+                className={i === Math.min(planTab, PLANS.length - 1) ? 'on' : ''}
+                onClick={() => setPlanTab(i)}
+              >
+                {plan.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div className="mk-cards" style={{ gridTemplateColumns: compact ? 'minmax(0, 1fr)' : 'repeat(auto-fit, minmax(262px, 1fr))' }}>
+          {(compact ? PLANS.filter((_, i) => i === Math.min(planTab, PLANS.length - 1)) : PLANS).map((plan) => (
             <article key={plan.id} className={`price-card ${plan.popular ? 'popular' : ''}`}>
               {plan.popular ? <span className="badge brand" style={{ position: 'absolute', top: -11, left: 20 }}>Most chosen</span> : null}
               <div>
@@ -236,7 +291,7 @@ export default function Landing({ anchor }) {
       </section>
 
       <section className="mk-section" style={{ paddingTop: 0 }}>
-        <div className="card pad" style={{ padding: 'clamp(22px, 3vw, 40px)', background: 'linear-gradient(140deg, #0b5d56, #08403c 60%, #062b28)', border: 0, color: '#eafaf6', display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center' }}>
+        <div className="mk-final card pad">
           <div className="stack" style={{ gap: 8 }}>
             <h2 style={{ color: '#eafaf6', fontSize: 'clamp(1.3rem, 1rem + 1vw, 1.8rem)' }}>Open the demo clinic and click around</h2>
             <p style={{ color: 'rgba(234,250,246,0.78)', maxWidth: '56ch' }} className="small">
@@ -251,18 +306,78 @@ export default function Landing({ anchor }) {
       </section>
 
       <footer className="mk-footer">
-        <div className="row" style={{ gap: 8 }}>
-          <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 8 }}><Stethoscope size={14} /></span>
-          <span className="strong" style={{ color: 'var(--text)' }}>myClinic</span>
+        <div className="mk-footer-inner">
+          <div className="mk-footer-brand">
+            <div className="row" style={{ gap: 9 }}>
+              <span className="brand-mark" style={{ width: 32, height: 32, borderRadius: 10 }}><Stethoscope size={16} /></span>
+              <div>
+                <div className="brand-name">myClinic</div>
+                <div className="tiny faint">OPD management software</div>
+              </div>
+            </div>
+            <p className="small muted mk-footer-pitch">
+              Appointments, token queues, patient records, billing and follow-ups — for a single-doctor
+              OPD or a multi-branch group. Built for a clinic desk, not a boardroom.
+            </p>
+            <div className="row wrap" style={{ gap: 8 }}>
+              <Button size="sm" variant="primary" onClick={() => navigate(configured ? '/signup' : '/app/dashboard')}>
+                {configured ? 'Start free' : 'Explore the demo'}
+              </Button>
+              <Button size="sm" variant="subtle" onClick={enterDemo}>Sample patients</Button>
+            </div>
+          </div>
+
+          <nav className="mk-footer-links" aria-label="Footer">
+            {FOOTER_GROUPS.map((group) => (
+              <div className="mk-footer-col" key={group.title}>
+                <h3>{group.title}</h3>
+                {group.links.map((link) => (link.href
+                  ? <a key={link.label} href={link.href}>{link.label}</a>
+                  : <Link key={link.label} to={link.to}>{link.label}</Link>
+                ))}
+              </div>
+            ))}
+          </nav>
         </div>
-        <span>© {new Date().getFullYear()} myClinic · OPD management software</span>
-        <div className="spacer" />
-        <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
-        <Link to="/setup">Deployment guide</Link>
-        <Link to="/login">Sign in</Link>
+
+        <div className="mk-footer-bar">
+          <span>© {new Date().getFullYear()} myClinic · OPD management software</span>
+          <span className="mk-footer-ver">v{APP_VERSION}</span>
+          <span className="spacer" />
+          <span className="tiny faint">Made for Indian OPDs · GST-ready · Works offline</span>
+        </div>
       </footer>
     </div>
+  );
+}
+
+/**
+ * A feature is a card on a desk and a collapsed row on a phone: twelve bodies
+ * of copy is a lot of scrolling when the screen is 390px wide.
+ */
+function FeatureCard({ feature, compact }) {
+  const [open, setOpen] = useState(false);
+  const Icon = feature.icon;
+
+  if (!compact) {
+    return (
+      <article className="mk-card">
+        <span className="ic"><Icon size={18} /></span>
+        <h3>{feature.title}</h3>
+        <p className="small muted">{feature.body}</p>
+      </article>
+    );
+  }
+
+  return (
+    <article className={`mk-card mk-card-fold${open ? ' open' : ''}`}>
+      <button type="button" className="mk-card-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="ic"><Icon size={17} /></span>
+        <span className="mk-card-title">{feature.title}</span>
+        <span className="mk-card-chev" aria-hidden="true">{open ? <Minus size={16} /> : <Plus size={16} />}</span>
+      </button>
+      {open ? <p className="small muted mk-card-body">{feature.body}</p> : null}
+    </article>
   );
 }
 

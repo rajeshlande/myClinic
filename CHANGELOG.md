@@ -3,6 +3,52 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.11.2] — 2026-11-04 · schema 8
+
+The marketing site and the app now have one set of breakpoints instead of a
+collection of one-off media queries, and the phone version of the landing page is
+built to be read on a phone rather than merely squeezed onto one. No schema change.
+
+### Fixed
+- **The footer stacks properly at every width.** It was a single flex row of seven
+  items: on a phone the copyright, the version and four links wrapped into an
+  unreadable line, and on a wide screen it ignored the page's 1280px container and
+  started hard against the window edge. It is now a real footer — brand and pitch,
+  three titled link columns, a bottom bar with the copyright and version — that goes
+  two columns at 760px and one at 360px, with 44px tap targets and safe-area padding
+  for the iOS home bar.
+- **The closing call-to-action no longer collapses.** It used an inline
+  `grid-template-columns: minmax(0,1fr) auto`, so on a phone the text was squeezed
+  into a column about forty pixels wide — the heading rendered one word per line —
+  while the buttons overlapped it. `.mk-final` stacks below 760px and the buttons go
+  full width.
+- The hero's `<br>` is ignored below 640px, so the headline wraps by measure instead
+  of leaving "for" alone on its own line.
+- The security cards form two even rows of three on a wide screen instead of a row of
+  four with two orphans.
+
+### Changed — the phone layout is now deliberately simpler
+- **The nav folds into a menu.** The four section links no longer vanish below 900px
+  with no way to reach them: a menu button opens a sheet with Features, How it works,
+  Pricing, Security, the deployment guide and the patient booking page. It closes on
+  Escape, on a link, and when the screen grows. On a phone the "Sign in" button moves
+  into that sheet, so the bar is brand, theme, Start free, menu.
+- **Twelve feature cards become twelve folded rows** below 640px — icon and title,
+  tap to read the paragraph. The landing page is 2200px shorter on a 390px screen
+  (8608 → 6400) with nothing removed.
+- **Pricing shows one plan at a time** on a phone, behind a Solo / Growth /
+  Multi-clinic switch, instead of three cards stacked 1600px deep.
+- Tighter type and rhythm on a phone: smaller section padding, tighter card padding,
+  and the capability chips scroll sideways on one line instead of wrapping to five.
+
+### Added
+- `src/lib/responsive.mjs` — `layoutFor(width)` (`phone` ≤640, `tablet` ≤900,
+  `desktop`), `isCompact`, `usesMenu`, and the footer link groups as data.
+- `src/lib/use-layout.js` — the hook that keeps the layout bucket in sync with the
+  viewport, coalesced into one animation frame.
+- 14 new tests (214 total) covering the breakpoints, the fallbacks and the footer
+  links: every target is an in-page anchor or a route that exists, never both.
+
 ## [1.11.1] — 2026-11-04 · schema 8
 
 Inviting a front-desk seat or another doctor did not work. In a live clinic the

@@ -23,6 +23,7 @@ Built by adapting the technical foundation of the supplied [`mycar`](https://git
 | **Doctors & staff** | Doctors with their own hours, slot length, fees and calendar colour; front-desk seats; role matrix; seat count against plan. **Invite staff by email** — the invitation carries the name, role and (for a doctor) specialty and qualification, shows up under Pending invitations with the link to send, and grants the seat the first time the person signs in with that address. Nobody can enrol themselves. |
 | **Settings** | Clinic profile, **public booking** (on/off, copyable link, the slug, how far ahead the diary opens, the note patients see), billing/GST, account, appearance (theme + density), reminders, plan, data export. |
 | **PWA** | Installable, standalone display, offline app shell, shortcuts (queue / book / register / billing), theme-aware icons. |
+| **Any screen** | One set of breakpoints (`src/lib/responsive.mjs`): phone ≤640, tablet ≤900, desktop above. On a phone the app runs on a bottom tab bar; the marketing page folds its nav into a menu, its twelve feature cards into tap-to-read rows and its three plans behind a Solo / Growth / Multi-clinic switch, and the footer stacks to two columns and then one. Nothing is hidden that a wide screen shows — only folded. |
 
 Live demo data: the app boots into **Sunrise Multispecialty OPD** with six months of fictional patients, appointments, consultations and invoices — no configuration needed.
 
