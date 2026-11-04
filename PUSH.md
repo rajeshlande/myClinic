@@ -6,32 +6,32 @@ Your clone stays a normal clone; `git bundle verify` reports it as a complete
 source of history.
 
 Current state of <https://github.com/rajeshlande/myClinic.git>: `main` at
-`7dab99c` *"docs: PUSH.md for the v1.9.0 bundles"*, tags `v1.2.1 … v1.9.0`.
-Everything after that — v1.10.0 and its commits — is in the bundles below.
+`e4f7f5f` *"docs: PUSH.md for the v1.10.0 bundles"*, tags `v1.2.1 … v1.10.0`.
+Everything after that — v1.10.1 and its commit — is in the bundles below.
 
 Two files, pick according to what you already have:
 
 | File | Size | Use it when |
 |---|---|---|
-| `myClinic-update-to-v1.10.0.bundle` | ~20 KB | You already have the repo on GitHub or on disk at `7dab99c`. **Recommended** — it is a delta and fast-forwards. |
-| `myClinic-full-v1.10.0.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
+| `myClinic-update-to-v1.10.1.bundle` | ~8 KB | You already have the repo on GitHub or on disk at `e4f7f5f` (v1.10.0 pushed). **Recommended** — it is a delta and fast-forwards. |
+| `myClinic-full-v1.10.1.bundle` | ~10 MB | You want a standalone clone source (new machine, no GitHub access yet, or the repo is empty). |
 
-Both carry `main` and every release tag `v1.2.1 … v1.10.0`.
+Both carry `main` and every release tag `v1.2.1 … v1.10.1`.
 
 ## Route A · update an existing clone, then push (recommended)
 
-The update bundle declares `7dab99c` as its prerequisite, so it applies to your
+The update bundle declares `e4f7f5f` as its prerequisite, so it applies to your
 existing clone as-is — no re-download of ten rounds of history.
 
 ```bash
 git clone https://github.com/rajeshlande/myClinic.git myClinic   # skip if already cloned
 cd myClinic
-git fetch /path/to/myClinic-update-to-v1.10.0.bundle \
+git fetch /path/to/myClinic-update-to-v1.10.1.bundle \
   'refs/heads/main:refs/remotes/bundle/main' 'refs/tags/*:refs/tags/*'
 git merge --ff-only refs/remotes/bundle/main
 
 git push origin main
-git push origin refs/tags/v1.10.0
+git push origin refs/tags/v1.10.1
 ```
 
 `--ff-only` is deliberate: if it refuses, the history is not what the bundle
@@ -46,18 +46,18 @@ the old tag moved onto this history, do it deliberately:
 
 Verified from this sandbox against the live repository: `git clone` of
 github.com/rajeshlande/myClinic → fetch the bundle → `git merge --ff-only` lands
-on the v1.10.0 commit, exit code 0, working tree clean, **150/150 tests** pass,
-`npm run build` and `npm run check:pages` clean, tags `v1.3.0 … v1.10.0` present
+on the v1.10.1 commit, exit code 0, working tree clean, **150/150 tests** pass,
+`npm run build` and `npm run check:pages` clean, tags `v1.3.0 … v1.10.1` present
 and `v1.2.1` untouched.
 
 ## Route B · clone the full bundle, then push
 
 ```bash
-git clone -b main myClinic-full-v1.10.0.bundle myClinic
+git clone -b main myClinic-full-v1.10.1.bundle myClinic
 cd myClinic
 git remote set-url origin https://github.com/rajeshlande/myClinic.git
 git push -u origin main
-git push origin refs/tags/v1.10.0
+git push origin refs/tags/v1.10.1
 ```
 
 (A fresh clone *can* be pushed with `--follow-tags`; the explicit tag list above
@@ -67,6 +67,7 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 
 | Commit | Release | Scope |
 |---|---|---|
+| `a49747e` | **1.10.1** · schema 7 | Marketing only: two landing-page feature cards (day close, reminders with a paper trail), a Day close strip chip, and a headline that runs to the closed day. No app behaviour changed. |
 | `f2feaba` | **1.10.0** · schema 7 | Day close (collections by method, cash reconciliation, frozen `day_closes` snapshot), the missed-charge detector, and the reminder queue with a `reminders` send log that honours quiet hours. Plus mobile layouts for both new screens. |
 | `7dab99c` | docs | This file, for the v1.9.0 bundles. |
 | `3fdee7b` | **1.9.0** · schema 6 | Phone layout for every screen: agenda day board, lists that read down, full-screen consultation sheet with pinned actions, paged registers, 38px+ touch targets. Plus `buildDayBoard` now honours its injected clock. |
@@ -76,9 +77,9 @@ still avoids the pre-existing `v1.2.1` on GitHub.)
 ## Verify a bundle before you trust it
 
 ```bash
-git bundle verify myClinic-update-to-v1.10.0.bundle    # refs + required base
-git bundle verify myClinic-full-v1.10.0.bundle         # "complete history"
-git clone -b main myClinic-full-v1.10.0.bundle /tmp/check
+git bundle verify myClinic-update-to-v1.10.1.bundle    # refs + required base
+git bundle verify myClinic-full-v1.10.1.bundle         # "complete history"
+git clone -b main myClinic-full-v1.10.1.bundle /tmp/check
 cd /tmp/check && npm ci && npm test && npm run build && npm run check:pages
 ```
 
