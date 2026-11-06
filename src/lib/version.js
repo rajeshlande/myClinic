@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.19.1';
+export const APP_VERSION = '1.19.2';
 export const SCHEMA_VERSION = 17;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.19.2', date: '2026-11-06', schema: 17,
+    highlights: [
+      '`npm test` works on Windows. `node --test tests/` does not: node’s runner does not treat the directory argument as a directory there, so it tries to load `tests` as a module and the suite dies with MODULE_NOT_FOUND before the first test runs — 0 of 439 tests, and `npm run verify` stops at the first step. The file list is now built in node by `scripts/run-tests.mjs` and passed as arguments: no shell, no globs, no directory handling. The same 439 tests run on Windows, Linux and macOS, and in CI.',
+      'A check so it cannot come back: `npm run check:contributing` refuses a test script that hands node a bare directory, and follows the script to confirm it really reaches the test runner rather than looking for the string `node --test`.',
+      'Nothing in the database or the app changed — schema 17, same five audit fixes as 1.19.1.',
+    ],
+  },
   {
     version: '1.19.1', date: '2026-11-06', schema: 17,
     highlights: [

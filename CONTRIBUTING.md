@@ -119,7 +119,7 @@ variable families in the dependency list, not a webfont per heading.
 runs:
 
 ```bash
-npm test                     # node --test tests/ — 418 tests
+npm test                     # node scripts/run-tests.mjs — 439 tests
 npm run verify               # tests + production build + Pages readiness
 npm run check:contributing   # this document, checked
 npm run test:security        # prints the RLS verification procedure

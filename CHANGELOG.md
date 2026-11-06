@@ -3,6 +3,27 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.19.2] — 2026-11-06 · schema 17
+
+**`npm run verify` runs on Windows.**
+
+- **The bug.** `"test": "node --test tests/"` does not work on Windows: Node's test
+  runner does not classify the directory argument as a directory there, so it
+  tries to load `tests` as a module and dies with `MODULE_NOT_FOUND` before a
+  single test runs. Not a test failure — the suite never started — but `npm run
+  verify` stops at its first step, so nothing downstream runs either. CI never
+  caught it because CI is Linux.
+- **The fix.** `scripts/run-tests.mjs` builds the file list in Node
+  (`readdirSync` over `tests/`, `*.test.mjs`, sorted) and spawns
+  `node --test <files…>`. No shell, no globs, no directory argument — the three
+  things that differ across platforms. A new test file needs no edit anywhere, and
+  anything after `npm test --` is passed through to the runner.
+- **The guard.** `check:contributing` used to look for the literal string
+  `node --test` in `package.json`, which is why it stayed green while the script
+  was broken. It now follows the pointer: the test script must not hand node a
+  bare directory, and whatever it invokes must actually pass `--test`.
+- **Nothing else changed.** Same schema 17, same five audit fixes as 1.19.1.
+
 ## [1.19.1] — 2026-11-06 · schema 17
 
 **The five findings from the first full security audit, closed in the code that

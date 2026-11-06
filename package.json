@@ -1,7 +1,7 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.19.1",
+  "version": "1.19.2",
   "type": "module",
   "description": "myClinic \u2014 OPD clinic management SaaS: appointments, public booking, token queue, patient records, consultations with a typo-tolerant Indian drug directory, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {
@@ -12,7 +12,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/",
+    "test": "node scripts/run-tests.mjs",
     "check:pages": "node scripts/check-pages.mjs",
     "verify": "npm test && npm run build && npm run check:pages && npm run check:contributing",
     "test:security": "node scripts/security-check.mjs",

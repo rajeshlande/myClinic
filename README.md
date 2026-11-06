@@ -322,7 +322,7 @@ behaviour comes with a test; a change to SQL comes with a suite in
 The standards are checked, not remembered:
 
 ```bash
-npm run check:contributing   # 25 rules: secrets, dependencies, cleanups, naming, versions, docs
+npm run check:contributing   # 26 rules: secrets, dependencies, cleanups, naming, versions, docs
 npm run audit:security       # the same, plus npm audit, and warnings fail too
 ```
 

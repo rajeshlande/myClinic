@@ -329,9 +329,29 @@ export function runChecks({ cwd = process.cwd(), online = false, only = null } =
       'every pure module is exercised by a test',
       untested.length ? `no test imports: ${untested.join(', ')}` : `${libs.length} modules covered`);
 
+    // `npm test` must reach node's test runner. It does not have to spell
+    // `node --test` in package.json: the runner builds the file list itself, because
+    // a directory argument or a shell glob is not portable to Windows. So follow
+    // the pointer — the test script, and then whatever it invokes.
     const script = JSON.parse(at('package.json') || '{}').scripts?.test ?? '';
-    add('test-script', script.includes('node --test') ? PASS : FAIL,
-      'npm test runs the node test runner', script || 'missing');
+    const target = /node\s+(\S+)/.exec(script)?.[1] ?? '';
+    const targetText = target.endsWith('.mjs') ? (at(target.replace(/^\.\//, '')) ?? '') : '';
+    const reachesRunner = script.includes('node --test')
+      || (targetText.includes("'--test'") || targetText.includes('"--test"'));
+    add('test-script', reachesRunner ? PASS : FAIL,
+      'npm test runs the node test runner',
+      reachesRunner ? script : `${script || 'missing'} — no node --test`);
+
+    // `node --test tests/` is a Windows trap: node's runner does not classify the
+    // directory argument there, so it loads `tests` as a module and the suite dies
+    // with MODULE_NOT_FOUND before the first test — green here, red on the machine
+    // that matters. The runner script exists precisely to keep the file list out of
+    // the shell's hands, so refuse the shape that broke.
+    const bareDir = /^node\s+--test\s+(?:--\S+\s+)*[\w./-]+\/?\s*$/.test(script.trim())
+      && !/\.[cm]?js\b/.test(script);
+    add('test-script-portable', bareDir ? FAIL : PASS,
+      'npm test does not hand node a bare directory',
+      bareDir ? `${script} — build the file list in node instead (see scripts/run-tests.mjs)` : script);
   }
 
   if (want('docs')) {
