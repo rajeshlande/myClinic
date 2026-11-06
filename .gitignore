@@ -14,3 +14,6 @@ coverage/
 .vite/
 .env.*
 !.env.example
+
+# security-audit skill output (findings.json, coverage-ledger.json, reports/)
+.security-audit/

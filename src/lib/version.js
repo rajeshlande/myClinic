@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.18.0';
+export const APP_VERSION = '1.19.0';
 export const SCHEMA_VERSION = 16;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.19.0', date: '2026-11-06', schema: 16,
+    highlights: [
+      'CONTRIBUTING.md now states the four standards we actually hold each other to — zero-trust security, performance, coding and style, and the pull-request process — with the commands that check them rather than advice that cannot be checked.',
+      'The Cloudflare security-audit skill is vendored in the repository (.claude/skills/security-audit, MIT, pinned to c1c8a8c), so a coding agent opened on this repository runs the same six-phase audit as everyone else: reconnaissance, coverage-led hunting, candidate validation, structured output, independent verification, reporting. The agent that checks a finding is never the agent that found it.',
+      'New `npm run check:contributing`: 25 checks over the tracked tree, the dependency safe-list, licence notices, listener cleanups, naming, test coverage of the pure modules, version agreement and the vendored skill. CI fails on any of them. It found two real defects on its first run — a service-worker effect that registered listeners without removing them, and a missing licence row.',
+    ],
+  },
   {
     version: '1.18.0', date: '2026-11-06', schema: 16,
     highlights: [

@@ -1,2 +1,6 @@
 # Historical release notes predate the current conventions; not relinted.
 CHANGELOG.md
+
+# Vendored verbatim from cloudflare/security-audit-skill (MIT). Upstream's markdown
+# is not ours to restyle, and editing it would be lost on the next update.
+.claude/skills/security-audit/**

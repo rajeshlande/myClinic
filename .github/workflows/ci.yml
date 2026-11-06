@@ -46,6 +46,9 @@ jobs:
       - name: Build from a repository sub-path
         run: VITE_BASE=/myClinic/ npm run build && VITE_BASE=/myClinic/ npm run check:pages
 
+      - name: Contributing standards (CONTRIBUTING.md)
+        run: npm run check:contributing
+
       - name: Security checklist
         run: npm run test:security
 

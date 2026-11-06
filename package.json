@@ -1,7 +1,7 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.18.0",
+  "version": "1.19.0",
   "type": "module",
   "description": "myClinic \u2014 OPD clinic management SaaS: appointments, public booking, token queue, patient records, consultations with a typo-tolerant Indian drug directory, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {
@@ -14,9 +14,12 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/",
     "check:pages": "node scripts/check-pages.mjs",
-    "verify": "npm test && npm run build && npm run check:pages",
+    "verify": "npm test && npm run build && npm run check:pages && npm run check:contributing",
     "test:security": "node scripts/security-check.mjs",
-    "build:pages": "vite build"
+    "build:pages": "vite build",
+    "check:contributing": "node scripts/check-contributing.mjs",
+    "audit:deps": "node scripts/check-contributing.mjs --only deps --online",
+    "audit:security": "node scripts/check-contributing.mjs --online --strict"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

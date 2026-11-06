@@ -319,6 +319,17 @@ break tenant isolation**, and **never lose a clinician's concurrent edit**. New
 behaviour comes with a test; a change to SQL comes with a suite in
 `supabase/schema-tests.sql`.
 
+The standards are checked, not remembered:
+
+```bash
+npm run check:contributing   # 25 rules: secrets, dependencies, cleanups, naming, versions, docs
+npm run audit:security       # the same, plus npm audit, and warnings fail too
+```
+
+A coding agent opened on this repository also loads the vendored
+[Cloudflare `security-audit` skill](.claude/skills/security-audit/SKILL.md) — ask it
+for a security review and it audits with independently verified findings.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).

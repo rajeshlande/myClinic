@@ -45,28 +45,46 @@ export function PWAProvider({ children, register = true }) {
     let cancelled = false;
     const base = import.meta.env.BASE_URL || '/';
 
+    // Everything registered below is unregistered in the cleanup. The front desk
+    // leaves this app open all day and React re-runs an effect on a remount, so a
+    // listener without a counterpart would stack a second update check on top of
+    // the first and fire twice.
+    const teardown = [];
+    const onController = () => setOfflineReady(true);
+
     navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).then((reg) => {
       if (cancelled) return;
       if (navigator.serviceWorker.controller) setOfflineReady(true);
       const offer = (worker) => setUpdateReady(worker);
       if (reg.waiting) offer(reg.waiting);
-      reg.addEventListener('updatefound', () => {
+
+      const onUpdateFound = () => {
         const worker = reg.installing;
-        worker?.addEventListener('statechange', () => {
+        const onStateChange = () => {
           if (worker.state === 'installed' && navigator.serviceWorker.controller) offer(worker);
-        });
-      });
-      // Check for a new build when the app regains focus (front desk keeps it open all day).
+        };
+        worker?.addEventListener('statechange', onStateChange);
+        teardown.push(() => worker?.removeEventListener('statechange', onStateChange));
+      };
+      reg.addEventListener('updatefound', onUpdateFound);
+      teardown.push(() => reg.removeEventListener('updatefound', onUpdateFound));
+
+      // Check for a new build when the app regains focus.
       const check = () => reg.update().catch(() => {});
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+      document.addEventListener('visibilitychange', onVisible);
+      teardown.push(() => document.removeEventListener('visibilitychange', onVisible));
       window.addEventListener('online', check);
+      teardown.push(() => window.removeEventListener('online', check));
     }).catch(() => { /* offline or unsupported — the app still works */ });
 
-    const onController = () => setOfflineReady(true);
     navigator.serviceWorker.addEventListener('controllerchange', onController);
     return () => {
       cancelled = true;
       navigator.serviceWorker.removeEventListener('controllerchange', onController);
+      for (const off of teardown) {
+        try { off(); } catch { /* the registration went away with the page */ }
+      }
     };
   }, [register]);
 

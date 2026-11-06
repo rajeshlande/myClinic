@@ -29,6 +29,19 @@ they depend on your Supabase project configuration:
 
 Please check those against your own project before reporting them as new.
 
+## Auditing with a coding agent
+
+The [Cloudflare `security-audit` skill](https://github.com/cloudflare/security-audit-skill)
+is vendored at `.claude/skills/security-audit/` (MIT). Ask the agent for a
+*"security audit of this codebase"* and it runs six phases — reconnaissance,
+coverage-led hunting, candidate validation, structured output, independent record
+verification, reporting — with the rule that **a finding is checked by an agent other
+than the one that found it**. It works from source in a sandbox: it does not probe the
+deployed site, the live Supabase project or real patient data, and anything it cannot
+prove is filed as `needs_validation` rather than `confirmed`.
+
+`npm run check:contributing -- --only skill` verifies the vendored copy is intact.
+
 ## Verifying the current state
 
 ```bash

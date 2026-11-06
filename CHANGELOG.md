@@ -3,6 +3,39 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.19.0] — 2026-11-06 · schema 16
+
+**Contributing is now a checklist a machine runs, not a paragraph a reviewer
+remembers.**
+
+- **`CONTRIBUTING.md` carries the four standards**: zero-trust security (no
+  hardcoded secrets, push protection, input sanitisation at the boundary, dependency
+  safe-listing, private vulnerability disclosure), performance (listener and timer
+  cleanup, no blocking calls in the bundle, batched database access, lazy routes),
+  coding and style (the gates, the naming table, the testing rule, the documentation
+  rule) and the pull-request process.
+- **The Cloudflare [`security-audit`](https://github.com/cloudflare/security-audit-skill)
+  skill is vendored** at `.claude/skills/security-audit/` — MIT, pinned to
+  `c1c8a8c`, upstream recorded in `VENDORED.md`. Six phases, adversarial validation
+  ("the agent that checks a finding is never the agent that found it"), and a hard
+  rule that without an OS sandbox nothing is executed and anything unproven is filed
+  as `needs_validation`.
+- **`npm run check:contributing`** — 25 checks over the tracked tree: credential
+  shapes, tracked `.env` files, raw HTML injection, service-role keys, the dependency
+  safe-list and licence notices, listener/timer balance, blocking calls, file naming,
+  stray `console.log`, test-suite presence and pure-module coverage, version
+  agreement across `package.json` / `APP_VERSION` / `CHANGELOG.md`, the document set,
+  and the vendored skill's presence, frontmatter, schema and validators. `--online`
+  adds `npm audit`; `--strict` turns warnings into failures; `--json` is for tooling.
+- **Two real defects found by its first run:**
+  `src/lib/pwa.jsx` registered `visibilitychange`, `online`, `updatefound` and
+  `statechange` listeners on the service worker and never removed them — the front
+  desk leaves the app open all day, so each remount stacked another update check. The
+  effect now collects its teardown and runs it. And `react-router` had no licence row
+  in `THIRD_PARTY_NOTICES.md`; it does now, along with the vendored skill.
+- CI gains the check on both Node versions, plus an `npm audit` step that already
+  fails on high or critical.
+
 ## [1.18.0] — 2026-11-06 · schema 16
 
 **A prescription is a document with pages, and every page has a footer.** Chrome
