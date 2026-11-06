@@ -7,6 +7,7 @@ import {
   patientInstruction, patternPhrase, quantityToDispense, slotsForFrequency,
 } from '../src/lib/rx-language.js';
 import { validateConsultation } from '../src/lib/logic.mjs';
+import { paginateRows, pageOffsets } from '../src/lib/paginate.mjs';
 
 // ------------------------------------------------ the pattern, not the sentence
 
@@ -219,4 +220,45 @@ test('an investigations list is refused on the form before the database refuses 
   assert.deepEqual(validateConsultation(base), {}, 'no investigations is fine');
   const long = 'x'.repeat(1001);
   assert.ok(validateConsultation({ ...base, investigations: long }).investigations);
+});
+
+/* ------------------------------------------- a prescription is a document, with pages */
+
+test('a short prescription is one page, and the rows stay on it', () => {
+  assert.deepEqual(paginateRows([]), [[]], 'no medicines is still a page — the signature needs one');
+  assert.deepEqual(paginateRows([1, 2, 3]).map((p) => p.length), [3]);
+  assert.deepEqual(paginateRows(Array.from({ length: 8 }, (_, i) => i)).map((p) => p.length), [8]);
+});
+
+test('two pages are balanced instead of orphaning a row under the signature', () => {
+  assert.deepEqual(paginateRows(Array.from({ length: 9 }, (_, i) => i)).map((p) => p.length), [5, 4]);
+  assert.deepEqual(paginateRows(Array.from({ length: 10 }, (_, i) => i)).map((p) => p.length), [5, 5]);
+  assert.deepEqual(paginateRows(Array.from({ length: 13 }, (_, i) => i)).map((p) => p.length), [7, 6]);
+  assert.deepEqual(paginateRows(Array.from({ length: 17 }, (_, i) => i)).map((p) => p.length), [9, 8]);
+});
+
+test('a long prescription is chunked, and the last page always has room to close', () => {
+  const sizes = (n) => paginateRows(Array.from({ length: n }, (_, i) => i)).map((p) => p.length);
+  // page 1 is capped at 8, middle pages at 12, and the page that also carries the
+  // investigations, advice and signature at 9 — so the last sheet closes properly
+  assert.deepEqual(sizes(20), [8, 8, 4]);
+  assert.deepEqual(sizes(21), [8, 9, 4]);
+  assert.deepEqual(sizes(32), [8, 12, 8, 4]);
+  assert.deepEqual(sizes(40), [8, 12, 12, 8]);
+  for (const n of [18, 19, 24, 27, 30, 45, 60]) {
+    const pages = sizes(n);
+    assert.equal(pages.reduce((a, b) => a + b, 0), n, `${n} rows are all placed, none lost`);
+    assert.ok(pages.slice(1, -1).every((c) => c <= 12), `${n}: middle pages never overflow`);
+    assert.ok(pages[pages.length - 1] <= 9, `${n}: the last page leaves room for the closing blocks`);
+  }
+});
+
+test('rows are numbered through the document, not per page', () => {
+  const rows = Array.from({ length: 21 }, (_, i) => `drug ${i + 1}`);
+  const pages = paginateRows(rows);
+  const offsets = pageOffsets(pages);
+  assert.deepEqual(offsets, [0, 8, 17]);
+  const numbered = pages.flatMap((page, p) => page.map((_, i) => offsets[p] + i + 1));
+  assert.deepEqual(numbered, Array.from({ length: 21 }, (_, i) => i + 1));
+  assert.deepEqual(pages.flat(), rows, 'no row is dropped or duplicated');
 });

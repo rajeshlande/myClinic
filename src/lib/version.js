@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.17.2';
+export const APP_VERSION = '1.18.0';
 export const SCHEMA_VERSION = 16;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.18.0', date: '2026-11-06', schema: 16,
+    highlights: [
+      'A prescription is now a document with pages, laid out by the app instead of left to the browser. Every page carries a footer pinned to the bottom of the paper — two blocks of the same width, the clinic and its address on the left, the document identity, the e-prescription line and “Page 2 of 3” on the right — whether the page is full or almost empty.',
+      'Long prescriptions paginate: page one holds the letterhead, the patient and up to eight medicines; middle pages hold twelve each under a continuation strip (clinic · patient · RX number · page); the last page leaves room for the investigations, the advice and the signature. Two-page prescriptions are split evenly rather than filling page one and orphaning a row under the signature. Nothing is dropped or renumbered: row numbers run through the document.',
+      'The footer cannot drift, because it is not fixed, repeated or guessed at — each page is a flex column and the footer is pushed to the bottom with margin-top. That also settles the earlier PDF defects: no fixed elements, no grid, no viewport heights in paged media.',
+    ],
+  },
   {
     version: '1.17.2', date: '2026-11-06', schema: 16,
     highlights: [

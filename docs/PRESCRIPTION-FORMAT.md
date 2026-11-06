@@ -155,40 +155,49 @@ What the app does **not** do, on purpose:
 
 ## The page it prints on
 
-The sheet is A4 — 210 × 297 mm — and it is that size on screen too, so the preview
-is not a guess. `.print-sheet` carries the page box (`width: 210mm`,
-`min-height: 297mm`, `padding: 13mm 12mm 18mm`) with the same margins `@page`
-gives the printer, and `@page { size: A4; margin: 13mm 12mm 18mm }` sets the paper.
-Both give a 186 mm content width, so a line that fits on screen fits on paper.
+A prescription is a document, and the app paginates it — the browser is not asked
+to do it. `src/lib/paginate.mjs` decides where the pages fall; `src/styles.css`
+only has to start each page on a fresh sheet.
 
-- The bottom 8 mm of a printed sheet is kept clear for the footer that repeats on
-  every page (`.print-foot`), so the last line of a one-page slip never sits under
-  it.
-- A prescription longer than a page breaks between medicine rows
-  (`break-inside: avoid` on `tr`, `.rx-sign`, `.rx-patient`, `.doc-foot`), never
-  inside one, and the medicine table header repeats (`display: table-header-group`).
-- On a phone the sheet drops the fixed A4 height and keeps 16 px of padding; a
-  297 mm page on a 360 px screen is not a preview, it is a scrollbar.
+| Page | Carries |
+| --- | --- |
+| 1 | letterhead (clinic, prescriber, registration number), patient block, allergy, vitals, complaint, diagnosis, and up to **8** medicines |
+| 2 … n-1 | a continuation strip — clinic · patient · RX number · *page n of m* — and **12** medicines |
+| n (last) | the remaining medicines (at most **9**), investigations advised, advice, follow-up and the signature with the clinic seal |
 
-To check it: print → destination *Save as PDF* → paper size **A4**, margins
-**Default**, scale **100%** (not "Fit to page"). The PDF's page count should match
-what the screen showed.
+Two-page prescriptions are split evenly (9 rows → 5 + 4), so a single row is never
+orphaned under the signature. Row numbers run through the document.
+
+**Every page has a footer, and the footer is at the bottom of the paper.** Each page
+is a flex column and the footer is pushed down with `margin-top: auto` — no
+`position: fixed`, no repetition the browser has to guess at. The footer is two
+blocks of the same width (`flex: 1 1 0`):
+
+- **left** — the clinic, its address, phone · email, and the validity line
+  ("This prescription is valid for the follow-up period shown above…");
+- **right** — the prescription identity (patient · date), the e-prescription line,
+  "Bring this sheet to your next visit", and `Page n of m · myClinic`.
+
+### Geometry
+
+`.print-page` is the sheet of paper: 210 × 297 mm on screen with 12 mm side, 12 mm
+top and 14 mm bottom margins; in print it is the printable area itself
+(186 × 270 mm, the 1 mm of slack stops a rounding error becoming a second sheet)
+inside `@page { size: A4; margin: 12mm 12mm 14mm }`, which is what repeats the
+margins on every page. `break-after: page` starts each page on fresh paper, and
+`:last-child` cancels it so the document does not end with a blank sheet.
 
 ### What the print stylesheet refuses to do, and why
 
-The generated PDF was once unreadable: the footer printed above the header and the
-slip arrived in pieces on two pages. Each of those had a cause worth keeping out
-of the code:
-
 | Rule | Why |
 | --- | --- |
-| `html, body, #root, .shell, .doc-page { height: auto; min-height: 0 }` in print | They are `100%` / `100dvh` on screen. In paged media that resolves against the page box, and content taller than it overflows a container that cannot fragment — the overflow restarts at the top of page two, taking `break-inside: avoid` blocks with it. |
-| No `position: fixed` anywhere in the document | A fixed element prints on every page, but Chrome emits it at the head of each page's content stream: it lands on the letterhead, and it comes first in any text extraction of the PDF. The footer is in flow. |
+| `html, body, #root, .shell, .doc-page { height: auto; min-height: 0 }` in print | They are `100%` / `100dvh` on screen. In paged media that resolves against the page box, and content taller than it overflows a container that cannot fragment — the overflow restarts at the top of the next page, taking `break-inside: avoid` blocks with it. |
+| No `position: fixed` in the document | A fixed element prints on every page, but Chrome emits it at the head of each page's content stream: it lands on the letterhead, and it comes first in any text extraction of the PDF. |
 | No `display: grid` in print | Chrome's grid fragmentation is unreliable, and a grid with `break-inside: avoid` can jump to the top of the next page. `.rx-patient`, `.doc-foot` and the invoice blocks are flex rows on paper. |
-| One footer, not two | `.doc-foot` carries the clinic identity, the validity line and the e-prescription line. A second, repeating footer was duplication on page one and noise in the file. |
+| Pagination in the app, not the browser | Only the app knows how many medicines it put on a page, so only the app can print "Page 2 of 3" and put the signature on the last sheet. |
 
-Verify with `rx-print-check.html` in the workspace: a standalone copy of the slip
-that uses the app's own stylesheet, so it prints exactly as the app does.
+Verify with `rx-print-check.html` in the workspace: a two-page copy of the slip that
+uses the app's own stylesheet, so it prints exactly as the app does.
 
 ## Where the code lives
 

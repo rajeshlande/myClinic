@@ -793,25 +793,72 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
 .doc-toolbar { max-width: 210mm; margin: 0 auto 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .doc-actions { max-width: 210mm; margin: 14px auto 0; }
 
-/* The sheet is a sheet of A4 — 210 × 297 mm — on screen exactly as on paper.
-   The padding is the same 13/12/18 mm that @page gives a printed page, so what the
-   doctor sees here is the page the printer produces: same content width (186 mm),
-   same place for the fold, same place for the repeated footer. */
-.print-sheet {
-  background: #fff; color: #14201d; border-radius: 3px;
+/* A prescription is a document: one block per sheet of paper.
+   `.print-page` is the page — 210 × 297 mm on screen, exactly as on paper — with
+   the same 12 mm side, 12 mm top and 14 mm bottom margins @page gives the printed
+   sheet. It is a flex column, so the footer can be pushed to the bottom of the
+   page whatever the content above it: `margin-top: auto` is the whole trick, and
+   it works on page 1 of a one-page slip as well as on page 3 of a long one. */
+/* The invoice is one continuous sheet; the prescription is one block per page.
+   Both are a page of A4 on screen. */
+.print-sheet,
+.print-page {
+  background: #fff; color: #14201d;
   width: 210mm; max-width: 100%; min-height: 297mm;
   box-sizing: border-box;
-  margin: 0 auto; padding: 13mm 12mm 18mm;
-  border: 1px solid #e3ebe8;
+  margin: 0 auto 16px; padding: 12mm 12mm 14mm;
+  display: flex; flex-direction: column;
+  border-radius: 3px; border: 1px solid #e3ebe8;
   box-shadow: 0 1px 2px rgba(18, 49, 42, 0.06), 0 14px 34px rgba(18, 49, 42, 0.10);
 }
-.print-sheet table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.print-sheet th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: #5a6b66; border-bottom: 1px solid #dfe8e4; padding: 8px 6px; }
-.print-sheet td { padding: 9px 6px; border-bottom: 1px solid #eef3f1; }
-.print-sheet .num { text-align: right; font-variant-numeric: tabular-nums; }
-.print-sheet .strong { font-weight: 700; }
+.print-page:last-child { margin-bottom: 0; }
 
-/* --- document header / title ---------------------------------------------- */
+/* the footer: two blocks of the same width, one on each side of the page */
+.page-foot {
+  margin-top: auto; padding-top: 3mm;
+  border-top: 1px solid #e7eeeb;
+  display: flex; gap: 6mm; align-items: flex-start;
+  font-size: 0.7rem; color: #7b8b86;
+  break-inside: avoid; page-break-inside: avoid;
+}
+.page-foot > div { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.page-foot > div:last-child { text-align: right; align-items: flex-end; }
+.page-foot strong { color: #29423b; font-size: 0.76rem; }
+.page-foot-fine { color: #93a5a0; }
+
+/* continuation sheet header */
+.page-cont {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-bottom: 2.4mm; margin-bottom: 3mm;
+  border-bottom: 1.4pt solid #0f766e;
+  font-size: 0.74rem; color: #5a6b66;
+}
+.page-cont .page-cont-no { margin-left: auto; }
+
+/* the slip's own pieces, named so the print rules can reach them */
+.rx-patient-wide { grid-column: 1 / -1; }
+.rx-allergy { display: inline-flex; gap: 6px; align-items: center; background: #fbe8ec; color: #b23b4e; padding: 4px 10px; border-radius: 7px; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.02em; }
+.rx-vitals { display: flex; gap: 14px; flex-wrap: wrap; background: #f6faf8; border-radius: 8px; padding: 8px 12px; margin: 12px 0; font-size: 0.76rem; color: #374a45; }
+.rx-clinical { display: grid; gap: 10px; margin-top: 8px; }
+.rx-complaint { font-size: 0.85rem; margin-top: 2px; }
+.rx-dx { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.rx-dx-chip { background: #e6f4f1; color: #0c655e; padding: 2px 8px; border-radius: 5px; font-size: 0.75rem; font-weight: 700; }
+.rx-block { margin-top: 14px; }
+.rx-head-row { display: flex; align-items: center; gap: 8px; border-bottom: 2px solid #0f766e; padding-bottom: 5px; }
+.rx-head-row strong { font-size: 0.84rem; letter-spacing: 0.05em; text-transform: uppercase; color: #374a45; font-family: var(--font); }
+.rx-table { margin-top: 6px; }
+.rx-drug { font-weight: 700; font-family: var(--font); }
+.rx-generic { font-family: var(--font); text-transform: uppercase; letter-spacing: 0.02em; }
+.rx-directions { font-weight: 600; }
+.rx-qty { font-family: var(--font); white-space: nowrap; }
+.rx-empty { font-size: 0.84rem; color: #7b8b86; margin-top: 6px; }
+.rx-tests { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.rx-tests span { border: 1px solid #cfe0db; color: #374a45; padding: 2px 8px; border-radius: 5px; font-size: 0.75rem; font-weight: 600; }
+.rx-followup { font-size: 0.88rem; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+.rx-sign-block { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.rx-sign-space { height: 38px; }
+
+/* --- document header / title ---------------------------------------------- *//* --- document header / title ---------------------------------------------- */
 .doc-head { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .doc-logo { object-fit: contain; flex: none; }
 .doc-head-text { flex: 1 1 220px; min-width: 0; }
@@ -929,7 +976,7 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   .doc-foot-right { text-align: left; align-items: flex-start; }
 }
 @media (max-width: 460px) {
-  .print-sheet { width: auto; min-height: 0; padding: 16px !important; border-radius: 12px; box-shadow: none; }
+  .print-sheet, .print-page { width: auto; min-height: 0; padding: 16px !important; border-radius: 12px; box-shadow: none; }
   .doc-table-wrap { margin-inline: -6px; padding-inline: 6px; }
   .doc-table-wrap table { min-width: 420px; font-size: 0.78rem; }
   .inv-parties { grid-template-columns: 1fr; }
@@ -1204,21 +1251,37 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   .shell, .page, .doc-page {
     height: auto !important; min-height: 0 !important;
     padding: 0 !important; max-width: none !important;
+    background: #fff !important;
   }
 
   .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts, .syncbar, .pwa-bar, .print-foot { display: none !important; }
   body { background: #fff; color: #111; }
 
+  /* 2 — one element per sheet. @page owns the margins (they repeat on every page,
+     which a padding on the first page cannot), so the page block itself is exactly
+     the printable area: 186 × 270 mm, a flex column, footer at the bottom. The 1 mm
+     of slack stops a rounding error turning one sheet into two. */
+  .print-page {
+    width: 210mm !important; max-width: none !important;
+    height: 270mm !important; min-height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
+    break-after: page; page-break-after: always;
+    break-inside: avoid; page-break-inside: avoid;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .print-page:last-child { break-after: auto; page-break-after: auto; }
+
+  /* invoices are still one continuous sheet */
   .print-sheet {
     width: 100% !important; max-width: none !important;
     min-height: 0 !important; margin: 0 !important; padding: 0 !important;
     border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
-    /* Colour the rule, the seal line and the QR even on a greyscale printer setting */
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
 
   /* --- type: read at arm's length, and small enough to fit one page -------- */
-  .print-sheet { font-size: 9.6pt; line-height: 1.42; }
+  .print-sheet, .print-page { font-size: 9.6pt; line-height: 1.42; }
   .doc-clinic { font-size: 13pt; }
   .doc-meta { font-size: 7.8pt; line-height: 1.45; }
   .doc-rule { height: 1.4pt; opacity: 1; margin-top: 2.4mm; }
@@ -1226,6 +1289,7 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   .doc-number { font-size: 9.4pt; }
   .doc-date { font-size: 7.6pt; }
   .doc-logo { max-height: 13mm !important; max-width: 46mm !important; }
+  .page-cont { font-size: 7.6pt; margin-bottom: 2.4mm; }
   .rx-patient { font-size: 8.4pt; margin: 3mm 0 2mm; gap: 1mm 6mm; }
   .rx-eyebrow { font-size: 7pt; }
   .rx-table { font-size: 8.6pt; }
@@ -1237,21 +1301,24 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   .rx-note { font-size: 8.2pt; padding: 2mm 2.6mm; }
   .rx-symbol { font-size: 15pt; }
   .rx-sign { margin-top: 5mm; font-size: 7.6pt; }
+  .rx-sign-space { height: 12mm; }
+  .rx-block { margin-top: 3.4mm; }
+  .rx-vitals { margin: 2.6mm 0; padding: 1.6mm 2.4mm; font-size: 7.8pt; }
+  .page-foot { font-size: 7.2pt; padding-top: 2.2mm; gap: 8mm; }
 
   /* --- grids as flex rows: same shape, breaks Chrome can actually take ---- */
   .rx-patient, .doc-foot, .inv-parties, .inv-settle, .inv-totals {
     display: flex !important; flex-wrap: wrap; align-items: flex-start;
   }
   .rx-patient > div { flex: 1 1 34mm; min-width: 0; }
-  .rx-patient > div:first-child,
-  .rx-patient > div[style*='grid-column'] { flex: 1 1 100%; }
+  .rx-patient > .rx-patient-wide { flex: 1 1 100%; }
   .doc-foot { justify-content: space-between; gap: 4mm; font-size: 7.4pt; margin-top: 5mm; padding-top: 2.6mm; }
   .doc-foot > div { flex: 0 1 auto; }
   .doc-foot-right { text-align: right !important; align-items: flex-end !important; }
   .inv-parties > div, .inv-settle > div, .inv-totals > div { flex: 1 1 40mm; min-width: 0; }
 
   /* --- where a page may break, and where it may not ---------------------- */
-  .doc-head, .rx-eyebrow, .rx-patient, .rx-sign { break-inside: avoid; page-break-inside: avoid; }
+  .doc-head, .rx-eyebrow, .rx-patient, .rx-sign, .page-foot { break-inside: avoid; page-break-inside: avoid; }
   .doc-head { break-after: avoid; page-break-after: avoid; }
   .rx-table thead, .doc-table thead { display: table-header-group; }
   .rx-table tr, .doc-table tr, .doc-foot, .inv-upi, .inv-totals { break-inside: avoid; page-break-inside: avoid; }

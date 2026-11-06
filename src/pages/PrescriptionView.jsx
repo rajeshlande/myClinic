@@ -8,6 +8,7 @@ import { RX_LANGUAGES, dosePattern, patientInstruction, quantityToDispense, rxSh
 import { DocumentHeader } from '../components/Branding.jsx';
 import { logoOnDocuments } from '../lib/branding.mjs';
 import { prescriptionMessage } from '../lib/messages.mjs';
+import { paginateRows, pageOffsets } from '../lib/paginate.mjs';
 import MessageSheet from '../components/MessageSheet.jsx';
 
 export default function PrescriptionView() {
@@ -35,6 +36,12 @@ export default function PrescriptionView() {
     () => rxSheet(visit ?? { prescription: [] }, { lang, patient, doctor, clinic }),
     [visit, lang, patient, doctor, clinic],
   );
+
+  // The document is paginated here, not by the browser: every page carries the
+  // clinic's identity at the bottom, and a page cannot overflow without us knowing.
+  const pages = useMemo(() => paginateRows(visit?.prescription ?? []), [visit?.prescription]);
+  const offsets = useMemo(() => pageOffsets(pages), [pages]);
+  const clinicLine = [clinic?.phone, clinic?.email].filter(Boolean).join(' · ');
 
   if (!visit) {
     return <div className="page"><Card><div className="card-body"><EmptyState icon={Stethoscope} title="Prescription not found" action={<Button variant="primary" onClick={() => navigate('/app/consultations')}>Back</Button>} /></div></Card></div>;
@@ -90,190 +97,204 @@ export default function PrescriptionView() {
         </Card>
       </div>
 
-      <div className="print-sheet card rx-sheet" style={{ margin: '0 auto', fontFamily: localised ? fontStackFor(lang) : 'var(--font)' }}>
-        {/* ---------------------------------------------------------------- header */}
-        <DocumentHeader
-          clinic={clinic}
-          showGstin={false}
-          logo={logoOnDocuments(clinic)}
-          accent={clinic.brand_color}
-          right={(
-            <div className="doc-title-block">
-              <div className="doc-kind">Prescription</div>
-              {visit.rx_number ? <div className="doc-number mono">{visit.rx_number}</div> : null}
-              <div className="doc-number">{doctor?.full_name ?? 'Consulting doctor'}</div>
-              <div className="doc-date">
-                {[doctor?.qualification, doctor?.specialty].filter(Boolean).join(' · ')}
-                {doctor?.registration_no ? <><br />Reg. {doctor.registration_no}</> : null}
+      {/* One block per sheet of paper. The pages are decided in paginate.mjs, so the
+          footer can sit at the bottom of every page and say which page it is. */}
+      {pages.map((rows, pageIndex) => {
+        const isFirstPage = pageIndex === 0;
+        const isLast = pageIndex === pages.length - 1;
+        const offset = offsets[pageIndex];
+        return (
+          <section
+            key={pageIndex}
+            className="print-page rx-sheet"
+            style={{ fontFamily: localised ? fontStackFor(lang) : 'var(--font)' }}
+            aria-label={`Prescription page ${pageIndex + 1} of ${pages.length}`}
+          >
+            {isFirstPage ? (
+              <DocumentHeader
+                clinic={clinic}
+                showGstin={false}
+                logo={logoOnDocuments(clinic)}
+                accent={clinic.brand_color}
+                right={(
+                  <div className="doc-title-block">
+                    <div className="doc-kind">Prescription</div>
+                    {visit.rx_number ? <div className="doc-number mono">{visit.rx_number}</div> : null}
+                    <div className="doc-number">{doctor?.full_name ?? 'Consulting doctor'}</div>
+                    <div className="doc-date">
+                      {[doctor?.qualification, doctor?.specialty].filter(Boolean).join(' · ')}
+                      {doctor?.registration_no ? <><br />Reg. {doctor.registration_no}</> : null}
+                    </div>
+                  </div>
+                )}
+              />
+            ) : (
+              /* Continuation sheet: who the patient is, whose prescription this is,
+                 and which page — the three things a loose sheet needs to be filed. */
+              <div className="page-cont">
+                <span className="strong">{clinic?.name ?? 'Clinic'}</span>
+                <span>{patient?.full_name} · {visit.rx_number ?? formatDate(visit.visited_on)}</span>
+                <span className="page-cont-no">Page {pageIndex + 1} of {pages.length}</span>
               </div>
-            </div>
-          )}
-        />
+            )}
 
-        {/* --------------------------------------------------------------- patient */}
-        <div className="rx-patient">
-          <div className="rx-patient-name"><b>{d.patient}</b>{patient?.full_name}</div>
-          <div><b>Patient ID</b><span className="mono">{patient?.code ?? '—'}</span></div>
-          <div><b>Age / Sex</b>{ageLabel(patient)}</div>
-          <div><b>Date</b>{formatDate(visit.visited_on)}</div>
-          <div><b>Visit</b>{appointment?.kind ?? 'Consultation'}{appointment?.token_no ? ` · T-${String(appointment.token_no).padStart(2, '0')}` : ''}</div>
-          {/* The format asks for the patient's address, and a slip that can be
-              traced back to a person is a slip a pharmacist can query. */}
-          {[patient?.address, patient?.city].filter(Boolean).length ? (
-            <div style={{ gridColumn: '1 / -1' }}><b>Address</b>{[patient?.address, patient?.city].filter(Boolean).join(', ')}</div>
-          ) : null}
-        </div>
+            {isFirstPage ? (
+              <>
+                <div className="rx-patient">
+                  <div className="rx-patient-name"><b>{d.patient}</b>{patient?.full_name}</div>
+                  <div><b>Patient ID</b><span className="mono">{patient?.code ?? '—'}</span></div>
+                  <div><b>Age / Sex</b>{ageLabel(patient)}</div>
+                  <div><b>Date</b>{formatDate(visit.visited_on)}</div>
+                  <div><b>Visit</b>{appointment?.kind ?? 'Consultation'}{appointment?.token_no ? ` · T-${String(appointment.token_no).padStart(2, '0')}` : ''}</div>
+                  {[patient?.address, patient?.city].filter(Boolean).length ? (
+                    <div className="rx-patient-wide"><b>Address</b>{[patient?.address, patient?.city].filter(Boolean).join(', ')}</div>
+                  ) : null}
+                </div>
 
-        {hasAllergy ? (
-          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', background: '#fbe8ec', color: '#b23b4e', padding: '4px 10px', borderRadius: 7, fontSize: '0.74rem', fontWeight: 800, letterSpacing: '.02em' }}>
-            <ShieldAlert size={12} /> {d.allergy}: {patient.allergies}
-          </div>
-        ) : null}
+                {hasAllergy ? (
+                  <div className="rx-allergy">
+                    <ShieldAlert size={12} /> {d.allergy}: {patient.allergies}
+                  </div>
+                ) : null}
 
-        {/* ---------------------------------------------------------------- vitals */}
-        {[v.temperature_c, v.pulse_bpm, v.bp_systolic, v.spo2, v.weight_kg, v.height_cm].some(Boolean) ? (
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', background: '#f6faf8', borderRadius: 8, padding: '8px 12px', margin: '12px 0', fontSize: '0.76rem', color: '#374a45' }}>
-            {[['Temp', v.temperature_c ? `${v.temperature_c} °F` : null], ['Pulse', v.pulse_bpm ? `${v.pulse_bpm} bpm` : null], ['BP', v.bp_systolic ? `${v.bp_systolic}/${v.bp_diastolic} mmHg` : null], ['SpO₂', v.spo2 ? `${v.spo2}%` : null], ['Weight', v.weight_kg ? `${v.weight_kg} kg` : null], ['Height', v.height_cm ? `${v.height_cm} cm` : null]].filter(([, val]) => val).map(([label, val]) => (
-              <span key={label}><strong>{label}:</strong> {val}</span>
-            ))}
-          </div>
-        ) : null}
+                {[v.temperature_c, v.pulse_bpm, v.bp_systolic, v.spo2, v.weight_kg, v.height_cm].some(Boolean) ? (
+                  <div className="rx-vitals">
+                    {[['Temp', v.temperature_c ? `${v.temperature_c} °F` : null], ['Pulse', v.pulse_bpm ? `${v.pulse_bpm} bpm` : null], ['BP', v.bp_systolic ? `${v.bp_systolic}/${v.bp_diastolic} mmHg` : null], ['SpO₂', v.spo2 ? `${v.spo2}%` : null], ['Weight', v.weight_kg ? `${v.weight_kg} kg` : null], ['Height', v.height_cm ? `${v.height_cm} cm` : null]].filter(([, val]) => val).map(([label, val]) => (
+                      <span key={label}><strong>{label}:</strong> {val}</span>
+                    ))}
+                  </div>
+                ) : null}
 
-        {/* ------------------------------------------------------- clinical summary */}
-        <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
-          {visit.complaint ? (
-            <div>
-              <div className="rx-eyebrow">{d.complaint}</div>
-              <p style={{ fontSize: '0.85rem', marginTop: 2 }}>{visit.complaint}</p>
-            </div>
-          ) : null}
-          {(visit.diagnoses ?? []).length ? (
-            <div>
-              <div className="rx-eyebrow">{d.diagnosis}</div>
-              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
-                {visit.diagnoses.map((dx) => <span key={dx} style={{ background: '#e6f4f1', color: '#0c655e', padding: '2px 8px', borderRadius: 5, fontSize: '0.75rem', fontWeight: 700 }}>{dx}</span>)}
+                <div className="rx-clinical">
+                  {visit.complaint ? (
+                    <div>
+                      <div className="rx-eyebrow">{d.complaint}</div>
+                      <p className="rx-complaint">{visit.complaint}</p>
+                    </div>
+                  ) : null}
+                  {(visit.diagnoses ?? []).length ? (
+                    <div>
+                      <div className="rx-eyebrow">{d.diagnosis}</div>
+                      <div className="rx-dx">
+                        {visit.diagnoses.map((dx) => <span key={dx} className="rx-dx-chip">{dx}</span>)}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+
+            <div className="rx-block">
+              <div className="rx-head-row">
+                <span className="rx-symbol">℞</span>
+                <strong>{d.medicines}{!isFirstPage ? ' (continued)' : ''}</strong>
+                <span className="spacer" />
+                <span className="rx-lang">{sheet.languageLabel}</span>
               </div>
+
+              {rows.length ? (
+                <table className="rx-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 20 }}>#</th>
+                      <th style={{ width: '30%' }}>Medicine</th>
+                      <th style={{ width: 80 }}>{sheet.columns.dose}</th>
+                      <th>{lang === 'en' ? 'How to take' : 'Directions'}</th>
+                      <th style={{ width: 74 }}>Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((rx, i) => (
+                      <tr key={`${pageIndex}-${i}`}>
+                        <td>{offset + i + 1}</td>
+                        <td>
+                          <div className="rx-drug">{rx.drug}</div>
+                          {rx.salt ? (
+                            <div className="rx-salt rx-generic">
+                              {rx.salt}
+                              {rx.form ? ` · ${rx.form}` : ''}
+                              {rx.schedule === 'H1' ? ' · Schedule H1' : rx.schedule === 'X' ? ' · Schedule X' : ''}
+                            </div>
+                          ) : null}
+                          {rx.notes ? <div className="rx-lang">{rx.notes}</div> : null}
+                        </td>
+                        <td>
+                          <div>{rx.dose}</div>
+                          {dosePattern(rx) ? <div className="rx-pattern-cell">{dosePattern(rx)}</div> : null}
+                        </td>
+                        <td>
+                          <div className="rx-directions">{patientInstruction(rx, lang)}</div>
+                          {localised ? <div className="rx-lang">{patientInstruction(rx, 'en')}</div> : null}
+                        </td>
+                        <td className="rx-qty">{quantityToDispense(rx)?.label ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : isFirstPage ? (
+                <p className="rx-empty">{d.no_medicine}</p>
+              ) : null}
             </div>
-          ) : null}
-        </div>
 
-        {/* ----------------------------------------------------------- prescription */}
-        <div style={{ marginTop: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: '2px solid #0f766e', paddingBottom: 5 }}>
-            <span className="rx-symbol">℞</span>
-            <strong style={{ fontSize: '0.84rem', letterSpacing: '0.05em', textTransform: 'uppercase', color: '#374a45', fontFamily: 'var(--font)' }}>{d.medicines}</strong>
-            <span className="spacer" />
-            <span className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{sheet.languageLabel}</span>
-          </div>
+            {isLast ? (
+              <>
+                {(visit.investigations ?? []).length ? (
+                  <div className="rx-block">
+                    <div className="rx-eyebrow">Investigations advised</div>
+                    <div className="rx-tests">
+                      {(visit.investigations ?? []).map((test) => <span key={test}>{test}</span>)}
+                    </div>
+                  </div>
+                ) : null}
 
-          {(visit.prescription ?? []).length ? (
-            <table className="rx-table" style={{ marginTop: 6 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 20 }}>#</th>
-                  <th style={{ width: '30%' }}>Medicine</th>
-                  <th style={{ width: 80 }}>{sheet.columns.dose}</th>
-                  <th>{lang === 'en' ? 'How to take' : 'Directions'}</th>
-                  <th style={{ width: 74 }}>Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visit.prescription.map((rx, i) => (
-                  <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td>
-                      <div style={{ fontWeight: 700, fontFamily: 'var(--font)' }}>{rx.drug}</div>
-                      {/* The generic name is what a pharmacist and the next doctor read,
-                          and the prescribed format wants it legible: capitals. */}
-                      {rx.salt ? (
-                        <div className="rx-salt" style={{ fontFamily: 'var(--font)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-                          {rx.salt}
-                          {rx.form ? ` · ${rx.form}` : ''}
-                          {rx.schedule === 'H1' ? ' · Schedule H1' : rx.schedule === 'X' ? ' · Schedule X' : ''}
-                        </div>
-                      ) : null}
-                      {rx.notes ? <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{rx.notes}</div> : null}
-                    </td>
-                    <td style={{ fontFamily: 'var(--font)' }}>
-                      <div>{rx.dose}</div>
-                      {/* The pad notation a chemist reads at a glance: 1-0-1. Derived
-                          from the row when the doctor did not type one. */}
-                      {dosePattern(rx) ? <div className="rx-pattern-cell">{dosePattern(rx)}</div> : null}
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{patientInstruction(rx, lang)}</div>
-                      {localised ? (
-                        <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{patientInstruction(rx, 'en')}</div>
-                      ) : null}
-                    </td>
-                    {/* What the chemist hands over. A dash, never a guess, when the
-                        frequency has no per-day rate or the course has no length. */}
-                    <td className="mono" style={{ fontFamily: 'var(--font)', whiteSpace: 'nowrap' }}>
-                      {quantityToDispense(rx)?.label ?? '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <p style={{ fontSize: '0.84rem', color: '#7b8b86', marginTop: 6 }}>{d.no_medicine}</p>}
-        </div>
+                {visit.advice ? (
+                  <div className="rx-block">
+                    <div className="rx-eyebrow">{d.advice}</div>
+                    <p className="rx-note">{visit.advice}</p>
+                  </div>
+                ) : null}
 
-        {/* ----------------------------------------------------------- investigations */}
-        {(visit.investigations ?? []).length ? (
-          <div style={{ marginTop: 14 }}>
-            <div className="rx-eyebrow">Investigations advised</div>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
-              {(visit.investigations ?? []).map((test) => (
-                <span key={test} style={{ border: '1px solid #cfe0db', color: '#374a45', padding: '2px 8px', borderRadius: 5, fontSize: '0.75rem', fontWeight: 600 }}>{test}</span>
-              ))}
-            </div>
-          </div>
-        ) : null}
+                <div className="rx-sign">
+                  <div>
+                    <div className="rx-eyebrow">Follow-up</div>
+                    <div className="rx-followup">
+                      <CalendarClock size={13} /> {visit.follow_up_on ? formatDate(visit.follow_up_on) : 'As needed'}
+                    </div>
+                    {visit.follow_up_on && localised ? <div className="rx-lang">{d.followup_in} {formatDate(visit.follow_up_on)}</div> : null}
+                  </div>
+                  <div className="rx-sign-block">
+                    <div className="rx-sign-space" />
+                    <div className="rx-sign-line">{doctor?.full_name}</div>
+                    <div className="rx-lang">
+                      {[doctor?.qualification, doctor?.registration_no ? `Reg. ${doctor.registration_no}` : null].filter(Boolean).join(' · ')}
+                    </div>
+                    <div className="rx-lang">{sheet.signature} &amp; clinic seal</div>
+                  </div>
+                </div>
+              </>
+            ) : null}
 
-        {/* ------------------------------------------------------------------ advice */}
-        {visit.advice ? (
-          <div style={{ marginTop: 14 }}>
-            <div className="rx-eyebrow">{d.advice}</div>
-            <p className="rx-note" style={{ marginTop: 4 }}>{visit.advice}</p>
-          </div>
-        ) : null}
-
-        {/* --------------------------------------------------------------- follow-up */}
-        <div className="rx-sign">
-          <div>
-            <div className="rx-eyebrow" style={{ fontFamily: 'var(--font)' }}>Follow-up</div>
-            <div style={{ fontSize: '0.88rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <CalendarClock size={13} /> {visit.follow_up_on ? formatDate(visit.follow_up_on) : 'As needed'}
-            </div>
-            {visit.follow_up_on && localised ? <div className="rx-lang" style={{ marginTop: 2 }}>{d.followup_in} {formatDate(visit.follow_up_on)}</div> : null}
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ height: 38 }} />
-            <div className="rx-sign-line">{doctor?.full_name}</div>
-            <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>
-              {[doctor?.qualification, doctor?.registration_no ? `Reg. ${doctor.registration_no}` : null].filter(Boolean).join(' · ')}
-            </div>
-            {/* The format asks for a signature and the clinic's seal; the slip says
-                where they go, so a printed sheet is not mistaken for a signed one. */}
-            <div className="rx-lang" style={{ fontFamily: 'var(--font)', marginTop: 2 }}>{sheet.signature} &amp; clinic seal</div>
-          </div>
-        </div>
-
-        <footer className="doc-foot">
-          <div>
-            <strong>{clinic.name ?? 'Clinic'}</strong>
-            {clinic.address ? <span>{clinic.address}</span> : null}
-            <span>{[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
-            <span className="doc-foot-fine">{sheet.footer}</span>
-          </div>
-          <div className="doc-foot-right">
-            <span>Prescription · {patient?.full_name ?? 'Patient'} · {formatDate(visit.visited_on)}</span>
-            <span className="doc-foot-fine">Computer-generated e-prescription · valid only with the prescriber’s signature and clinic seal</span>
-            <span className="doc-foot-fine">Bring this sheet to your next visit</span>
-            <span className="doc-foot-fine">myClinic</span>
-          </div>
-        </footer>
-      </div>
+            {/* The footer is the bottom of the page, whatever is above it: the page
+                is a flex column and this block is pushed down by `margin-top: auto`.
+                Two blocks of the same width — the clinic on the left, the document
+                on the right — so the line reads the same on every page. */}
+            <footer className="page-foot">
+              <div>
+                <strong>{clinic?.name ?? 'Clinic'}</strong>
+                {clinic?.address ? <span>{clinic.address}</span> : null}
+                {clinicLine ? <span>{clinicLine}</span> : null}
+                <span className="page-foot-fine">{sheet.footer}</span>
+              </div>
+              <div>
+                <span>Prescription · {patient?.full_name ?? 'Patient'} · {formatDate(visit.visited_on)}</span>
+                <span className="page-foot-fine">Computer-generated e-prescription · valid only with the prescriber’s signature and clinic seal</span>
+                <span className="page-foot-fine">Bring this sheet to your next visit</span>
+                <span className="page-foot-fine">Page {pageIndex + 1} of {pages.length} · myClinic</span>
+              </div>
+            </footer>
+          </section>
+        );
+      })}
 
       <div className="no-print" style={{ maxWidth: '210mm', margin: '14px auto 0' }}>
         <div className="row wrap small muted" style={{ gap: 8 }}>

@@ -3,6 +3,36 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.18.0] — 2026-11-06 · schema 16
+
+**A prescription is a document with pages, and every page has a footer.** Chrome
+cannot repeat a running footer on its own — a `position: fixed` element prints on
+every page but is emitted at the head of each page's content stream, which is what
+put the footer above the letterhead — so the pagination moved into the app.
+
+- **`src/lib/paginate.mjs`.** Page 1 takes the letterhead, the patient block and up
+  to **8** medicines; middle pages take **12** each under a continuation strip
+  (clinic · patient · RX number · page *n* of *m*); the last page holds at most
+  **9** because it also carries the investigations, the advice and the signature.
+  Two-page prescriptions are split evenly (9 rows → 5 + 4) so a single row is never
+  orphaned under the signature. Row numbers run through the document; no row is
+  dropped or duplicated.
+- **`.print-page`.** One element per sheet, a flex column of exactly the printable
+  area — 186 × 270 mm inside `@page { size: A4; margin: 12mm 12mm 14mm }` — with
+  `break-after: page`. On screen it is the same page: 210 × 297 mm, same margins,
+  stacked with a gap.
+- **`.page-foot`.** `margin-top: auto` pins it to the bottom of the paper whatever
+  is above it, and `flex: 1 1 0` makes the two blocks equal width: **left** the
+  clinic, address, phone · email and the validity line; **right** the prescription
+  identity, the e-prescription line, "Bring this sheet to your next visit" and
+  `Page n of m · myClinic`.
+- The signature block, the investigations and the advice are on the last page only;
+  the continuation pages say which page they are, so a loose sheet can be refiled.
+
+`rx-print-check.html` in the workspace is a two-page copy of the slip using the
+app's own stylesheet: print it and both pages should come out with the footer at
+the bottom.
+
 ## [1.17.2] — 2026-11-06 · schema 16
 
 **The PDF prints like a prescription, not like a web page.** Three separate
