@@ -245,3 +245,12 @@ test('an unknown kind is a refusal, not a crash', () => {
   assert.equal(nope.ok, false);
   assert.match(nope.reason, /Unknown message kind/);
 });
+
+test('the pattern travels with the drug name in the text message', () => {
+  const visit = {
+    id: 'v1', visited_on: '2026-11-04',
+    prescription: [{ drug: 'Metformin 500', dose: '1 tablet', frequency: 'Twice a day', pattern: '1-0-1', duration: '1 month', instructions: 'After food' }],
+  };
+  const msg = prescriptionMessage({ clinic, doctor, patient, visit, instructionFor: (rx) => 'after food · for 1 month' });
+  assert.match(msg.text, /1\. Metformin 500 1-0-1 — after food · for 1 month \(60 tablets\)/);
+});

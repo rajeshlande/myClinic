@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.16.0';
+export const APP_VERSION = '1.17.0';
 export const SCHEMA_VERSION = 16;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.17.0', date: '2026-11-06', schema: 16,
+    highlights: [
+      'The dose pattern is now something you write, not something the app infers. Beside “How often” there is a pattern box: type 1-0-1, 1-1-1, 0-0-1, 1-1-1-1, ½-0-1 — morning, afternoon, night, in the order a pad is written — or tap one of the six chips. Two numbers mean morning and night, four add the evening.',
+      'The pattern you type decides the words, not the other way round. 1-0-1 sets “Twice a day”, 0-1-0 keeps the midday dose and drops the other two, and the instruction line under the row reads back “in the morning · at night” in the language chosen for the slip. A pattern the app cannot read (0-0-0, 5-0-1, a stray letter) is refused where it was typed instead of being saved and quietly dropped.',
+      'The pattern prints on the prescription under the dose — 1-0-1 — and travels in the WhatsApp message next to the drug name, because a chemist in this country reads the pattern before the sentence.',
+      'The quantity follows the pattern: 1-1-1 for 5 days is 15 tablets, 0-1-0 for 5 days is 5, ½-0-1 for 10 days is 15 (a half tablet still comes out of a whole one), and 5 ml at night for 4 days is 60 ml — a volume is dosed by the millilitre, not by the spoon.',
+    ],
+  },
   {
     version: '1.16.0', date: '2026-11-06', schema: 16,
     highlights: [

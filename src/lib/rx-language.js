@@ -260,6 +260,98 @@ export function relationKey(value) {
  * on a prescription pad and what the person at the counter glances at. Both are
  * shown, and neither is ever translated.
  */
+/**
+ * The pad notation — "1-0-1".
+ *
+ * A prescription in this country is written by hand as three numbers: morning,
+ * afternoon, night. 1-0-1 is a tablet in the morning and one at night; 1-1-1 is
+ * three times a day; 0-0-1 is bedtime only. Two numbers mean morning and night,
+ * four add the evening, and a half tablet is written ½ — the way it is written on
+ * a pad, never 0.5, because a chemist reads a fraction.
+ *
+ * Anything that is not made of those parts is not a pattern: parseDosePattern
+ * returns null and the words in the frequency field stand, rather than a slip
+ * carrying a number nobody can act on.
+ */
+export const PATTERN_COLUMNS = {
+  2: ['morning', 'night'],
+  3: ['morning', 'afternoon', 'night'],
+  4: ['morning', 'afternoon', 'evening', 'night'],
+};
+
+const PATTERN_AMOUNTS = {
+  0: 0, '½': 0.5, '0.5': 0.5, '.5': 0.5, '1/2': 0.5,
+  1: 1, 2: 2, 3: 3, 4: 4,
+};
+
+export function parseDosePattern(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  const parts = raw.split(/[\s\-–—_,/]+/).filter(Boolean);
+  if (parts.length < 2 || parts.length > 4) return null;
+  const slots = [];
+  for (const part of parts) {
+    const amount = PATTERN_AMOUNTS[part];
+    if (amount === undefined) return null;
+    slots.push(amount);
+  }
+  // 0-0-0 is a schedule that orders nothing.
+  if (!slots.some((n) => n > 0)) return null;
+  return slots;
+}
+
+export function formatDosePattern(slots) {
+  if (!Array.isArray(slots) || !slots.length) return '';
+  return slots.map((n) => (n === 0.5 ? '½' : String(n))).join('-');
+}
+
+const PATTERN_WHEN_EN = {
+  morning: 'in the morning',
+  afternoon: 'in the afternoon',
+  evening: 'in the evening',
+  night: 'at night',
+};
+
+/** The words for a pattern: "in the morning · at night", or "½ in the morning · 1 at night". */
+export function patternPhrase(slots, lang = 'en') {
+  const columns = PATTERN_COLUMNS[slots?.length];
+  if (!columns) return '';
+  const d = dict(lang);
+  const when = (slot) => (lang === 'en' ? PATTERN_WHEN_EN[slot] ?? d[slot] : d[slot]);
+  const taken = slots.map((amount, i) => ({ amount, when: when(columns[i]) })).filter((x) => x.amount > 0);
+  if (!taken.length) return '';
+  const uniform = taken.every((x) => x.amount === taken[0].amount);
+  return taken.map((x) => (uniform ? x.when : `${x.amount === 0.5 ? '½' : x.amount} ${x.when}`)).join(' · ');
+}
+
+/** The frequency words a pattern implies, so the two fields cannot contradict each other. */
+const PATTERN_FREQUENCIES = {
+  '1-1': 'Twice a day',
+  '1-0-0': 'Once a day',
+  '1-0-1': 'Twice a day',
+  '0-1-0': '',
+  '1-1-1': 'Three times a day',
+  '1-1-1-1': 'Four times a day',
+  '0-0-1': 'At night',
+};
+
+export function frequencyForPattern(pattern) {
+  const slots = parseDosePattern(pattern);
+  if (!slots) return '';
+  const signature = slots.map((n) => (n > 0 ? 1 : 0)).join('-');
+  return PATTERN_FREQUENCIES[signature] ?? '';
+}
+
+/** The chips beside the field: what a pad is actually written in. */
+export const PATTERN_PRESETS = [
+  { pattern: '1-0-0', hint: 'morning only' },
+  { pattern: '1-0-1', hint: 'morning and night' },
+  { pattern: '1-1-1', hint: 'after each meal' },
+  { pattern: '1-1-1-1', hint: 'four times a day' },
+  { pattern: '0-1-0', hint: 'afternoon only' },
+  { pattern: '0-0-1', hint: 'bedtime only' },
+];
+
 export const FREQUENCY_SHORTHAND = {
   od: 'OD', bd: 'BD', tds: 'TDS', qid: 'QID', hs: 'HS',
   q6h: 'q6h', q8h: 'q8h', sos: 'SOS', weekly: '1/wk',
@@ -288,6 +380,10 @@ export function slotsForFrequency(value) {
  * pattern, so they return '' and the slip keeps the words instead.
  */
 export function dosePattern(rx) {
+  // A pattern the doctor typed is the pattern that prints — it is the only thing
+  // on the row that knows a dose can be skipped in the afternoon.
+  const explicit = parseDosePattern(rx?.pattern) ?? parseDosePattern(rx?.frequency);
+  if (explicit) return formatDosePattern(explicit);
   const slots = slotsForFrequency(rx?.frequency);
   if (!slots.length) return '';
   const dose = String(rx?.dose ?? '').toLowerCase();
@@ -295,20 +391,6 @@ export function dosePattern(rx) {
   const columns = slots.length === 4 ? ['morning', 'afternoon', 'evening', 'night'] : ['morning', 'afternoon', 'night'];
   return columns.map((slot) => (slots.includes(slot) ? each : '0')).join('-');
 }
-
-/**
- * The four patterns a prescription pad is actually written in.
- *
- * Shown as chips beside the frequency, so one tap writes what a doctor would have
- * written by hand, and the words stay in the field for the printed slip. `pattern`
- * is asserted against dosePattern() in the tests, so the two cannot drift.
- */
-export const DOSE_PATTERNS = [
-  { frequency: 'Once a day', pattern: '1-0-0', short: 'OD', hint: 'morning' },
-  { frequency: 'Twice a day', pattern: '1-0-1', short: 'BD', hint: 'morning and night' },
-  { frequency: 'Three times a day', pattern: '1-1-1', short: 'TDS', hint: 'after each meal' },
-  { frequency: 'At night', pattern: '0-0-1', short: 'HS', hint: 'bedtime' },
-];
 
 /**
  * Duration in days, when the duration says something countable.
@@ -332,9 +414,19 @@ export function durationInDays(value) {
  * return null rather than a guess.
  */
 export function dosesPerDay(frequency) {
+  // A pattern carries its own count: 1-0-1 is two a day whatever the words say.
+  const slots = parseDosePattern(frequency);
+  if (slots) return slots.reduce((sum, n) => sum + n, 0);
   const key = frequencyKey(frequency);
   const rate = { od: 1, bd: 2, tds: 3, qid: 4, hs: 1, q6h: 4, q8h: 3 }[key];
   return rate ?? null;
+}
+
+/** Doses per day for a whole row: the typed pattern if there is one, else the words. */
+export function dosesPerDayFor(rx) {
+  const slots = parseDosePattern(rx?.pattern);
+  if (slots) return slots.reduce((sum, n) => sum + n, 0);
+  return dosesPerDay(rx?.frequency);
 }
 
 /** Units a dose can be counted in, so a quantity can be labelled rather than guessed. */
@@ -362,12 +454,28 @@ function doseAmount(dose) {
  * "apply thinly" — and the print then shows a dash instead of a false number.
  */
 export function quantityToDispense(rx) {
-  const perDay = dosesPerDay(rx?.frequency);
   const days = durationInDays(rx?.duration);
   const amount = doseAmount(rx?.dose);
   const unit = doseUnit(rx?.dose);
-  if (!perDay || !days || !amount || !unit) return null;
-  const count = Math.round(amount * perDay * days * 100) / 100;
+  if (!days || !amount || !unit) return null;
+
+  const slots = parseDosePattern(rx?.pattern);
+  let count = null;
+  if (slots) {
+    // The pattern's numbers are counts of the dose, so for a tablet 1-0-1 is two
+    // tablets a day — the dose field and the pattern cannot both be multiplied.
+    // A volume is the exception: "5 ml · 0-0-3" is three doses of 5 ml.
+    const perDay = unit === 'ml' ? amount * slots.reduce((sum, n) => sum + n, 0) : slots.reduce((sum, n) => sum + n, 0);
+    count = perDay * days;
+  } else {
+    const perDay = dosesPerDay(rx?.frequency);
+    if (!perDay) return null;
+    count = amount * perDay * days;
+  }
+
+  // Half a tablet still comes out of a whole one: 4.5 tablets is 5 on the counter.
+  count = unit === 'ml' ? Math.round(count * 100) / 100 : Math.ceil(count * 100) / 100;
+  if (unit !== 'ml' && count > 0 && Number.isInteger(count) === false) count = Math.ceil(count);
   const singular = unit === 'ml' ? 'ml' : unit;
   const label = unit === 'ml'
     ? `${count} ml`
@@ -417,9 +525,16 @@ export function patientInstruction(rx, lang = 'en') {
   const parts = [];
   const rel = relationKey(rx.instructions) ?? relationKey(rx.relation);
   if (rel) parts.push(d[rel]);
-  const freq = frequencyKey(rx.frequency);
-  if (freq) parts.push(d[freq]);
-  else if (rx.frequency) parts.push(rx.frequency);       // hand-typed, leave as written
+  const slots = parseDosePattern(rx.pattern);
+  if (slots) {
+    // "1-0-1" read out loud: in the morning · at night. The words in the frequency
+    // field would say "twice a day" and be right, but they cannot say which two.
+    parts.push(patternPhrase(slots, lang));
+  } else {
+    const freq = frequencyKey(rx.frequency);
+    if (freq) parts.push(d[freq]);
+    else if (rx.frequency) parts.push(rx.frequency);     // hand-typed, leave as written
+  }
 
   const dur = durationParts(rx.duration);
   if (dur.amount != null) parts.push(lang === 'en' ? `for ${dur.amount} ${d[dur.unit]}` : `${dur.amount} ${d[dur.unit]} ${d.for_days}`);

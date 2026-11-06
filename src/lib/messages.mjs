@@ -19,7 +19,7 @@
 
 import { formatDate, formatTime, formatMoney, tokenLabel } from './logic.mjs';
 import { normaliseVpa, upiPayeeName } from './upi.mjs';
-import { quantityToDispense } from './rx-language.js';
+import { dosePattern, quantityToDispense } from './rx-language.js';
 
 /** Keep in step with `reminders.body` in supabase/schema.sql. */
 export const BODY_LIMIT = 1200;
@@ -190,7 +190,12 @@ export function prescriptionMessage({
     // The quantity matters to the person buying it: "10 tablets" is the
     // difference between a complete course and a second trip to the chemist.
     const quantity = quantityToDispense(rx)?.label;
-    return `${i + 1}. ${rx?.drug ?? 'Medicine'}${direction ? ` — ${direction}` : ''}${quantity ? ` (${quantity})` : ''}`;
+    // 1-0-1 travels with the name: a pharmacy counter in India reads the pattern
+    // before it reads the sentence.
+    // ...unless the direction already says it in those words.
+    const pattern = dosePattern(rx);
+    const showPattern = pattern && !direction.includes(pattern) ? ` ${pattern}` : '';
+    return `${i + 1}. ${rx?.drug ?? 'Medicine'}${showPattern}${direction ? ` — ${direction}` : ''}${quantity ? ` (${quantity})` : ''}`;
   });
   const lines = [
     `Hello ${firstName(patient?.full_name)},`,

@@ -3,6 +3,39 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.17.0] — 2026-11-06 · schema 16
+
+**The dose pattern is written, not inferred.** A prescription here is written as
+three numbers — morning, afternoon, night — and 1-0-1 means more to a chemist than
+"twice a day" ever will. Until now the pattern was derived from the frequency
+words and could not say *which* two doses. It can now say it, because it is typed.
+
+- **A pattern box beside "How often".** Type `1-0-1`, `1-1-1`, `0-0-1`,
+  `1-1-1-1`, `½-0-1` — or tap one of six chips (1-0-0, 1-0-1, 1-1-1, 1-1-1-1,
+  0-1-0, 0-0-1). Two numbers are morning and night, three are
+  morning–afternoon–night, four add the evening. `0.5` is accepted and printed
+  as `½`; spacing and dashes are both read.
+- **The pattern decides the words, never the other way round.** `1-0-1` sets the
+  frequency to "Twice a day", `½-0-½` does too (the amount is not the frequency),
+  `0-1-0` has no frequency words and keeps its own. Touching the frequency
+  dropdown clears the pattern, so the two can never disagree on the slip.
+- **An unreadable pattern is refused where it was typed.** `0-0-0`, `5-0-1`,
+  `1-0-1-1-1`, a stray letter — the field turns red, the row cannot be saved, and
+  nothing is written to the database that the print would then have to ignore.
+- **The pattern prints.** Under the dose on the slip in monospace (`1-0-1`), and
+  beside the drug name in the WhatsApp message: `1. Metformin 500 1-0-1 — after
+  food · for 1 month (60 tablets)`. Rows saved before this release still get a
+  pattern, derived exactly as they were in 1.15.0.
+- **The quantity follows the pattern.** `1-1-1 × 5 days → 15 tablets`,
+  `0-1-0 × 5 days → 5`, `1-1-1-1 × 2 days → 8`, `½-0-1 × 10 days → 15` (a half
+  tablet still comes out of a whole one, so a fraction rounds up), and
+  `5 ml · 0-0-3 · 4 days → 60 ml` — a volume is counted in millilitres, not in
+  spoons. For a solid, the number in the pattern *is* the count, so a row saying
+  "2 tablets" with a pattern `1-0-1` dispenses 10 tablets for 5 days, not 20.
+
+No database change: the prescription is `jsonb`, so `pattern` is a new key on the
+row and needs no migration. Schema stays at 16.
+
 ## [1.16.0] — 2026-11-06 · schema 16
 
 **The printed slip now answers to the format it will be judged against.** A

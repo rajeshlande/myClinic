@@ -4,7 +4,7 @@ import { ArrowLeft, Printer, Stethoscope, ShieldAlert, Languages, Pill, Calendar
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, EmptyState, Segmented } from '../components/ui.jsx';
 import { ageLabel, formatDate } from '../lib/logic.mjs';
-import { RX_LANGUAGES, patientInstruction, quantityToDispense, rxSheet, fontStackFor } from '../lib/rx-language.js';
+import { RX_LANGUAGES, dosePattern, patientInstruction, quantityToDispense, rxSheet, fontStackFor } from '../lib/rx-language.js';
 import { DocumentHeader } from '../components/Branding.jsx';
 import { logoOnDocuments } from '../lib/branding.mjs';
 import { prescriptionMessage } from '../lib/messages.mjs';
@@ -171,7 +171,7 @@ export default function PrescriptionView() {
                 <tr>
                   <th style={{ width: 20 }}>#</th>
                   <th style={{ width: '30%' }}>Medicine</th>
-                  <th style={{ width: 66 }}>{sheet.columns.dose}</th>
+                  <th style={{ width: 80 }}>{sheet.columns.dose}</th>
                   <th>{lang === 'en' ? 'How to take' : 'Directions'}</th>
                   <th style={{ width: 74 }}>Qty</th>
                 </tr>
@@ -193,7 +193,12 @@ export default function PrescriptionView() {
                       ) : null}
                       {rx.notes ? <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{rx.notes}</div> : null}
                     </td>
-                    <td style={{ fontFamily: 'var(--font)' }}>{rx.dose}</td>
+                    <td style={{ fontFamily: 'var(--font)' }}>
+                      <div>{rx.dose}</div>
+                      {/* The pad notation a chemist reads at a glance: 1-0-1. Derived
+                          from the row when the doctor did not type one. */}
+                      {dosePattern(rx) ? <div className="rx-pattern-cell">{dosePattern(rx)}</div> : null}
+                    </td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{patientInstruction(rx, lang)}</div>
                       {localised ? (

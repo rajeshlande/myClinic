@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DOSE_PATTERNS, FREQUENCIES, FREQUENCY_SHORTHAND, RELATIONS,
-  doseChoicesFor, dosePattern, dosesPerDay, durationInDays, frequencyKey,
-  quantityToDispense, slotsForFrequency,
+  FREQUENCIES, FREQUENCY_SHORTHAND, PATTERN_PRESETS, RELATIONS,
+  doseChoicesFor, dosePattern, dosesPerDay, dosesPerDayFor, durationInDays,
+  formatDosePattern, frequencyForPattern, frequencyKey, parseDosePattern,
+  patientInstruction, patternPhrase, quantityToDispense, slotsForFrequency,
 } from '../src/lib/rx-language.js';
 import { validateConsultation } from '../src/lib/logic.mjs';
 
@@ -29,17 +30,77 @@ test('the frequencies with no daily pattern get words, not a made-up pattern', (
   }
 });
 
-test('the four pattern chips write a pattern the helper agrees with', () => {
-  for (const p of DOSE_PATTERNS) {
-    const known = FREQUENCIES.find((f) => f.value === p.frequency);
-    assert.ok(known, `${p.frequency} must be a storable frequency`);
-    assert.equal(
-      dosePattern({ frequency: p.frequency, dose: '1 tablet' }), p.pattern,
-      `${p.frequency} chip says ${p.pattern}`,
-    );
-    assert.equal(FREQUENCY_SHORTHAND[known.key], p.short);
+test('the chips write a pattern the helper agrees with', () => {
+  for (const p of PATTERN_PRESETS) {
+    assert.deepEqual(parseDosePattern(p.pattern), parseDosePattern(p.pattern), `${p.pattern} must parse`);
+    assert.equal(formatDosePattern(parseDosePattern(p.pattern)), p.pattern);
     assert.ok(p.hint.length > 0);
+    // A preset that names a frequency must agree with the one the helper implies.
+    const implied = frequencyForPattern(p.pattern);
+    if (implied) assert.ok(FREQUENCIES.some((f) => f.value === implied), `${implied} must be storable`);
   }
+});
+
+/* ------------------------------------------------- the typed pattern: 1-0-1 */
+
+test('the pad notation is read as morning, afternoon, night', () => {
+  assert.deepEqual(parseDosePattern('1-0-1'), [1, 0, 1]);
+  assert.deepEqual(parseDosePattern('1-1-1'), [1, 1, 1]);
+  assert.deepEqual(parseDosePattern('0-0-1'), [0, 0, 1]);
+  assert.deepEqual(parseDosePattern('½-0-1'), [0.5, 0, 1]);
+  assert.deepEqual(parseDosePattern('0.5-0-1'), [0.5, 0, 1], '0.5 is accepted and printed as ½');
+  assert.deepEqual(parseDosePattern('1-1-1-1'), [1, 1, 1, 1], 'a fourth slot is the evening');
+  assert.deepEqual(parseDosePattern('1-1'), [1, 1], 'two numbers are morning and night');
+  assert.deepEqual(parseDosePattern(' 1 - 0 - 1 '), [1, 0, 1], 'spacing is not a pattern error');
+  assert.deepEqual(parseDosePattern('2-0-2'), [2, 0, 2], 'two tablets a dose is allowed');
+});
+
+test('a pattern that cannot be followed is refused, not guessed at', () => {
+  for (const bad of ['', '   ', '1', '0-0-0', '5-0-1', '9-9-9', '1-0-1-1-1', 'abc', '1-0-x', null, undefined]) {
+    assert.equal(parseDosePattern(bad), null, `${JSON.stringify(bad)} is not a pattern`);
+  }
+});
+
+test('the pattern becomes the words a patient reads, and the words a chemist counts', () => {
+  assert.equal(patternPhrase([1, 0, 1]), 'in the morning · at night');
+  assert.equal(patternPhrase([0, 1, 0]), 'in the afternoon');
+  assert.equal(patternPhrase([0.5, 0, 1]), '½ in the morning · 1 at night');
+  assert.equal(patternPhrase([1, 1, 1], 'hi'), 'सुबह · दोपहर · रात में');
+  assert.equal(patternPhrase([]), '');
+  const rx = { dose: '1 tablet', frequency: 'Twice a day', pattern: '0-1-0', duration: '5 days' };
+  assert.equal(patientInstruction(rx), 'in the afternoon · for 5 days', 'the pattern overrides the words');
+});
+
+test('the typed pattern decides the frequency words, so the two cannot contradict', () => {
+  assert.equal(frequencyForPattern('1-0-1'), 'Twice a day');
+  assert.equal(frequencyForPattern('½-0-½'), 'Twice a day', 'the amount does not change the frequency');
+  assert.equal(frequencyForPattern('1-1'), 'Twice a day');
+  assert.equal(frequencyForPattern('1-1-1-1'), 'Four times a day');
+  assert.equal(frequencyForPattern('0-0-1'), 'At night');
+  assert.equal(frequencyForPattern('0-1-0'), '', 'an afternoon-only dose has no word for it');
+  assert.equal(frequencyForPattern('nonsense'), '');
+});
+
+test('a dose skipped or doubled by the pattern changes the quantity with it', () => {
+  const qty = (pattern, dose = '1 tablet', duration = '5 days') => quantityToDispense({ dose, frequency: 'Twice a day', pattern, duration });
+  assert.equal(qty('1-0-1').label, '10 tablets');
+  assert.equal(qty('1-1-1').label, '15 tablets');
+  assert.equal(qty('0-1-0').label, '5 tablets');
+  assert.equal(qty('1-1-1-1', '1 tablet', '2 days').label, '8 tablets');
+  assert.equal(qty('½-0-1', '½ tablet', '10 days').label, '15 tablets', 'half a tablet still comes out of a whole one');
+  assert.equal(qty('0-0-2', '1 tablet', '7 days').label, '14 tablets');
+  // A volume is dosed by the millilitre: 5 ml at night, not five at night.
+  assert.equal(qty('0-0-3', '5 ml', '4 days').label, '60 ml');
+  assert.equal(dosesPerDayFor({ pattern: '1-0-1' }), 2);
+  assert.equal(dosesPerDayFor({ frequency: 'Three times a day' }), 3);
+  assert.equal(dosesPerDay('1-0-1'), 2, 'a pattern in the frequency field still counts');
+});
+
+test('a pattern is what prints, and a half tablet is rounded up to a whole one', () => {
+  assert.equal(dosePattern({ pattern: '0-1-0', frequency: 'Twice a day', dose: '1 tablet' }), '0-1-0');
+  assert.equal(dosePattern({ pattern: '1-0-1', frequency: 'Twice a day', dose: '½ tablet' }), '1-0-1', 'the typed pattern wins');
+  assert.equal(dosePattern({ pattern: '', frequency: '1-0-1', dose: '1 tablet' }), '1-0-1', 'a pattern typed as the frequency is still a pattern');
+  assert.equal(quantityToDispense({ dose: '½ tablet', frequency: 'Once a day', duration: '3 days' }).label, '2 tablets');
 });
 
 test('every frequency has a shorthand a chemist can read', () => {

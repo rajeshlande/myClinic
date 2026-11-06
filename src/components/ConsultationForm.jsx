@@ -12,13 +12,17 @@ import { can } from '../lib/permissions.js';
 import { useToast, Button, Field, Input, Select, Textarea, Modal, Avatar, Badge, IconButton } from './ui.jsx';
 import { addDays, ageLabel, formatDate, formatMoney, nextRxNumber, today, validateConsultation } from '../lib/logic.mjs';
 import {
-  DOSE_PATTERNS, FREQUENCIES, FREQUENCY_SHORTHAND, RELATIONS, RX_LANGUAGES,
-  doseChoicesFor, dosePattern, durationInDays, patientInstruction,
+  FREQUENCIES, FREQUENCY_SHORTHAND, PATTERN_PRESETS, RELATIONS, RX_LANGUAGES,
+  doseChoicesFor, dosePattern, durationInDays, formatDosePattern, frequencyForPattern,
+  parseDosePattern, patientInstruction,
 } from '../lib/rx-language.js';
 
 const blankVitals = { temperature_c: '', pulse_bpm: '', bp_systolic: '', bp_diastolic: '', spo2: '', weight_kg: '', height_cm: '' };
 const newDrug = () => ({
   drug: '', dose: '1 tablet', frequency: 'Twice a day', duration: '5 days', instructions: 'After food',
+  // Empty until the doctor writes a pad pattern (1-0-1); the frequency words stand
+  // until then, and typing a pattern that implies a frequency keeps the two in step.
+  pattern: '',
   medicine_id: null, salt: '', form: '', schedule: null,
 });
 const DURATIONS = ['3 days', '5 days', '7 days', '10 days', '14 days', '1 month', '2 months'];
@@ -90,6 +94,14 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
       // Editing the name by hand detaches the line from the catalogue: a changed
       // drug must never keep the old drug's molecule, schedule or safety identity.
       if (key === 'drug') return { ...rx, drug: e.target.value, medicine_id: null, salt: '', form: '', schedule: null };
+      // A pattern is the more specific statement, so it rewrites the words when it
+      // implies them (1-0-1 → Twice a day); touching the words clears the pattern.
+      if (key === 'pattern') {
+        const pattern = e.target.value;
+        const implied = frequencyForPattern(pattern);
+        return { ...rx, pattern, ...(implied ? { frequency: implied } : {}) };
+      }
+      if (key === 'frequency') return { ...rx, frequency: e.target.value, pattern: '' };
       return { ...rx, [key]: e.target.value };
     }),
   }));
@@ -127,6 +139,12 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
   async function submit(createInvoice = false) {
     if (!activePatient) { toast.error('Choose a patient first.'); return; }
     const found = validateConsultation({ ...draft, complaint: draft.complaint });
+    // A pattern the slip cannot read is a pattern the chemist cannot follow: refuse
+    // it here rather than print the words and quietly drop what the doctor typed.
+    const badPattern = draft.prescription.findIndex((rx) => rx.drug.trim() && rx.pattern.trim() && !parseDosePattern(rx.pattern));
+    if (badPattern >= 0) {
+      found.prescription = `Drug ${badPattern + 1}: write the dose pattern as 1-0-1 (morning–afternoon–night).`;
+    }
     setErrors(found);
     if (Object.keys(found).length) return;
     // A high-severity finding has to be seen and accepted — never silently sent.
@@ -150,7 +168,12 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
         // print them under their own heading and the next visit can read them back.
         investigations: draft.investigations.split(',').map((x) => x.trim()).filter(Boolean),
         vitals,
-        prescription: draft.prescription.filter((rx) => rx.drug.trim()),
+        prescription: draft.prescription
+          .filter((rx) => rx.drug.trim())
+          .map((rx) => {
+            const slots = parseDosePattern(rx.pattern);
+            return { ...rx, pattern: slots ? formatDosePattern(slots) : '' };
+          }),
         rx_language: draft.rx_language,
         // The prescription gets its own numbered series, independent of the invoice.
         rx_number: nextRxNumber(store.consultations),
@@ -423,6 +446,9 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
             </Select>
             <Button size="sm" variant="subtle" icon={Plus} onClick={() => setDraft((d) => ({ ...d, prescription: [...d.prescription, newDrug()] }))} type="button">Add drug</Button>
           </div>
+          {errors.prescription ? (
+            <p className="tiny" style={{ color: 'var(--danger)', marginBottom: 8, fontWeight: 600 }}>{errors.prescription}</p>
+          ) : null}
 
           {/* What this clinic actually prescribes — not a generic template list. */}
           {recent.length ? (
@@ -542,30 +568,49 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
                     </div>
                   </Field>
 
-                  <Field label="How often">
-                    <Select value={rx.frequency} onChange={setDrug(i, 'frequency')}>
+                  <Field label="Dose pattern / How often">
+                    {/* The pad, not the sentence. Morning–afternoon–night, written the
+                        way it is written by hand: 1-0-1, 1-1-1, 0-0-1. Typing wins over
+                        the words below whenever the two disagree. */}
+                    <Input
+                      value={rx.pattern}
+                      onChange={setDrug(i, 'pattern')}
+                      placeholder="1-0-1"
+                      className="rx-pattern"
+                      maxLength={9}
+                      aria-label={`Dose pattern for drug ${i + 1}, morning-afternoon-night`}
+                    />
+                    <div className="rx-chips" role="group" aria-label={`Dose pattern for drug ${i + 1}`}>
+                      {PATTERN_PRESETS.map((p) => {
+                        const on = formatDosePattern(parseDosePattern(rx.pattern) ?? []) === p.pattern;
+                        return (
+                          <button
+                            key={p.pattern}
+                            type="button"
+                            className={`rx-chip mono${on ? ' on' : ''}`}
+                            aria-pressed={on}
+                            title={`${p.pattern} — ${p.hint}${on ? ' · tap again to clear' : ''}`}
+                            onClick={() => setDrug(i, 'pattern')({ target: { value: on ? '' : p.pattern } })}
+                          >
+                            {p.pattern}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {rx.pattern.trim() && !parseDosePattern(rx.pattern) ? (
+                      <p className="tiny" style={{ color: 'var(--danger)', marginTop: 4 }}>
+                        Write it as 1-0-1 — morning, afternoon, night (2 to 4 numbers, 0 to 4 each, ½ allowed).
+                      </p>
+                    ) : (
+                      <p className="tiny faint" style={{ marginTop: 4 }}>Morning–afternoon–night. Leave blank to use the words.</p>
+                    )}
+                    <Select value={rx.frequency} onChange={setDrug(i, 'frequency')} style={{ marginTop: 6 }}>
                       {FREQUENCIES.map((f) => (
                         <option key={f.value} value={f.value}>
                           {f.value}{FREQUENCY_SHORTHAND[f.key] ? ` (${FREQUENCY_SHORTHAND[f.key]})` : ''}
                         </option>
                       ))}
                     </Select>
-                    {/* The pad, not the sentence: one tap writes the pattern a chemist
-                        reads, and the words stay in the field for the slip. */}
-                    <div className="rx-chips" role="group" aria-label={`Times a day for drug ${i + 1}`}>
-                      {DOSE_PATTERNS.map((p) => (
-                        <button
-                          key={p.frequency}
-                          type="button"
-                          className={`rx-chip mono${rx.frequency === p.frequency ? ' on' : ''}`}
-                          aria-pressed={rx.frequency === p.frequency}
-                          title={`${p.pattern} — ${p.hint}`}
-                          onClick={() => setDrug(i, 'frequency')({ target: { value: p.frequency } })}
-                        >
-                          {p.pattern}
-                        </button>
-                      ))}
-                    </div>
                   </Field>
 
                   <Field label="For">

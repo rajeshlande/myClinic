@@ -50,7 +50,7 @@ They print only when they were measured at that visit: an empty vital is not a z
 | Drug name | Brand as picked (`Augmentin 625`), and the **generic name in capitals** underneath (`AMOXICILLIN + CLAVULANIC ACID`) |
 | Dosage form | `Tablet`, `Syrup`, `Injection`… taken from the drug directory row |
 | Strength / potency | In the composition line (`500 mg + 125 mg`), including both ingredients of an FDC |
-| Dose & frequency | `Dose` column plus the frequency in words, in the patient's language, with the English line beside it; the pattern (`1-0-1`) is what the doctor picks on screen |
+| Dose & frequency | `Dose` column plus the **pad pattern** printed under it (`1-0-1`) and the frequency read out in words in the patient's language, with the English line beside it |
 | Duration | In the directions (`… for 5 days`) |
 | **Quantity to be dispensed** | `Qty` column, computed: 1 tablet × twice a day × 5 days = **10 tablets** |
 | Schedule H / H1 / X marking | `Schedule H1` / `Schedule X` printed under the generic name where the drug carries one |
@@ -67,6 +67,38 @@ The quantity is arithmetic on what was typed, never a guess:
 
 `quantityToDispense()` in `src/lib/rx-language.js` is the one implementation; the
 print, the WhatsApp message and the tests all use it.
+
+### The dose pattern
+
+A prescription here is written as three numbers — **morning, afternoon, night** —
+and the doctor types them, in the consultation, beside *How often*:
+
+| Typed | Means | Words on the slip | Quantity it gives |
+| --- | --- | --- | --- |
+| `1-0-1` | one in the morning, one at night | in the morning · at night | 1 tablet × 2 × 5 days = **10 tablets** |
+| `1-1-1` | after each meal | in the morning · in the afternoon · at night | **15 tablets** for 5 days |
+| `0-0-1` | bedtime only | at night | **5 tablets** for 5 days |
+| `0-1-0` | midday only | in the afternoon | **5 tablets** for 5 days |
+| `1-1-1-1` | four times, adding the evening | morning · afternoon · evening · night | **8 tablets** for 2 days |
+| `½-0-1` | half in the morning, one at night | ½ in the morning · 1 at night | **15 tablets** for 10 days |
+| `0-0-3`, dose `5 ml` | three doses of 5 ml at night | at night | **60 ml** for 4 days |
+
+- Two numbers are morning and night (`1-1`), three are morning–afternoon–night,
+  four add the evening. `0.5` is accepted and printed as `½`; spaces and dashes
+  are both read.
+- The pattern **decides the words**: `1-0-1` sets *Twice a day*, `½-0-½` does too,
+  and `0-1-0` has no frequency words and keeps its own. Touching the frequency
+  dropdown clears the pattern, so the two cannot contradict each other on paper.
+- A pattern that cannot be followed is refused in the field — `0-0-0`, `5-0-1`,
+  `1-0-1-1-1`, a stray letter — and the row cannot be saved. Nothing unreadable
+  reaches the database.
+- A half tablet still comes out of a whole one, so a fractional total rounds up:
+  `½-0-1` for 3 days is **5 tablets**, not 4.5. A volume is dosed by the
+  millilitre, so the number in the pattern multiplies the millilitres; for a
+  solid it *is* the count.
+- Rows saved before 1.17.0 have no stored pattern; the slip derives one from the
+  frequency and the dose exactly as 1.15.0 did (`Twice a day` + `1 tablet` →
+  `1-0-1`), so old prescriptions reprint unchanged.
 
 ## 4. Clinical notes and advice
 
