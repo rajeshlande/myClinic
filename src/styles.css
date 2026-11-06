@@ -914,7 +914,6 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
 .doc-foot strong { color: #29423b; font-size: 0.76rem; }
 .doc-foot-right { text-align: right; align-items: flex-end; }
 .doc-foot-fine { color: #93a5a0; }
-.print-foot { display: none; }
 
 /* --- print sheet on a phone ------------------------------------------------ */
 .doc-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1175,38 +1174,90 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
 /* ==========================================================================
    Print — A4 with a running footer
    ========================================================================== */
-@page { size: A4; margin: 13mm 12mm 18mm; }
+/* ==========================================================================
+   PRINT — one sheet of A4, in the order the slip is read
+   ==========================================================================
+
+   Three rules do the work here, and each one fixes a defect that showed up in
+   the generated PDF.
+
+   1. Nothing on the document path may keep a viewport height. `html, body,
+      #root` are `height: 100%` on screen and `.doc-page` is `min-height: 100dvh`.
+      In paged media those resolve against the page box, so the sheet was
+      overflowing a container that cannot fragment: the excess spilled onto a
+      second page from the top, taking the footer with it and leaving the header
+      behind — the footer-above-header PDF.
+   2. No `position: fixed`. A fixed element is painted on every printed page, but
+      Chrome emits it at the head of each page's content stream, so it lands on
+      top of the header on page one and in the wrong place in any text copy of
+      the file. The document has one footer, in flow, where the format puts it.
+   3. No grid. Chrome's fragmentation of grid containers is unreliable, and a
+      grid with `break-inside: avoid` can jump to the top of the next page. The
+      blocks that are grids on screen are flex rows on paper: same look,
+      predictable breaks.
+*/
+@page { size: A4; margin: 12mm 12mm 14mm; }
 
 @media print {
-  .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts, .syncbar { display: none !important; }
+  /* 1 — the page, not the viewport, decides the height */
+  html, body, #root { height: auto !important; min-height: 0 !important; }
+  .shell, .page, .doc-page {
+    height: auto !important; min-height: 0 !important;
+    padding: 0 !important; max-width: none !important;
+  }
+
+  .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts, .syncbar, .pwa-bar, .print-foot { display: none !important; }
   body { background: #fff; color: #111; }
-  body, body[data-printview], body[data-printview='true'] { background: #fff !important; }
-  .page, .doc-page { padding: 0 !important; max-width: none; min-height: 0; }
-  .card { box-shadow: none; border-color: #ddd; }
 
   .print-sheet {
-    max-width: none !important; width: 100% !important; min-height: 0 !important;
-    /* The bottom 8 mm is the fixed footer's strip: @page already reserves 18 mm of
-       paper, this keeps the last line of a one-page slip off the footer. */
-    margin: 0 !important; padding: 0 0 8mm !important;
+    width: 100% !important; max-width: none !important;
+    min-height: 0 !important; margin: 0 !important; padding: 0 !important;
     border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
-    /* Colour the QR, the stamp and the rule even on a greyscale printer setting */
+    /* Colour the rule, the seal line and the QR even on a greyscale printer setting */
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  /* Keep the pieces that carry meaning from splitting across a page break */
-  .inv-parties, .inv-settle, .inv-totals, .doc-foot, .inv-upi, .rx-sign, .rx-patient { break-inside: avoid; page-break-inside: avoid; }
-  .doc-table thead { display: table-header-group; }
-  .doc-table tr { break-inside: avoid; page-break-inside: avoid; }
-  .doc-rule { opacity: 1; }
 
-  /* A footer that repeats on every printed page */
-  .print-foot {
-    display: flex; position: fixed; bottom: 0; left: 0; right: 0;
-    justify-content: space-between; gap: 12px;
-    font-size: 8pt; color: #6b7c77;
-    border-top: 1px solid #dde7e3; padding-top: 4px;
+  /* --- type: read at arm's length, and small enough to fit one page -------- */
+  .print-sheet { font-size: 9.6pt; line-height: 1.42; }
+  .doc-clinic { font-size: 13pt; }
+  .doc-meta { font-size: 7.8pt; line-height: 1.45; }
+  .doc-rule { height: 1.4pt; opacity: 1; margin-top: 2.4mm; }
+  .doc-kind { font-size: 8pt; }
+  .doc-number { font-size: 9.4pt; }
+  .doc-date { font-size: 7.6pt; }
+  .doc-logo { max-height: 13mm !important; max-width: 46mm !important; }
+  .rx-patient { font-size: 8.4pt; margin: 3mm 0 2mm; gap: 1mm 6mm; }
+  .rx-eyebrow { font-size: 7pt; }
+  .rx-table { font-size: 8.6pt; }
+  .rx-table th { font-size: 6.8pt; padding: 1.4mm 1.5mm; }
+  .rx-table td { padding: 1.7mm 1.5mm; }
+  .rx-table .rx-pattern-cell { font-size: 7.4pt; }
+  .rx-salt { font-size: 7pt; }
+  .rx-lang { font-size: 7pt; }
+  .rx-note { font-size: 8.2pt; padding: 2mm 2.6mm; }
+  .rx-symbol { font-size: 15pt; }
+  .rx-sign { margin-top: 5mm; font-size: 7.6pt; }
+
+  /* --- grids as flex rows: same shape, breaks Chrome can actually take ---- */
+  .rx-patient, .doc-foot, .inv-parties, .inv-settle, .inv-totals {
+    display: flex !important; flex-wrap: wrap; align-items: flex-start;
   }
-  .inv-upi-code { width: 118px; height: 118px; }
+  .rx-patient > div { flex: 1 1 34mm; min-width: 0; }
+  .rx-patient > div:first-child,
+  .rx-patient > div[style*='grid-column'] { flex: 1 1 100%; }
+  .doc-foot { justify-content: space-between; gap: 4mm; font-size: 7.4pt; margin-top: 5mm; padding-top: 2.6mm; }
+  .doc-foot > div { flex: 0 1 auto; }
+  .doc-foot-right { text-align: right !important; align-items: flex-end !important; }
+  .inv-parties > div, .inv-settle > div, .inv-totals > div { flex: 1 1 40mm; min-width: 0; }
+
+  /* --- where a page may break, and where it may not ---------------------- */
+  .doc-head, .rx-eyebrow, .rx-patient, .rx-sign { break-inside: avoid; page-break-inside: avoid; }
+  .doc-head { break-after: avoid; page-break-after: avoid; }
+  .rx-table thead, .doc-table thead { display: table-header-group; }
+  .rx-table tr, .doc-table tr, .doc-foot, .inv-upi, .inv-totals { break-inside: avoid; page-break-inside: avoid; }
+  p, li, td, th { orphans: 2; widows: 2; }
+
+  .inv-upi-code { width: 30mm; height: 30mm; }
   .doc-foot-fine { color: #8b9c97; }
 }
 
@@ -1299,9 +1350,6 @@ body[data-modal='true'] .syncbar { display: none; }
   .lang-native { font-size: 0.82rem; }
   .rx-sheet { padding: 16px 14px; }
   .rx-patient { grid-template-columns: 1fr 1fr; }
-}
-@media print {
-  .rx-sheet { border: 0; padding: 0; }
 }
 
 /* ==========================================================================
@@ -1548,10 +1596,6 @@ button.slot:hover .slot-icon { opacity: 1; }
   .logo-preview.square { width: 72px; height: 72px; }
   .doc-head { flex-wrap: wrap; gap: 10px; }
   .doc-head-right { text-align: left !important; }
-}
-@media print {
-  .doc-logo { max-height: 52px !important; }
-  .doc-rule { opacity: 1; }
 }
 
 /* --------------------------------------------------------------- appointments responsive */

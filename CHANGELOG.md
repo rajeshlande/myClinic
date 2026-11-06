@@ -3,6 +3,43 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.17.2] — 2026-11-06 · schema 16
+
+**The PDF prints like a prescription, not like a web page.** Three separate
+defects, all of them in the print path:
+
+- **The footer printed above the header.** `.print-foot` was `position: fixed` so
+  that it would repeat on every page. Chrome paints a fixed element on every page
+  but emits it at the head of each page's content stream, so the clinic address,
+  the validity line and the e-prescription line landed on top of the letterhead.
+  The element is gone; the document has **one footer, in flow, at the end**.
+- **One page became two, and a jumbled two.** `html, body, #root` are
+  `height: 100%` and `.doc-page` is `min-height: 100dvh`. In paged media those
+  resolve against the page box, so the sheet overflowed a container that cannot
+  fragment: the excess spilled onto page two from the top, dragging
+  `break-inside: avoid` blocks with it. Print now sets `height: auto` and
+  `min-height: 0` on all four.
+- **Grid on paper.** Chrome's grid fragmentation is unreliable and a grid with
+  `break-inside: avoid` can jump to the next page. `.rx-patient`, `.doc-foot`,
+  `.inv-parties`, `.inv-settle` and `.inv-totals` are **flex rows** in print.
+
+Also in this release:
+
+- Paper typography: 9.6 pt body, 8.6 pt table, 7 pt labels, `@page { size: A4;
+  margin: 12mm 12mm 14mm }`. A five-medicine slip with investigations, advice,
+  follow-up and signature fits one page with room to spare; a longer one breaks
+  between rows, never inside one, and the medicine header repeats.
+- `orphans: 2; widows: 2` on paragraphs, list items and table cells.
+- **GSTIN is off the prescription header** (`DocumentHeader` gained `showGstin`,
+  invoices keep it). The format wants the prescriber's registration number
+  there — one number fewer to misread.
+- `.print-foot` markup and rules removed from both documents.
+
+To verify: print → *Save as PDF* → A4, margins **Default**, scale **100%**. One
+page, header first, table with `1-0-1` and `Qty`, one footer at the end.
+`rx-print-check.html` in the workspace is a standalone copy of the slip for
+printing without the app.
+
 ## [1.17.1] — 2026-11-06 · schema 16
 
 **The sheet is a sheet of A4, on screen and on paper.** The prescription and the

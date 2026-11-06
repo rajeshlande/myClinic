@@ -94,6 +94,7 @@ export default function PrescriptionView() {
         {/* ---------------------------------------------------------------- header */}
         <DocumentHeader
           clinic={clinic}
+          showGstin={false}
           logo={logoOnDocuments(clinic)}
           accent={clinic.brand_color}
           right={(
@@ -272,12 +273,6 @@ export default function PrescriptionView() {
             <span className="doc-foot-fine">myClinic</span>
           </div>
         </footer>
-
-        {/* repeating footer for a prescription that spills onto a second page */}
-        <div className="print-foot">
-          <span>{clinic.name ?? 'Clinic'} · {[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
-          <span>{patient?.full_name} · {formatDate(visit.visited_on)}</span>
-        </div>
       </div>
 
       <div className="no-print" style={{ maxWidth: '210mm', margin: '14px auto 0' }}>

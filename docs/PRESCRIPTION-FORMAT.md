@@ -174,6 +174,22 @@ To check it: print → destination *Save as PDF* → paper size **A4**, margins
 **Default**, scale **100%** (not "Fit to page"). The PDF's page count should match
 what the screen showed.
 
+### What the print stylesheet refuses to do, and why
+
+The generated PDF was once unreadable: the footer printed above the header and the
+slip arrived in pieces on two pages. Each of those had a cause worth keeping out
+of the code:
+
+| Rule | Why |
+| --- | --- |
+| `html, body, #root, .shell, .doc-page { height: auto; min-height: 0 }` in print | They are `100%` / `100dvh` on screen. In paged media that resolves against the page box, and content taller than it overflows a container that cannot fragment — the overflow restarts at the top of page two, taking `break-inside: avoid` blocks with it. |
+| No `position: fixed` anywhere in the document | A fixed element prints on every page, but Chrome emits it at the head of each page's content stream: it lands on the letterhead, and it comes first in any text extraction of the PDF. The footer is in flow. |
+| No `display: grid` in print | Chrome's grid fragmentation is unreliable, and a grid with `break-inside: avoid` can jump to the top of the next page. `.rx-patient`, `.doc-foot` and the invoice blocks are flex rows on paper. |
+| One footer, not two | `.doc-foot` carries the clinic identity, the validity line and the e-prescription line. A second, repeating footer was duplication on page one and noise in the file. |
+
+Verify with `rx-print-check.html` in the workspace: a standalone copy of the slip
+that uses the app's own stylesheet, so it prints exactly as the app does.
+
 ## Where the code lives
 
 | Piece | File |

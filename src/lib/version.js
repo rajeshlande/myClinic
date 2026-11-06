@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.17.1';
+export const APP_VERSION = '1.17.2';
 export const SCHEMA_VERSION = 16;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.17.2', date: '2026-11-06', schema: 16,
+    highlights: [
+      'Fixed the generated PDF: the footer no longer prints above the header, and the slip no longer scatters across two pages. `html, body, #root` were height:100% and the print page was min-height:100dvh, so in paged media the sheet overflowed a box that cannot break — the overflow went to page two from the top and took the footer with it.',
+      'The repeating footer is gone. It was `position: fixed`, and Chrome paints a fixed element at the head of every printed page — which is exactly why the clinic address and the validity line appeared first, before the letterhead. The prescription now carries one footer, in flow, at the end, where the format puts it.',
+      'No grid in print. Chrome fragments grid containers unreliably and a grid with break-inside:avoid can jump to the top of the next page. The patient block, the footer and the invoice blocks are flex rows on paper — same look, predictable breaks.',
+      'Typed for paper: 9.6 pt body, 8.6 pt table, 7 pt labels, with 12 mm top, 12 mm side and 14 mm bottom margins. A five-medicine slip with investigations, advice, follow-up and signature now sits on one A4 page with room to spare.',
+      'The GSTIN is off the prescription header. It is a bill element; the format asks for the prescriber’s registration number there, and one number fewer is one fewer to misread. Invoices keep it.',
+    ],
+  },
   {
     version: '1.17.1', date: '2026-11-06', schema: 16,
     highlights: [

@@ -267,12 +267,6 @@ export default function InvoiceView() {
             <span className="doc-foot-fine">Computer-generated invoice · amounts in INR · retain for insurance claims</span>
           </div>
         </footer>
-
-        {/* repeating footer for printed pages */}
-        <div className="print-foot">
-          <span>{clinic.name ?? 'Clinic'} · {[clinic.phone, clinic.email].filter(Boolean).join(' · ')}</span>
-          <span>{invoice.number}</span>
-        </div>
       </article>
 
       {/* ------------------------------------------------------- on-screen actions */}

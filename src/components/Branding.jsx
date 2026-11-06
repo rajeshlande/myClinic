@@ -65,7 +65,7 @@ export function BrandMark({ clinic, size = 34, radius, className = '', style }) 
  * details. Used by prescriptions and invoices so the two documents can never
  * drift apart in how the clinic is presented.
  */
-export function DocumentHeader({ clinic, logo = true, right = null, accent }) {
+export function DocumentHeader({ clinic, logo = true, right = null, accent, showGstin = true }) {
   const wide = logoFor(clinic, 'wide');
   const square = logoFor(clinic, 'square');
   const mark = wide ?? square;
@@ -86,7 +86,10 @@ export function DocumentHeader({ clinic, logo = true, right = null, accent }) {
         <div className="doc-meta">
           {clinic?.address ? <>{clinic.address}<br /></> : null}
           {[clinic?.phone, clinic?.email].filter(Boolean).join(' · ')}
-          {clinic?.gstin ? <><br />GSTIN {clinic.gstin}</> : null}
+          {/* A GSTIN belongs on a bill, not on a prescription: the format asks for
+              the prescriber's registration number, and a tax id in that block reads
+              as one more number to check. Invoices keep it. */}
+          {showGstin && clinic?.gstin ? <><br />GSTIN {clinic.gstin}</> : null}
         </div>
         <div className="doc-rule" style={{ background: color }} />
       </div>
