@@ -8,6 +8,8 @@ import { nextId } from './logic.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
+import { medicineFromDirectoryRow } from './medicines.mjs';
+import { MIN_QUERY_LENGTH } from './drug-search.mjs';
 import { TRIAL_DAYS } from './license.mjs';
 import {
   TABLES, mergeFields, readCache, writeCache, clearAllCache, readOutbox, writeOutbox, enqueue,
@@ -781,6 +783,43 @@ export function StoreProvider({ children, session }) {
     return licenceRpc('start_trial', { p_clinic: stateRef.current.clinic?.id });
   }, [mode, applyLicense, licenceRpc]);
 
+  /**
+   * The drug directory (schema 14), searched on the server, or nothing at all.
+   *
+   * Three rules, because this runs while a doctor is typing:
+   *
+   *   • it never throws — a missing table, a missing function or an offline
+   *     laptop each return `[]`, and the field keeps working from the catalogue
+   *     that ships with the app;
+   *   • it never blocks — the caller gets a promise it can ignore, and the local
+   *     results are already on screen before this resolves;
+   *   • it caches by term, so backspacing through "augmentin" does not send six
+   *     queries to fetch four answers it already has.
+   */
+  const directoryCache = useRef(new Map());
+  const searchDrugDirectory = useCallback(async (term) => {
+    const query = String(term ?? '').trim();
+    if (mode !== 'live' || !supabaseConfigured) return [];
+    if (query.replace(/[^a-zA-Z0-9]/g, '').length < MIN_QUERY_LENGTH) return [];
+
+    const key = query.toLowerCase();
+    const cache = directoryCache.current;
+    if (cache.has(key)) return cache.get(key);
+
+    try {
+      const { data, error } = await supabase.rpc('search_medicine_brands', { p_term: query, p_limit: 8 });
+      // An older database, a project that never ran schema 14, or no network:
+      // the directory is an enhancement, so its absence is not an error state.
+      if (error) return [];
+      const rows = (Array.isArray(data) ? data : []).map(medicineFromDirectoryRow).filter(Boolean);
+      if (cache.size >= 60) cache.delete(cache.keys().next().value);
+      cache.set(key, rows);
+      return rows;
+    } catch {
+      return [];
+    }
+  }, [mode]);
+
   const value = useMemo(() => ({
     ready, error, savedAt, mode, needsOnboarding,
     ...state,
@@ -799,13 +838,15 @@ export function StoreProvider({ children, session }) {
     flushNow: flush, resolveConflict, dismissConflict, signOutCleanup,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
     refresh, resetDemo, enterDemo: bootDemo,
+    // drug directory (schema 14) — searched on the server, always optional
+    searchDrugDirectory,
     // licensing
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
-    resetDemo, bootDemo, refresh,
+    resetDemo, bootDemo, refresh, searchDrugDirectory,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial]);
 

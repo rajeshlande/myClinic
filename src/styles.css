@@ -985,7 +985,7 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
   color: var(--faint); pointer-events: none;
 }
-.med-picker-input { padding-left: 32px; }
+.med-picker-input { padding-left: 32px; padding-right: 26px; }
 
 .med-picker-list {
   position: absolute; z-index: 40; left: 0; top: calc(100% + 4px);
@@ -1010,6 +1010,24 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .med-option-src { color: var(--brand-500); flex: none; }
+/* the letters that matched — the doctor can see *why* this row is here */
+.med-mark {
+  background: var(--brand-100); color: inherit; border-radius: 3px;
+  padding: 0 1px; font-weight: 800;
+}
+/* where the row came from: this clinic's habit, or the drug directory */
+.med-option-tag {
+  padding: 1px 5px; border-radius: 4px; font-size: 0.58rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--brand-600); background: var(--brand-50);
+  border: 1px solid color-mix(in srgb, var(--brand-500) 22%, transparent);
+  white-space: nowrap;
+}
+/* the directory is being asked — quietly, in the field, never over the results */
+.med-picker-spinner {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--brand-500); animation: spin 900ms linear infinite; pointer-events: none;
+}
 .med-option-salt {
   font-size: 0.72rem; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

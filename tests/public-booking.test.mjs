@@ -263,6 +263,10 @@ test('the database’s refusal tokens become sentences a patient can act on', ()
   assert.equal(bookingErrorMessage('booking:already:16:30'), 'You already have an appointment that day at 16:30.');
   assert.match(bookingErrorMessage('booking:toomany'), /Three online bookings/);
   assert.match(bookingErrorMessage('booking:phone'), /10-digit/);
+  // schema 12 emits these two when the clinic or the doctor is closed that day;
+  // before this they fell through to "Could not book that slot."
+  assert.match(bookingErrorMessage('booking:dayoff'), /clinic is closed that day/);
+  assert.match(bookingErrorMessage('booking:leave'), /doctor is away that day/);
   // anything unrecognised is passed through rather than swallowed
   assert.equal(bookingErrorMessage('network down'), 'network down');
   assert.equal(bookingErrorMessage(undefined), 'Could not book that slot.');

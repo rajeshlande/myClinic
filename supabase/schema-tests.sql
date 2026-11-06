@@ -8,7 +8,7 @@
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
 --
--- Four suites run in order:
+-- The suites run in order:
 --   A. the role matrix   — that owner / doctor / front deck see only what they run
 --   B. licensing         — trial, seats, grace, the read-only write gate, renewal
 --   C. public booking    — the five anon-granted RPCs, called the way a stranger
@@ -18,11 +18,17 @@
 --                          stranger, and only an owner can change it
 --   F. who reads what    — the doctor owns the chart, the desk owns the money, and
 --                          neither can reach across
+--   G. whatsapp          — consent, opt-out and the message log
+--   H. sessions          — two sessions a day, days off, the 3–45 day follow-up
+--   I. the profile row   — every account has one, and only its owner writes it
+--   J. drug directory    — brands, compositions, typo tolerance, read-only rules
 --
 -- Every assertion raises on failure, so a clean run is the proof. Success lines:
 --   "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED",
---   "ALL BOOKING CHECKS COMPLETED", "ALL SLUG CHECKS COMPLETED" and
---   "ALL BOOKING LINK CHECKS COMPLETED" and "ALL ROLE SPLIT CHECKS COMPLETED".
+--   "ALL BOOKING CHECKS COMPLETED", "ALL SLUG CHECKS COMPLETED",
+--   "ALL BOOKING LINK CHECKS COMPLETED", "ALL ROLE SPLIT CHECKS COMPLETED",
+--   "ALL WHATSAPP CHECKS COMPLETED", "ALL HOURS CHECKS COMPLETED",
+--   "ALL PROFILE CHECKS COMPLETED" and "ALL DRUG DIRECTORY CHECKS COMPLETED".
 --
 -- This file is not part of the schema. `supabase/schema.sql` is the single
 -- source of truth for the database; this is the test that it behaves.
@@ -1388,6 +1394,182 @@ begin
   raise notice 'PASS: the whole account payload saves to profiles';
 
   raise notice 'ALL PROFILE CHECKS COMPLETED';
+end $$;
+
+-- =============================================================================
+-- SUITE J · THE DRUG DIRECTORY (schema 14)
+-- =============================================================================
+-- The prescription field asks the database one question — "which brands look
+-- like what I typed?" — and the answer decides what a doctor sees while a patient
+-- is in the chair. This suite holds the four things that make that safe:
+--
+--   1. the starter formulary is actually there, so the field is useful on day one;
+--   2. ranking puts the obvious brand first (prefix, then typo, then molecule);
+--   3. the guards hold — a one-letter term returns nothing, the limit is clamped,
+--      and a null term is not an error;
+--   4. it is read-only reference data: a signed-in seat may read it and nobody may
+--      write to it from the app, and the function is not SECURITY DEFINER.
+begin;
+
+do $$
+declare
+  n integer;
+  top_brand text;
+  top_form text;
+  has_trgm boolean := exists (select 1 from pg_extension where extname = 'pg_trgm');
+  definer boolean;
+  denied boolean := false;
+begin
+  -- ------------------------------------------------- 1. the table and the rows
+  select count(*) into n from public.medicines;
+  if n < 50 then
+    raise exception 'FAIL: the drug directory was seeded with only % rows', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the directory carries the starter formulary (% brands)', n;
+
+  if not has_trgm then
+    raise notice 'SKIP: pg_trgm is not installed in this scratch database - fuzzy ranking not asserted';
+  else
+    select count(*) into n from pg_indexes where tablename = 'medicines' and indexname = 'medicines_brand_trgm';
+    if n <> 1 then
+      raise exception 'FAIL: no GiST trigram index on medicines.brand_name' using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: the brand name is indexed with gist_trgm_ops';
+  end if;
+
+  -- ------------------------------------------------ 2. the obvious brand wins
+  select brand_name into top_brand from public.search_medicine_brands('dolo') limit 1;
+  if top_brand is distinct from 'Dolo 650' then
+    raise exception 'FAIL: searching "dolo" ranked % first', coalesce(top_brand, 'nothing') using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a brand prefix ranks its own brand first';
+
+  select brand_name into top_brand from public.search_medicine_brands('Augmentin') limit 1;
+  if top_brand is distinct from 'Augmentin 625' then
+    raise exception 'FAIL: searching "Augmentin" ranked % first', coalesce(top_brand, 'nothing') using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: an exact brand name is found and ranked first';
+
+  if has_trgm then
+    select brand_name into top_brand from public.search_medicine_brands('augmentn') limit 1;
+    if top_brand is distinct from 'Augmentin 625' then
+      raise exception 'FAIL: the typo "augmentn" ranked % first', coalesce(top_brand, 'nothing') using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: a missing letter still finds the brand (augmentn -> Augmentin 625)';
+
+    select brand_name into top_brand from public.search_medicine_brands('amoxycillin') limit 1;
+    if top_brand is null then
+      raise exception 'FAIL: the misspelled molecule "amoxycillin" found nothing' using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: a misspelled molecule is matched to a brand (%)', top_brand;
+  end if;
+
+  -- --------------------------------------------- 3. the molecule is searchable
+  select brand_name, form into top_brand, top_form
+    from public.search_medicine_brands('pantoprazole') limit 1;
+  if top_brand is null then
+    raise exception 'FAIL: searching a molecule found no brand' using errcode = 'P0002';
+  end if;
+  if top_form is null then
+    raise exception 'FAIL: % came back without a form', top_brand using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a composition finds its brands, with the form attached (%)', top_brand;
+
+  -- the composition travels with the row, which is the whole point
+  select count(*) into n
+    from public.search_medicine_brands('paracetamol')
+   where composition ilike '%paracetamol%';
+  if n <> (select count(*) from public.search_medicine_brands('paracetamol')) then
+    raise exception 'FAIL: a paracetamol search returned rows without the molecule' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: every row carries its composition back to the client';
+
+  -- multi-word, the way a clinic says it
+  select brand_name into top_brand from public.search_medicine_brands('augmentin 625') limit 1;
+  if top_brand is distinct from 'Augmentin 625' then
+    raise exception 'FAIL: "augmentin 625" ranked % first', coalesce(top_brand, 'nothing') using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a multi-word term keeps its words together';
+
+  -- ------------------------------------------------------------ 4. the guards
+  select count(*) into n from public.search_medicine_brands('a');
+  if n <> 0 then
+    raise exception 'FAIL: a one-letter term returned % rows', n using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands(null);
+  if n <> 0 then
+    raise exception 'FAIL: a null term returned % rows', n using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands('   ');
+  if n <> 0 then
+    raise exception 'FAIL: a blank term returned % rows', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: shorter than two characters returns nothing, and never an error';
+
+  select count(*) into n from public.search_medicine_brands('para', 1000);
+  if n > 25 then
+    raise exception 'FAIL: the limit was not clamped (% rows)', n using errcode = 'P0002';
+  end if;
+  -- A limit of zero is clamped up to one: an empty dropdown for a valid term
+  -- would look like "this drug is not in the directory".
+  select count(*) into n from public.search_medicine_brands('para', 0);
+  if n <> 1 then
+    raise exception 'FAIL: a zero limit returned % rows, expected exactly 1', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the row limit is clamped to 1..25';
+
+  -- ------------------------------------- 5. read-only, and not definer-rights
+  select prosecdef into definer
+    from pg_proc where proname = 'search_medicine_brands'
+   group by prosecdef limit 1;
+  if definer then
+    raise exception 'FAIL: search_medicine_brands is SECURITY DEFINER' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the search function obeys RLS (invoker, not definer)';
+
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  set local role authenticated;
+
+  select count(*) into n from public.medicines;
+  if n < 50 then
+    raise exception 'FAIL: a signed-in seat cannot read the directory (% rows)', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a signed-in seat can read the directory';
+
+  begin
+    insert into public.medicines (brand_name, composition) values ('Fake Brand', 'Nothing');
+    raise exception 'FAIL: a signed-in seat could write to the drug directory' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    denied := true;
+  end;
+  if not denied then
+    raise exception 'FAIL: the directory write was not refused' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: nobody signed in can add or edit a directory row';
+
+  reset role;
+
+  -- anon is the one role that never signs in, and it gets nothing
+  set local role anon;
+  begin
+    perform public.search_medicine_brands('dolo');
+    raise exception 'FAIL: anon could call the drug search' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    raise notice 'PASS: anon cannot call the drug search';
+  end;
+  reset role;
+
+  -- ------------------------------------- 6. re-running the seed is idempotent
+  insert into public.medicines (brand_name, composition, form, strength)
+  values ('Dolo 650', 'Paracetamol', 'Tablet', '650 mg')
+  on conflict do nothing;
+  select count(*) into n from public.medicines where lower(brand_name) = 'dolo 650';
+  if n <> 1 then
+    raise exception 'FAIL: the identity index let a duplicate brand in (% rows)', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the seed is idempotent - one row per brand, strength and form';
+
+  raise notice 'ALL DRUG DIRECTORY CHECKS COMPLETED';
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run

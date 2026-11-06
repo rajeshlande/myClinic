@@ -3,6 +3,49 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.14.0] — 2026-11-06 · schema 14
+
+**The drug field stops demanding the exact spelling.** A doctor writing twelve
+prescriptions before lunch does not type "Augmentin 625" with a capital A and the
+right number of m's. The old search matched only prefixes and substrings, so
+`Augmentn`, `amoxycillin`, `metformn` and `tab pan 40` returned "no match" — and a
+field that says no to the drug in the patient's hand is a field that gets ignored.
+
+- **Typo tolerance, offline.** Search now ranks exact → brand prefix → word start →
+  molecule → keyword → trigram similarity, the same idea as Postgres' `pg_trgm`
+  (Dice coefficient over padded 3-grams) but computed in the browser from the
+  formulary that ships with the app. No connection needed, no round trip, no
+  spinner before the first result. A multi-word term is only as strong as its
+  weakest word, so `dolo 650` beats `dolo`.
+- **A drug directory behind it (schema 14).** `public.medicines` holds brand,
+  composition, form, strength, schedule and the classes the safety rules use, with
+  GiST trigram indexes on the brand and the composition and one function,
+  `search_medicine_brands(term, limit)`, granted to signed-in seats only. The 59
+  starter brands are seeded, so the directory is useful the minute the SQL runs;
+  the browser's own list still ranks first, because it knows this clinic's habits.
+- **The composition travels with the brand.** Every suggestion shows the brand in
+  bold with the generic salt, form and manufacturer in a muted line beneath, the
+  way the old field did — and a directory row now brings its composition, its form
+  and its dispensing schedule into the prescription line, which is what the
+  duplicate-therapy, allergy and H1-register checks read.
+- **A field that behaves like a good IDE.** 250 ms debounce on the directory, so
+  typing does not become a query per keystroke; stale answers dropped when a newer
+  keystroke has already asked; matched letters highlighted; a source label per row
+  (Used here / Directory); arrow keys, Home, End and Enter; the list scrolls to the
+  highlighted row; and a screen reader announces how many suggestions appeared.
+- **Read-only reference data.** RLS on, one SELECT policy for authenticated, no
+  INSERT/UPDATE/DELETE grant to any app role; the function is `security invoker`
+  so the policy cannot be bypassed. Imports are a service-role job.
+- **Two tools for real data.** `scripts/import-medicines.mjs` reads a data.gov.in /
+  CDSCO / chemist export (CSV, TSV or JSON), works out which column is the brand
+  and which is the composition, skips rows with no molecule, collapses duplicates
+  on the same identity the database enforces, and writes idempotent SQL or pushes
+  it. `scripts/rxnorm-composition.mjs` re-spells a molecule the way NLM's RxNorm
+  does, so `Amoxycillin` and `Amoxicillin` are one drug to the checks.
+- **Honest states.** A quiet spinner in the field while the directory is asked, "one
+  more letter" below two characters, and "not in the clinic list or the directory —
+  keep typing and it is saved exactly as written" instead of a dead end.
+
 ## [1.13.1] — 2026-11-04 · schema 13
 
 **The conflict that said "this record was deleted at the clinic" was not a deletion.**

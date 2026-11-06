@@ -27,6 +27,11 @@
  * arithmetic — this module never pretends to dose a patient.
  */
 
+import {
+  MAX_RESULTS, MIN_QUERY_LENGTH, TIERS,
+  foldDoseUnits, highlightRanges, scoreMedicine, searchCatalogue,
+} from './drug-search.mjs';
+
 export const FORMULARY_VERSION = '2026.11';
 
 /** Dispensing schedule — printed so the chemist and the register stay correct. */
@@ -204,68 +209,115 @@ export function inferSalt(text) {
 /**
  * Rank candidates for what the doctor is typing.
  *
- * Brand prefix beats salt prefix beats "contains", so `dolo` finds Dolo and `para`
- * finds every paracetamol brand. `clinicHistory` (the clinic's own past lines) is
- * merged in so a drug this clinic uses every day surfaces even if it is not in the
- * starter list.
+ * The ranking itself lives in `drug-search.mjs` (prefix tiers, then trigram
+ * similarity, so `Augmentn` still finds Augmentin). This function adds the two
+ * things only the clinic knows:
+ *
+ *   • `clinicHistory` — lines this clinic has actually written recently are
+ *     offered first, because a habit beats a database;
+ *   • the catalogue wins a tie with a house line of the same molecule, so
+ *     "Pantoprazole 40mg" typed by hand never pushes a second Pan 40 row in.
+ *
+ * Below two characters nothing is returned: a one-letter query matches half the
+ * alphabet and buries the drug the doctor wanted.
  */
-export function searchMedicines(query, { limit = 8, clinicHistory = [] } = {}) {
-  const q = norm(query);
-  if (!q) return [];
+export function searchMedicines(query, { limit = MAX_RESULTS, clinicHistory = [] } = {}) {
+  const cells = searchCatalogue(MEDICINES, query, { limit: Math.max(limit + 8, 16) });
+  if (!cells.length && foldDoseUnits(query).length < MIN_QUERY_LENGTH) return [];
 
-  const scored = [];
-  const seen = new Set();
+  // Molecules the catalogue already answered with, by first salt.
+  const catalogueSalts = new Set(
+    cells.map((m) => foldDoseUnits(m.salt).split(' ')[0]).filter(Boolean),
+  );
 
-  for (const med of MEDICINES) {
-    const brand = norm(med.brand);
-    const salt = norm(med.salt);
-    let score = 0;
-    if (brand === q) score = 100;
-    else if (brand.startsWith(q)) score = 80;
-    else if (salt.startsWith(q)) score = 60;
-    else if (salt.includes(q)) score = 40;
-    else if (brand.includes(q)) score = 30;
-    else if (med.keywords.includes(q)) score = 20;
-    if (!score) continue;
-    scored.push({ ...med, source: 'formulary', score });
-    seen.add(`${brand}|${salt}`);
-  }
-
-  // The clinic's own history, ranked above the starter list when it matches.
-  // Molecules already offered by the catalogue: a house line of the same molecule
-  // ("Pantoprazole 40mg") must not push a second, less precise row into the list.
-  const catalogueSalts = new Set(scored.map((m) => norm(m.salt).split(' + ')[0]).filter(Boolean));
-
+  const history = [];
+  const seen = new Set(cells.map((m) => `${foldDoseUnits(m.brand)}|${foldDoseUnits(m.salt)}`));
   for (const line of clinicHistory) {
-    const brand = norm(line.drug);
+    const brand = foldDoseUnits(line?.drug);
     if (!brand) continue;
-    const salt = norm(line.salt) || norm(inferSalt(line.drug));
+    const rawSalt = line.salt || inferSalt(line.drug);
+    const salt = foldDoseUnits(rawSalt);
     const key = `${brand}|${salt}`;
     if (seen.has(key)) continue;
-    if (salt && catalogueSalts.has(salt)) continue;
-    let score = 0;
-    if (brand === q) score = 95;
-    else if (brand.startsWith(q)) score = 75;
-    else if (salt.startsWith(q)) score = 55;
-    else if (brand.includes(q) || salt.includes(q)) score = 25;
-    if (!score) continue;
-    seen.add(key);
-    scored.push({
+    if (salt && catalogueSalts.has(salt.split(' ')[0])) continue;
+    const candidate = {
       id: line.medicine_id ?? `hist-${key}`,
       brand: line.drug,
-      salt: line.salt || inferSalt(line.drug),
+      salt: rawSalt,
       strength: '',
       form: null,
       schedule: line.schedule ?? null,
       classes: [],
-      dose: line.dose, frequency: line.frequency, duration: line.duration, instructions: line.instructions,
+      dose: line.dose,
+      frequency: line.frequency,
+      duration: line.duration,
+      instructions: line.instructions,
       keywords: key,
       source: 'history',
-      score: score + 3, // an established house habit is a strong signal
-    });
+    };
+    const base = scoreMedicine(candidate, query);
+    if (!base) continue;
+    seen.add(key);
+    history.push({ ...candidate, score: base + TIERS.historyBonus, highlight: highlightRanges(line.drug, query) });
   }
 
-  return scored.sort((a, b) => b.score - a.score || a.brand.localeCompare(b.brand)).slice(0, limit);
+  return [...cells, ...history]
+    .sort((a, b) => b.score - a.score || String(a.brand).localeCompare(String(b.brand)))
+    .slice(0, limit);
+}
+
+/**
+ * A row from the `medicines` directory (schema 14) in the shape this app uses.
+ *
+ * The directory is a *reference*: it knows the brand, the composition, the form
+ * and the dispensing schedule. It does not know how this clinic writes a dose,
+ * so the dose/frequency/duration fields stay empty and the doctor gets the
+ * safety checks, the composition line and a prefilled name — not a guessed
+ * prescription.
+ */
+export function medicineFromDirectoryRow(row) {
+  if (!row) return null;
+  const brand = String(row.brand_name ?? '').trim();
+  if (!brand) return null;
+  const composition = String(row.composition ?? '').trim();
+  const strength = String(row.strength ?? '').trim();
+  const form = formCode(row.form);
+  const classes = Array.isArray(row.classes) ? row.classes.filter(Boolean) : [];
+  const schedule = row.schedule && SCHEDULES[row.schedule] ? row.schedule : null;
+  return {
+    id: row.id ?? `dir-${norm(`${brand} ${strength} ${form}`).replace(/ /g, '-')}`,
+    brand,
+    salt: composition,
+    strength,
+    form,
+    schedule,
+    classes,
+    dose: '',
+    frequency: '',
+    duration: '',
+    instructions: '',
+    manufacturer: row.manufacturer ?? '',
+    keywords: norm(`${brand} ${composition} ${row.manufacturer ?? ''} ${row.keywords ?? ''}`),
+    source: 'directory',
+  };
+}
+
+/** 'Tablet' → 'tab'. The directory stores what the pack says; the app stores a code. */
+export function formCode(text) {
+  const t = norm(text);
+  if (!t) return null;
+  const direct = Object.keys(FORMS).find((code) => code === t);
+  if (direct) return direct;
+  const byLabel = Object.entries(FORMS).find(([, label]) => norm(label) === t);
+  if (byLabel) return byLabel[0];
+  // The pack words we meet most often but the code table spells differently.
+  const alias = {
+    tabs: 'tab', tablet: 'tab', tablets: 'tab', cap: 'cap', caps: 'cap', capsule: 'cap', capsules: 'cap',
+    syrup: 'syrup', suspension: 'syrup', oral: 'syrup', sachet: 'sachet', powder: 'sachet',
+    injection: 'inj', inj: 'inj', vial: 'inj', ampoule: 'inj', inhaler: 'inh', rotacap: 'inh', respules: 'neb',
+    nebuliser: 'neb', nebulizer: 'neb', drops: 'drops', cream: 'cream', ointment: 'oint', oint: 'oint', gel: 'gel',
+  };
+  return alias[t] ?? null;
 }
 
 /** Look a medicine up again from a stored line (used when re-opening an old Rx). */

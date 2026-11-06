@@ -556,6 +556,8 @@ export const BOOKING_ERRORS = {
   toomany: 'Three online bookings from this number today — call the clinic for more.',
   busy: 'The booking page is busy right now. Try again in a minute, or call the clinic.',
   slot_taken: 'That slot was taken a moment ago.',
+  dayoff: 'The clinic is closed that day — pick another date.',
+  leave: 'That doctor is away that day — pick another date, or another doctor.',
 };
 
 export function bookingErrorMessage(message) {

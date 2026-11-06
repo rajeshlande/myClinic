@@ -476,6 +476,9 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
                     <MedicinePicker
                       value={rx.drug}
                       clinicHistory={recent}
+                      // The directory (schema 14) answers once typing pauses; the
+                      // catalogue above has already answered on the keystroke.
+                      searchDirectory={store.searchDrugDirectory}
                       onChange={(text) => setDrug(i, 'drug')({ target: { value: text } })}
                       // Picking a medicine replaces the whole line: name, molecule,
                       // form, schedule and the dose/frequency/duration defaults.

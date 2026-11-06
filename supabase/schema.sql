@@ -43,6 +43,7 @@
 --    11  WhatsApp consent + log          v1.12.0
 --    12  two sessions, days off, 3–45 d  v1.13.0
 --    13  a profile row per account     v1.13.1
+--    14  drug directory (brand→salt)    v1.14.0
 --
 -- To add a migration: append a numbered block inside its migration's guard,
 -- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
@@ -2733,6 +2734,268 @@ begin
   update public.app_meta
      set schema_version = 13, applied_at = now(), notes = 'every account has a profile row'
    where schema_version < 13;
+end $migration$;
+
+-- =============================================================================
+-- §14 · DRUG DIRECTORY                                migration 14 · app v1.14.0
+--
+-- The prescription field has always searched a catalogue that ships inside the
+-- app: instant, offline, and only 59 brands deep. This adds the table a real
+-- directory is imported into, and the function the field calls once typing
+-- pauses: "Pantocid 40", "Augmentin 625 Duo", "Zerodol SP" — the name printed
+-- on the strip in the patient's hand, not the molecule the clinic wishes it were.
+--
+-- Why a table and not more hard-coded brands
+--   1. India has over a lakh formulary brands; nobody ships that inside a JS
+--      bundle, and nobody should have to redeploy to add one.
+--   2. The composition has to travel with the brand, because the chemist reads
+--      the molecule, the inspector checks it, and the app's safety rules key on
+--      it (duplicate therapy, allergies, interactions).
+--   3. Typo tolerance belongs in an index. pg_trgm plus a GiST index answers
+--      "augmentn", "amoxycillin" and "metformn" without the app guessing.
+--
+-- What this migration deliberately does NOT do
+--   • It does not replace the shipped catalogue. The browser still answers on the
+--     first keystroke, offline, from src/lib/medicines.mjs; directory rows are
+--     merged underneath (src/lib/drug-search.mjs), never in front of a habit.
+--   • It does not let the app write to `medicines`. Every signed-in seat can read
+--     it; nobody can edit it from the UI. Imports run as the service role:
+--     scripts/import-medicines.mjs.
+--   • It does not touch a prescription. A prescription keeps its own copy of the
+--     brand and molecule it was written with, so a later directory edit can never
+--     rewrite what a patient was handed.
+--
+-- The search function mirrors the browser's ranking — exact, prefix, word-start,
+-- composition, keyword, then trigram similarity — so the two layers interleave
+-- instead of fighting.
+-- =============================================================================
+do $migration$
+declare
+  v_trgm boolean := false;
+begin
+  if public.app_schema_version() >= 14 then
+    raise notice 'schema 14 (drug directory) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 14 (drug directory: brands, compositions, typo-tolerant search)';
+
+  -- pg_trgm carries the typo tolerance. A locked-down server that cannot create
+  -- it still gets the table and a prefix-matching function; the browser's own
+  -- fuzzy search keeps working either way.
+  begin
+    create extension if not exists pg_trgm;
+    v_trgm := true;
+  exception when others then
+    raise notice 'pg_trgm could not be enabled (%) - drug search falls back to prefix matching', sqlerrm;
+  end;
+
+  execute $sql$
+  create table if not exists public.medicines (
+    id uuid primary key default gen_random_uuid(),
+    brand_name text not null,
+    composition text not null default '',
+    form text,
+    strength text,
+    manufacturer text,
+    schedule text,
+    classes text[] not null default '{}',
+    keywords text not null default '',
+    source text not null default 'formulary',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint medicines_brand_not_blank check (btrim(brand_name) <> ''),
+    constraint medicines_schedule_known check (schedule is null or schedule in ('OTC', 'H', 'H1', 'X'))
+  );
+
+  comment on table public.medicines is
+    'Read-only drug directory: Indian brand name -> generic composition. Seeded with the starter formulary; import the long tail with scripts/import-medicines.mjs.';
+  $sql$;
+
+  -- Identity is brand + strength + form: "Augmentin 625" (tablet) and "Augmentin
+  -- 625 Duo" (sachet) are different rows even though both say Amoxicillin.
+  execute $q$
+    create unique index if not exists medicines_identity
+      on public.medicines (lower(brand_name), lower(coalesce(strength, '')), lower(coalesce(form, '')))
+  $q$;
+
+  if v_trgm then
+    execute $q$create index if not exists medicines_brand_trgm on public.medicines using gist (brand_name gist_trgm_ops)$q$;
+    execute $q$create index if not exists medicines_composition_trgm on public.medicines using gist (composition gist_trgm_ops)$q$;
+  else
+    execute $q$create index if not exists medicines_brand_prefix on public.medicines (lower(brand_name) text_pattern_ops)$q$;
+  end if;
+
+  -- Read-only reference data. RLS is on, one SELECT policy for signed-in seats,
+  -- and no INSERT/UPDATE/DELETE grant at all: an import is a service-role job.
+  execute $q$alter table public.medicines enable row level security$q$;
+  execute $q$drop policy if exists medicines_read on public.medicines$q$;
+  execute $q$create policy medicines_read on public.medicines for select to authenticated using (true)$q$;
+  execute $q$revoke all on public.medicines from anon, authenticated$q$;
+  execute $q$grant select on public.medicines to authenticated$q$;
+
+  -- ---- the search function -------------------------------------------------
+  -- security invoker, not definer: the table's own policy decides who may read
+  -- it, so a future tightening of the policy cannot be bypassed by this call.
+  if v_trgm then
+    execute $body$
+    create or replace function public.search_medicine_brands(p_term text, p_limit integer default 8)
+    returns table (
+      id uuid, brand_name text, composition text, form text, strength text,
+      manufacturer text, schedule text, classes text[], score real
+    )
+    language sql
+    stable
+    security invoker
+    set search_path = public
+    as $fn$
+      with q as (
+        select btrim(lower(coalesce(p_term, ''))) as term
+      )
+      select m.id, m.brand_name, m.composition, m.form, m.strength, m.manufacturer,
+             m.schedule, m.classes,
+             (case
+                when lower(m.brand_name) = q.term then 1.00
+                when lower(m.brand_name) like translate(q.term, ' ', '%') || '%' then 0.95
+                when lower(m.brand_name) like '% ' || translate(q.term, ' ', '%') || '%' then 0.88
+                when lower(m.composition) = q.term then 0.85
+                when lower(m.composition) like translate(q.term, ' ', '%') || '%' then 0.82
+                when lower(m.composition) like '%' || translate(q.term, ' ', '%') || '%' then 0.72
+                when lower(m.keywords) like '%' || translate(q.term, ' ', '%') || '%' then 0.60
+                else greatest(similarity(m.brand_name, q.term), similarity(m.composition, q.term) * 0.92)
+              end)::real as score
+        from public.medicines m, q
+       where char_length(q.term) >= 2
+         and (
+              lower(m.brand_name) like '%' || translate(q.term, ' ', '%') || '%'
+           or lower(m.composition) like '%' || translate(q.term, ' ', '%') || '%'
+           or lower(m.keywords) like '%' || translate(q.term, ' ', '%') || '%'
+           or similarity(m.brand_name, q.term) >= 0.30
+           or similarity(m.composition, q.term) >= 0.30
+         )
+       order by score desc, m.brand_name asc
+       limit greatest(1, least(coalesce(p_limit, 8), 25));
+    $fn$;
+    $body$;
+  else
+    execute $body$
+    create or replace function public.search_medicine_brands(p_term text, p_limit integer default 8)
+    returns table (
+      id uuid, brand_name text, composition text, form text, strength text,
+      manufacturer text, schedule text, classes text[], score real
+    )
+    language sql
+    stable
+    security invoker
+    set search_path = public
+    as $fn$
+      with q as (
+        select btrim(lower(coalesce(p_term, ''))) as term
+      )
+      select m.id, m.brand_name, m.composition, m.form, m.strength, m.manufacturer,
+             m.schedule, m.classes,
+             (case
+                when lower(m.brand_name) = q.term then 1.00
+                when lower(m.brand_name) like translate(q.term, ' ', '%') || '%' then 0.95
+                when lower(m.brand_name) like '% ' || translate(q.term, ' ', '%') || '%' then 0.88
+                when lower(m.composition) = q.term then 0.85
+                when lower(m.composition) like translate(q.term, ' ', '%') || '%' then 0.82
+                when lower(m.composition) like '%' || translate(q.term, ' ', '%') || '%' then 0.72
+                else 0.60
+              end)::real as score
+        from public.medicines m, q
+       where char_length(q.term) >= 2
+         and (
+              lower(m.brand_name) like '%' || translate(q.term, ' ', '%') || '%'
+           or lower(m.composition) like '%' || translate(q.term, ' ', '%') || '%'
+           or lower(m.keywords) like '%' || translate(q.term, ' ', '%') || '%'
+         )
+       order by score desc, m.brand_name asc
+       limit greatest(1, least(coalesce(p_limit, 8), 25));
+    $fn$;
+    $body$;
+  end if;
+
+  execute $q$revoke all on function public.search_medicine_brands(text, integer) from public$q$;
+  -- Signed-in seats only: a public booking page has no business reading the
+  -- clinic's formulary, and anon is the one role that never signs in.
+  execute $q$grant execute on function public.search_medicine_brands(text, integer) to authenticated$q$;
+
+  -- ---- the starter rows ----------------------------------------------------
+  -- The same 59 brands the app ships with, so the directory is useful the
+  -- minute the SQL has run — and so an offline device and an online one agree
+  -- on the composition of "Dolo 650". `on conflict do nothing` means a clinic
+  -- that has already imported the long tail keeps its own rows untouched.
+
+  insert into public.medicines (brand_name, composition, form, strength, classes, schedule, keywords) values
+    ('Dolo 650', 'Paracetamol', 'Tablet', '650 mg', array['paracetamol', 'analgesic', 'antipyretic']::text[], 'OTC', 'fever pain body ache headache dolo crocin dolo 650 paracetamol'),
+    ('Crocin Advance', 'Paracetamol', 'Tablet', '500 mg', array['paracetamol', 'analgesic', 'antipyretic']::text[], 'OTC', 'fever pain crocin advance paracetamol'),
+    ('Calpol 250', 'Paracetamol', 'Syrup', '250 mg/5 ml', array['paracetamol', 'analgesic', 'antipyretic']::text[], 'OTC', 'fever child paediatric calpol 250 paracetamol'),
+    ('Brufen', 'Ibuprofen', 'Tablet', '400 mg', array['nsaid', 'analgesic', 'antipyretic']::text[], 'H', 'pain fever inflammation brufen ibuprofen'),
+    ('Voveran', 'Diclofenac', 'Tablet', '50 mg', array['nsaid', 'analgesic']::text[], 'H', 'pain joint back knee voveran diclofenac'),
+    ('Zerodol-P', 'Aceclofenac + Paracetamol', 'Tablet', '100 mg + 325 mg', array['nsaid', 'paracetamol', 'analgesic']::text[], 'H', 'pain inflammation dental zerodol-p aceclofenac + paracetamol'),
+    ('Ecosprin', 'Aspirin', 'Tablet', '75 mg', array['antiplatelet', 'nsaid']::text[], 'H', 'blood thinner heart clot ecosprin aspirin'),
+    ('Suminat', 'Sumatriptan', 'Tablet', '50 mg', array['triptan']::text[], 'H', 'migraine headache suminat sumatriptan'),
+    ('Mox', 'Amoxicillin', 'Capsule', '500 mg', array['penicillin', 'antibiotic']::text[], 'H', 'infection throat chest mox amoxicillin'),
+    ('Augmentin 625', 'Amoxicillin + Clavulanic acid', 'Tablet', '500 mg + 125 mg', array['penicillin', 'antibiotic']::text[], 'H', 'infection chest throat dental augmentin 625 amoxicillin + clavulanic acid'),
+    ('Azithral', 'Azithromycin', 'Tablet', '500 mg', array['macrolide', 'antibiotic']::text[], 'H', 'infection chest cough atypical azithral azithromycin'),
+    ('Taxim-PH O', 'Cefixime', 'Tablet', '200 mg', array['cephalosporin', 'antibiotic']::text[], 'H', 'infection urine throat taxim-ph o cefixime'),
+    ('Ciplox', 'Ciprofloxacin', 'Tablet', '500 mg', array['fluoroquinolone', 'antibiotic']::text[], 'H', 'infection urine diarrhoea ciplox ciprofloxacin'),
+    ('Levoflox', 'Levofloxacin', 'Tablet', '500 mg', array['fluoroquinolone', 'antibiotic']::text[], 'H', 'infection pneumonia urine levoflox levofloxacin'),
+    ('Doxt-SL', 'Doxycycline', 'Tablet', '100 mg', array['tetracycline', 'antibiotic']::text[], 'H1', 'infection acne scrub typhus doxt-sl doxycycline'),
+    ('Flagyl', 'Metronidazole', 'Tablet', '400 mg', array['nitroimidazole', 'antibiotic']::text[], 'H', 'diarrhoea amoebic dental infection flagyl metronidazole'),
+    ('Septran DS', 'Sulfamethoxazole + Trimethoprim', 'Tablet', '800 mg + 160 mg', array['sulfonamide', 'antibiotic']::text[], 'H', 'infection urine sulfa septran ds sulfamethoxazole + trimethoprim'),
+    ('Dalacin', 'Clindamycin', 'Capsule', '300 mg', array['lincosamide', 'antibiotic']::text[], 'H', 'infection dental skin dalacin clindamycin'),
+    ('Zentel', 'Albendazole', 'Tablet', '400 mg', array['anthelmintic']::text[], 'OTC', 'worm deworming zentel albendazole'),
+    ('Pan 40', 'Pantoprazole', 'Tablet', '40 mg', array['ppi']::text[], 'H', 'acidity reflux gastritis pan 40 pantoprazole'),
+    ('Omez', 'Omeprazole', 'Capsule', '20 mg', array['ppi']::text[], 'H', 'acidity reflux gastritis omez omeprazole'),
+    ('Razo', 'Rabeprazole', 'Tablet', '20 mg', array['ppi']::text[], 'H', 'acidity reflux gastritis razo rabeprazole'),
+    ('Emeset', 'Ondansetron', 'Tablet', '4 mg', array['antiemetic']::text[], 'H', 'vomiting nausea emeset ondansetron'),
+    ('Domstal', 'Domperidone', 'Tablet', '10 mg', array['prokinetic']::text[], 'H', 'vomiting nausea bloating domstal domperidone'),
+    ('Duphalac', 'Lactulose', 'Syrup', '10 g/15 ml', array['laxative']::text[], 'OTC', 'constipation duphalac lactulose'),
+    ('Electral', 'Oral rehydration salts', 'Sachet', '20.5 g', array['ors']::text[], 'OTC', 'diarrhoea dehydration electral oral rehydration salts'),
+    ('Mucolite', 'Ambroxol', 'Syrup', '30 mg/5 ml', array['mucolytic']::text[], 'OTC', 'cough phlegm chest mucolite ambroxol'),
+    ('Alerid', 'Cetirizine', 'Tablet', '10 mg', array['antihistamine']::text[], 'OTC', 'allergy rhinitis itching alerid cetirizine'),
+    ('Levocet', 'Levocetirizine', 'Tablet', '5 mg', array['antihistamine']::text[], 'H', 'allergy rhinitis itching levocet levocetirizine'),
+    ('Allegra', 'Fexofenadine', 'Tablet', '120 mg', array['antihistamine']::text[], 'H', 'allergy urticaria allegra fexofenadine'),
+    ('Montair-LC', 'Montelukast + Levocetirizine', 'Tablet', '10 mg + 5 mg', array['antihistamine', 'leukotriene']::text[], 'H', 'allergy asthma rhinitis montair-lc montelukast + levocetirizine'),
+    ('Avil', 'Pheniramine', 'Tablet', '25 mg', array['antihistamine']::text[], 'H', 'allergy itching injection avil pheniramine'),
+    ('Asthalin', 'Salbutamol', 'Inhaler', '100 mcg', array['saba']::text[], 'H', 'wheeze asthma breathless inhaler asthalin salbutamol'),
+    ('Foracort 200', 'Budesonide + Formoterol', 'Inhaler', '200 mcg + 6 mcg', array['ics', 'laba']::text[], 'H', 'asthma inhaler controller foracort 200 budesonide + formoterol'),
+    ('Budecort', 'Budesonide', 'Nebuliser', '0.5 mg/2 ml', array['ics']::text[], 'H', 'nebuliser asthma wheeze budecort budesonide'),
+    ('Wysolone', 'Prednisolone', 'Tablet', '10 mg', array['corticosteroid']::text[], 'H', 'steroid inflammation asthma allergy wysolone prednisolone'),
+    ('Dexona', 'Dexamethasone', 'Injection', '4 mg/ml', array['corticosteroid']::text[], 'H', 'steroid injection dexona dexamethasone'),
+    ('Amlong', 'Amlodipine', 'Tablet', '5 mg', array['ccb']::text[], 'H', 'blood pressure hypertension amlong amlodipine'),
+    ('Telma', 'Telmisartan', 'Tablet', '40 mg', array['arb']::text[], 'H', 'blood pressure hypertension telma telmisartan'),
+    ('Envas', 'Enalapril', 'Tablet', '5 mg', array['acei']::text[], 'H', 'blood pressure hypertension heart envas enalapril'),
+    ('Metolar-XR', 'Metoprolol', 'Tablet', '50 mg', array['beta_blocker']::text[], 'H', 'blood pressure heart rate angina metolar-xr metoprolol'),
+    ('Atorva', 'Atorvastatin', 'Tablet', '10 mg', array['statin']::text[], 'H', 'cholesterol lipid atorva atorvastatin'),
+    ('Rosuvas', 'Rosuvastatin', 'Tablet', '10 mg', array['statin']::text[], 'H', 'cholesterol lipid rosuvas rosuvastatin'),
+    ('Clopilet', 'Clopidogrel', 'Tablet', '75 mg', array['antiplatelet']::text[], 'H', 'blood thinner clot stent clopilet clopidogrel'),
+    ('Warf', 'Warfarin', 'Tablet', '5 mg', array['anticoagulant']::text[], 'H', 'blood thinner clot anticoagulant warf warfarin'),
+    ('Glycomet', 'Metformin', 'Tablet', '500 mg', array['biguanide']::text[], 'H', 'diabetes sugar glycomet metformin'),
+    ('Amaryl', 'Glimepiride', 'Tablet', '2 mg', array['sulfonylurea']::text[], 'H', 'diabetes sugar amaryl glimepiride'),
+    ('Januvia', 'Sitagliptin', 'Tablet', '100 mg', array['gliptin']::text[], 'H', 'diabetes sugar januvia sitagliptin'),
+    ('Thyronorm', 'Levothyroxine', 'Tablet', '50 mcg', array['thyroid', 'levothyroxine']::text[], 'H', 'thyroid hypothyroid thyronorm levothyroxine'),
+    ('Gabapin', 'Gabapentin', 'Capsule', '300 mg', array['gabapentinoid']::text[], 'H', 'nerve pain neuropathy gabapin gabapentin'),
+    ('Pregeb', 'Pregabalin', 'Capsule', '75 mg', array['gabapentinoid']::text[], 'H', 'nerve pain neuropathy pregeb pregabalin'),
+    ('Amitril', 'Amitriptyline', 'Tablet', '10 mg', array['tca']::text[], 'H', 'nerve pain sleep migraine prophylaxis amitril amitriptyline'),
+    ('Uprise D3 60K', 'Cholecalciferol', 'Sachet', '60000 IU', array['vitamin_d']::text[], 'OTC', 'vitamin d deficiency bone uprise d3 60k cholecalciferol'),
+    ('Shelcal 500', 'Calcium + Vitamin D3', 'Tablet', '500 mg + 250 IU', array['calcium']::text[], 'OTC', 'calcium bone shelcal 500 calcium + vitamin d3'),
+    ('Autrin', 'Ferrous fumarate + Folic acid', 'Tablet', '100 mg + 1.5 mg', array['iron']::text[], 'OTC', 'iron anaemia haemoglobin autrin ferrous fumarate + folic acid'),
+    ('Nurokind', 'Methylcobalamin', 'Tablet', '1500 mcg', array['vitamin_b12']::text[], 'OTC', 'b12 nerve vitamin nurokind methylcobalamin'),
+    ('Candid-B', 'Clotrimazole + Beclomethasone', 'Cream', '1% + 0.025%', array['antifungal', 'corticosteroid']::text[], 'H', 'fungal ringworm itch cream candid-b clotrimazole + beclomethasone'),
+    ('T-Bact', 'Mupirocin', 'Ointment', '2%', array['antibiotic']::text[], 'H', 'skin infection wound ointment t-bact mupirocin'),
+    ('Ciplox Eye Drops', 'Ciprofloxacin', 'Drops', '0.3%', array['fluoroquinolone', 'antibiotic']::text[], 'H', 'eye infection conjunctivitis ciplox eye drops ciprofloxacin')
+  on conflict do nothing;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (14, 'drug-directory', '1.14.0',
+          'medicines table (brand, composition, form, strength, schedule), pg_trgm GiST indexes, search_medicine_brands() for signed-in seats, 59 starter rows')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 14, applied_at = now(), notes = 'drug directory: brand to composition, typo-tolerant search'
+   where schema_version < 14;
 end $migration$;
 
 commit;

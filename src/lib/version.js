@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.13.1';
-export const SCHEMA_VERSION = 13;
+export const APP_VERSION = '1.14.0';
+export const SCHEMA_VERSION = 14;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,18 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.14.0', date: '2026-11-06', schema: 14,
+    highlights: [
+      'The drug field forgives typing. "Augmentn", "amoxycillin", "metformn", "crocn" and "tab pan 40" all find the drug you meant — the search now ranks a brand prefix first, then a near-miss spelling, then the molecule, instead of demanding the exact start of the name.',
+      'A drug directory behind that field (schema 14). The 59 brands that ship inside the app still answer instantly and offline; on a connection the field also asks the clinic\'s own directory, so the long tail — the strip in the patient\'s hand — is one pause away.',
+      'The composition is always on the row: brand in bold, generic salt and form underneath in a muted line, so the chemist and the drug inspector read what the safety checks read.',
+      'Matched letters are highlighted, the source of each suggestion is labelled (Used here / Directory), the list can be walked with arrow keys, Home, End and Enter, and a screen reader announces how many suggestions appeared.',
+      'The directory is read-only reference data. Every signed-in seat can read it; nothing in the app can edit it — imports run from scripts/import-medicines.mjs with a service-role key, and the 59 starter rows are already there after the SQL runs.',
+      'Two tools for real data: scripts/import-medicines.mjs reads a data.gov.in / CDSCO / chemist CSV or JSON export and writes idempotent SQL (or pushes it), and scripts/rxnorm-composition.mjs re-spells a molecule the way RxNorm does, so "Amoxycillin" and "Amoxicillin" are one drug to the duplicate-therapy check.',
+      'The field says what it is doing: a quiet spinner while the directory is asked, "one more letter" below two characters, and a plain "not in the list — it saves exactly as written" instead of a dead end.',
+    ],
+  },
   {
     version: '1.13.1', date: '2026-11-04', schema: 13,
     highlights: [

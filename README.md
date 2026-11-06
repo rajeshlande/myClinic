@@ -7,7 +7,7 @@
   <p>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg" alt="Deploy" /></a>
-    <img src="https://img.shields.io/badge/schema-13-blue.svg" alt="schema 13" />
+    <img src="https://img.shields.io/badge/schema-14-blue.svg" alt="schema 14" />
     <img src="https://img.shields.io/badge/node-26.13.0-brightgreen.svg" alt="node 26" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
   </p>
@@ -108,7 +108,7 @@ number** — token, appointment, bill and prescription — from one composer tha
 exact text, respects a patient's opt-out, and writes what was sent to the log.
 
 **Doctor** — consultations with vitals, examination, diagnoses and advice; a
-medicine master typeahead that fills dose, frequency and duration and runs safety
+typo-tolerant drug typeahead (starter formulary + an importable brand directory) that fills dose, frequency and duration and runs safety
 checks; print-ready prescriptions in ten Indian languages with `RX/<fy>/<seq>`
 numbering; follow-up lists that close the loop.
 
@@ -250,7 +250,7 @@ node scripts/security-check.mjs
 
 | Gate | Scope |
 |---|---|
-| `npm test` | **286 tests / 13 suites** — domain logic, day book, licensing, RBAC, invites, medicines, payments, public booking, offline replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
+| `npm test` | **378 tests / 18 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, offline replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
 | `supabase/schema-tests.sql` | **Six SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion. |
 | CI (`.github/workflows/ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
 
