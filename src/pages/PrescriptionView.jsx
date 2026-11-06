@@ -58,8 +58,8 @@ export default function PrescriptionView() {
   });
 
   return (
-    <div style={{ minHeight: '100dvh', padding: 'clamp(12px, 3vw, 32px)' }}>
-      <div className="no-print" style={{ maxWidth: 900, margin: '0 auto 14px' }}>
+    <div className="doc-page">
+      <div className="no-print" style={{ maxWidth: '210mm', margin: '0 auto 14px' }}>
         <div className="row wrap" style={{ gap: 8 }}>
           <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={() => navigate(`/app/patients/${visit.patient_id}`)}>Patient chart</Button>
           <span className="spacer" />
@@ -90,7 +90,7 @@ export default function PrescriptionView() {
         </Card>
       </div>
 
-      <div className="print-sheet card rx-sheet" style={{ maxWidth: 900, margin: '0 auto', fontFamily: localised ? fontStackFor(lang) : 'var(--font)' }}>
+      <div className="print-sheet card rx-sheet" style={{ margin: '0 auto', fontFamily: localised ? fontStackFor(lang) : 'var(--font)' }}>
         {/* ---------------------------------------------------------------- header */}
         <DocumentHeader
           clinic={clinic}
@@ -280,7 +280,7 @@ export default function PrescriptionView() {
         </div>
       </div>
 
-      <div className="no-print" style={{ maxWidth: 900, margin: '14px auto 0' }}>
+      <div className="no-print" style={{ maxWidth: '210mm', margin: '14px auto 0' }}>
         <div className="row wrap small muted" style={{ gap: 8 }}>
           <Badge tone="neutral"><Pill size={11} /> {visit.prescription?.length ?? 0} medicines</Badge>
           <Badge tone="neutral"><FileText size={11} /> {sheet.languageLabel}</Badge>

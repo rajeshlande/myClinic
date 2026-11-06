@@ -3,6 +3,31 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.17.1] — 2026-11-06 · schema 16
+
+**The sheet is a sheet of A4, on screen and on paper.** The prescription and the
+invoice were shown as an 880 px card: a preview that lied, because the printed
+page broke in a different place and the strip reserved for the repeated footer had
+no room of its own.
+
+- `.print-sheet` is now a real page box — **210 × 297 mm**, `box-sizing: border-box`,
+  `padding: 13mm 12mm 18mm`, a hairline edge and a page shadow — the same margins
+  `@page` gives the printed page. Content width is 186 mm in both, so at 100% zoom
+  what is on screen is what comes out.
+- `@page { size: A4; margin: 13mm 12mm 18mm }` is unchanged; print keeps
+  `padding: 0` on the sheet and now reserves the **bottom 8 mm** for the fixed
+  `.print-foot`, so the last line of a one-page slip no longer collides with it.
+- The toolbar and the badges above and below the sheet are 210 mm wide, so they
+  line up with the paper edge instead of an arbitrary 880 px.
+- `.rx-sheet` no longer carries a second padding of its own — it was overriding the
+  page box and turning A4 back into a card.
+- On a phone (≤ 640 px) the sheet keeps its 16 px padding and drops the fixed A4
+  height, rather than forcing a 297 mm page onto a 360 px screen.
+
+No schema change; no change to the consultation form — the **Dose pattern / How
+often** box in a drug row (`1-0-1`, `1-1-1`, `0-0-1`, `0-1-0`, `½-0-1`, chips, and
+the read-back line) is untouched by the layout work.
+
 ## [1.17.0] — 2026-11-06 · schema 16
 
 **The dose pattern is written, not inferred.** A prescription here is written as

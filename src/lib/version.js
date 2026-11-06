@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.17.0';
+export const APP_VERSION = '1.17.1';
 export const SCHEMA_VERSION = 16;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.17.1', date: '2026-11-06', schema: 16,
+    highlights: [
+      'The prescription and the invoice are shown as a sheet of A4 — 210 × 297 mm — on screen as well as on paper. The sheet used to be an 880 px card, so what you saw was not what the printer produced: the page broke in a different place and the strip reserved for the repeated footer had no room of its own. The page box now carries the same 13 mm top, 12 mm side and 18 mm bottom margins that @page gives the printed page, so at 100% zoom the screen is the paper.',
+      'The bottom 8 mm of a printed sheet is kept clear for the footer that repeats on every page, so the last line of a one-page slip no longer sits under it. The toolbar and the buttons above and below the sheet line up with the page edge instead of an arbitrary 880 px.',
+      'On a phone the sheet keeps its 16 px padding and drops the fixed A4 height instead of forcing a 297 mm page onto a 360 px screen.',
+    ],
+  },
   {
     version: '1.17.0', date: '2026-11-06', schema: 16,
     highlights: [

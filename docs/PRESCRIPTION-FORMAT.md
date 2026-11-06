@@ -153,6 +153,27 @@ What the app does **not** do, on purpose:
 3. Switch the instruction language: the directions change, medicine names, strengths
    and the clinic's details do not.
 
+## The page it prints on
+
+The sheet is A4 — 210 × 297 mm — and it is that size on screen too, so the preview
+is not a guess. `.print-sheet` carries the page box (`width: 210mm`,
+`min-height: 297mm`, `padding: 13mm 12mm 18mm`) with the same margins `@page`
+gives the printer, and `@page { size: A4; margin: 13mm 12mm 18mm }` sets the paper.
+Both give a 186 mm content width, so a line that fits on screen fits on paper.
+
+- The bottom 8 mm of a printed sheet is kept clear for the footer that repeats on
+  every page (`.print-foot`), so the last line of a one-page slip never sits under
+  it.
+- A prescription longer than a page breaks between medicine rows
+  (`break-inside: avoid` on `tr`, `.rx-sign`, `.rx-patient`, `.doc-foot`), never
+  inside one, and the medicine table header repeats (`display: table-header-group`).
+- On a phone the sheet drops the fixed A4 height and keeps 16 px of padding; a
+  297 mm page on a 360 px screen is not a preview, it is a scrollbar.
+
+To check it: print → destination *Save as PDF* → paper size **A4**, margins
+**Default**, scale **100%** (not "Fit to page"). The PDF's page count should match
+what the screen showed.
+
 ## Where the code lives
 
 | Piece | File |

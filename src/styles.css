@@ -788,14 +788,22 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
    row and a footer. Screen and paper share it, so what the front desk sees is
    what the printer produces.
    ========================================================================== */
-.doc-page { min-height: 100dvh; padding: clamp(12px, 3vw, 32px); }
-.doc-toolbar { max-width: 880px; margin: 0 auto 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.doc-actions { max-width: 880px; margin: 14px auto 0; }
+.doc-page { min-height: 100dvh; padding: clamp(12px, 3vw, 32px); background: var(--bg); }
+@media (max-width: 640px) { .doc-page { padding: 8px; } }
+.doc-toolbar { max-width: 210mm; margin: 0 auto 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.doc-actions { max-width: 210mm; margin: 14px auto 0; }
 
+/* The sheet is a sheet of A4 — 210 × 297 mm — on screen exactly as on paper.
+   The padding is the same 13/12/18 mm that @page gives a printed page, so what the
+   doctor sees here is the page the printer produces: same content width (186 mm),
+   same place for the fold, same place for the repeated footer. */
 .print-sheet {
-  background: #fff; color: #14201d; border-radius: var(--radius-lg);
-  max-width: 880px; margin: 0 auto; padding: clamp(18px, 3vw, 38px);
+  background: #fff; color: #14201d; border-radius: 3px;
+  width: 210mm; max-width: 100%; min-height: 297mm;
+  box-sizing: border-box;
+  margin: 0 auto; padding: 13mm 12mm 18mm;
   border: 1px solid #e3ebe8;
+  box-shadow: 0 1px 2px rgba(18, 49, 42, 0.06), 0 14px 34px rgba(18, 49, 42, 0.10);
 }
 .print-sheet table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .print-sheet th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: #5a6b66; border-bottom: 1px solid #dfe8e4; padding: 8px 6px; }
@@ -922,7 +930,7 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   .doc-foot-right { text-align: left; align-items: flex-start; }
 }
 @media (max-width: 460px) {
-  .print-sheet { padding: 16px !important; border-radius: 12px; }
+  .print-sheet { width: auto; min-height: 0; padding: 16px !important; border-radius: 12px; box-shadow: none; }
   .doc-table-wrap { margin-inline: -6px; padding-inline: 6px; }
   .doc-table-wrap table { min-width: 420px; font-size: 0.78rem; }
   .inv-parties { grid-template-columns: 1fr; }
@@ -1177,8 +1185,10 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   .card { box-shadow: none; border-color: #ddd; }
 
   .print-sheet {
-    max-width: none !important; width: 100% !important;
-    margin: 0 !important; padding: 0 !important;
+    max-width: none !important; width: 100% !important; min-height: 0 !important;
+    /* The bottom 8 mm is the fixed footer's strip: @page already reserves 18 mm of
+       paper, this keeps the last line of a one-page slip off the footer. */
+    margin: 0 !important; padding: 0 0 8mm !important;
     border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
     /* Colour the QR, the stamp and the rule even on a greyscale printer setting */
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
@@ -1253,7 +1263,9 @@ body[data-modal='true'] .syncbar { display: none; }
 .accent-preview i { width: 12px; height: 12px; border-radius: 4px; display: block; }
 
 /* ------------------------------------------------------------- prescription */
-.rx-sheet { background: #fff; color: #111; border-radius: 14px; padding: 26px 28px; border: 1px solid var(--border); }
+/* The page box (size, margins, shadow) comes from .print-sheet: the slip must not
+   carry a second, different padding of its own, or on screen it stops being A4. */
+.rx-sheet { background: #fff; color: #111; }
 .rx-head { display: flex; justify-content: space-between; gap: 18px; border-bottom: 2px solid #0f766e; padding-bottom: 12px; }
 .rx-doctor { font-size: 1.12rem; font-weight: 800; letter-spacing: -0.01em; }
 .rx-meta { font-size: 0.78rem; color: #4b5a57; line-height: 1.5; }
