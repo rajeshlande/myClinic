@@ -301,6 +301,32 @@ In a consultation, the drug field is `src/components/MedicinePicker.jsx`:
 - a drug nobody has heard of is still saved exactly as written. The field never
   blocks.
 
+## The rest of the line (dose, how often, for, food)
+
+The drug field gets the drug; the four controls beside it have to get the
+*instruction* right, because that is what the patient acts on.
+
+| control | what it offers | why |
+| --- | --- | --- |
+| **Dose** | chips chosen from the drug's form — tablet `1 / ½ / 2`, syrup `5 / 10 / 2.5 / 15 ml`, inhaler `1 puff`, injection `1 dose`, eye drops `1 drop` | "5 ml" of a tablet and "1 tablet" of a syrup are the two commonest slips; neither can be tapped |
+| **How often** | the dropdown stays, with the shorthand beside the words (`Twice a day (BD)`), and four pattern chips `1-0-0`, `1-0-1`, `1-1-1`, `0-0-1` | a pad is written in patterns; a slip is printed in words. Both are shown, both come from one stored value |
+| **For** | free text, 3/5/7/10-day chips, and a computed end date ("till 11 Nov 2026") | counting days on fingers is where a 5-day course becomes a 3-day course |
+| **Food relation** | five visible chips plus `— none —` | a dropdown hides the choice; a chip shows it, and tapping the active chip clears it |
+
+The stored values did not change — `frequency: 'Twice a day'`, `dose: '1 tablet'`,
+`duration: '5 days'`, `instructions: 'After food'` — so an old prescription prints
+exactly as it did, and `rxSheet()`/`patientInstruction()` translate as before.
+
+Underneath the fields, one dashed line reads the line back: the pattern
+(`1-0-1`), the instruction in the language chosen for the slip, the date the course
+ends, and a warning if the same brand is already on the prescription.
+
+The rules live in `src/lib/rx-language.js` as pure functions, so they are tested
+without a browser (`tests/rx-line.test.mjs`): `dosePattern()`, `doseChoicesFor()`,
+`durationInDays()`, `DOSE_PATTERNS`, `FREQUENCY_SHORTHAND`. A test asserts that each
+pattern chip writes exactly what `dosePattern()` produces for that frequency, so the
+chip and the slip cannot drift apart.
+
 ## What the directory deliberately does not do
 
 - **No dosing.** A directory row arrives with no dose, frequency or duration. Dose

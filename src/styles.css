@@ -1054,6 +1054,42 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   margin-top: 3px; font-size: 0.72rem; color: var(--muted);
 }
 
+/* quick choices inside a prescription line — dose, pattern, duration, food */
+.rx-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.rx-chip {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  border-radius: 7px; padding: 3px 8px; font-size: 0.68rem; font-weight: 650;
+  line-height: 1.6; cursor: pointer; white-space: nowrap;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.rx-chip:hover { border-color: var(--brand-300); color: var(--ink); }
+.rx-chip.on {
+  border-color: var(--brand-500); background: var(--brand-50); color: var(--brand-600);
+  box-shadow: 0 0 0 1px var(--brand-500) inset;
+}
+:root[data-theme='dark'] .rx-chip.on { color: var(--brand-300); }
+.rx-chip.mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); letter-spacing: 0.02em; }
+/* a thumb can hit these on a phone without zooming */
+@media (max-width: 560px) {
+  .rx-chip { padding: 5px 10px; font-size: 0.72rem; }
+}
+
+/* the line read back: pattern, the words, and the date the course ends */
+.rx-sig {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
+  margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--border);
+  font-size: 0.74rem;
+}
+.rx-sig-pattern {
+  font-weight: 800; font-size: 0.9rem; letter-spacing: 0.06em;
+  color: var(--brand-600); background: var(--brand-50);
+  border-radius: 6px; padding: 0 6px; line-height: 1.5;
+}
+:root[data-theme='dark'] .rx-sig-pattern { color: var(--brand-300); }
+.rx-sig-words { color: var(--brand-600); font-weight: 600; }
+.rx-sig-until { color: var(--muted); font-weight: 600; }
+.rx-sig-dup { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); font-weight: 650; }
+
 /* safety findings */
 .rx-safety { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 .rx-safety-item {

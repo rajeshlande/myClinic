@@ -253,6 +253,96 @@ export function relationKey(value) {
   return null;
 }
 
+/**
+ * The shorthand a chemist reads, next to the sentence the assistant reads.
+ *
+ * "Twice a day" is what gets stored and printed in words; BD is what is written
+ * on a prescription pad and what the person at the counter glances at. Both are
+ * shown, and neither is ever translated.
+ */
+export const FREQUENCY_SHORTHAND = {
+  od: 'OD', bd: 'BD', tds: 'TDS', qid: 'QID', hs: 'HS',
+  q6h: 'q6h', q8h: 'q8h', sos: 'SOS', weekly: '1/wk',
+};
+
+/** The times of day each frequency covers — what the dose pattern is built from. */
+const SLOTS_BY_FREQUENCY = {
+  od: ['morning'],
+  bd: ['morning', 'night'],
+  tds: ['morning', 'afternoon', 'night'],
+  qid: ['morning', 'afternoon', 'evening', 'night'],
+  hs: ['night'],
+};
+
+export function slotsForFrequency(value) {
+  const key = frequencyKey(value);
+  const slots = key ? SLOTS_BY_FREQUENCY[key] : null;
+  return slots ? [...slots] : [];
+}
+
+/**
+ * "1-0-1" — the pattern on the strip, not a sentence.
+ *
+ * A half tablet is written ½ rather than 0.5: a chemist reads a fraction, not a
+ * decimal. "When needed", "every 6 hours" and "once a week" have no daily
+ * pattern, so they return '' and the slip keeps the words instead.
+ */
+export function dosePattern(rx) {
+  const slots = slotsForFrequency(rx?.frequency);
+  if (!slots.length) return '';
+  const dose = String(rx?.dose ?? '').toLowerCase();
+  const each = /(^|[^0-9])½|half/.test(dose) ? '½' : /^\s*(2|two)\b/.test(dose) ? '2' : '1';
+  const columns = slots.length === 4 ? ['morning', 'afternoon', 'evening', 'night'] : ['morning', 'afternoon', 'night'];
+  return columns.map((slot) => (slots.includes(slot) ? each : '0')).join('-');
+}
+
+/**
+ * The four patterns a prescription pad is actually written in.
+ *
+ * Shown as chips beside the frequency, so one tap writes what a doctor would have
+ * written by hand, and the words stay in the field for the printed slip. `pattern`
+ * is asserted against dosePattern() in the tests, so the two cannot drift.
+ */
+export const DOSE_PATTERNS = [
+  { frequency: 'Once a day', pattern: '1-0-0', short: 'OD', hint: 'morning' },
+  { frequency: 'Twice a day', pattern: '1-0-1', short: 'BD', hint: 'morning and night' },
+  { frequency: 'Three times a day', pattern: '1-1-1', short: 'TDS', hint: 'after each meal' },
+  { frequency: 'At night', pattern: '0-0-1', short: 'HS', hint: 'bedtime' },
+];
+
+/**
+ * Duration in days, when the duration says something countable.
+ *
+ * "5 days" → 5, "2 weeks" → 14, "1 month" → 30 (the calendar-aware version is
+ * addDays' job), "till review" → null. Used for the "till 12 Nov" hint and for
+ * the follow-up check, never to rewrite what the doctor typed.
+ */
+export function durationInDays(value) {
+  const { amount, unit } = durationParts(value);
+  if (amount == null) return null;
+  const per = String(unit).startsWith('week') ? 7 : String(unit).startsWith('month') ? 30 : 1;
+  return Math.round(amount * per);
+}
+
+/**
+ * Dose chips that match the form of the drug that was picked.
+ *
+ * "1 tablet" is nonsense for a syrup and "5 ml" is nonsense for an inhaler, and
+ * a doctor should not have to type either. The default list is tablets, because
+ * that is what most of a clinic's day is.
+ */
+export function doseChoicesFor(form) {
+  const f = String(form ?? '').toLowerCase();
+  if (/eye|ear|nasal|nose/.test(f)) return ['1 drop', '2 drops'];
+  if (/cream|ointment|gel|lotion|paste/.test(f)) return ['Apply thinly', 'Apply twice'];
+  if (/inhaler|rotacap|respule|nebul/.test(f)) return ['1 puff', '2 puffs', '1 respule'];
+  if (/injection|vial|ampoule|infusion/.test(f)) return ['1 dose', '0.5 ml', '1 ml'];
+  if (/syrup|suspension|solution|liquid|elixir|oral/.test(f)) return ['5 ml', '10 ml', '2.5 ml', '15 ml'];
+  if (/sachet|powder|granule/.test(f)) return ['1 sachet', '½ sachet'];
+  if (/capsule/.test(f)) return ['1 capsule', '2 capsules'];
+  return ['1 tablet', '½ tablet', '2 tablets'];
+}
+
 /** Split "5 days" / "2 weeks" / "1 month" into a translatable unit + amount. */
 export function durationParts(value) {
   const raw = String(value ?? '').trim();

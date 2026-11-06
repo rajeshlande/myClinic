@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.14.1';
+export const APP_VERSION = '1.15.0';
 export const SCHEMA_VERSION = 15;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.15.0', date: '2026-11-06', schema: 15,
+    highlights: [
+      'The prescription line is written the way a pad is written. Beside “How often” there are now four chips — 1-0-0, 1-0-1, 1-1-1, 0-0-1 — so one tap writes the pattern a chemist reads, while the field keeps the words (“Twice a day (BD)”) that print on the slip. The frequencies with no daily pattern (When needed, every 6 hours, once a week) are still in the dropdown, and are never given a pattern they do not have.',
+      'Dose chips follow the drug you picked: a syrup offers 5 ml and 10 ml, an inhaler 1 puff, an injection 1 dose, eye drops 1 drop, a tablet 1 tablet / ½ tablet / 2 tablets. Nobody types “5 ml” into a tablet any more, and nobody has to type “½”.',
+      '“For” has quick chips (3d, 5d, 7d, 10d) and a computed end date — “till 11 Nov 2026” — so the course length is checked at a glance instead of counted on fingers. “Food relation” is five visible chips instead of a dropdown, with “— none —” as a sixth.',
+      'Under the fields, one dashed line reads the whole line back: the pattern (1-0-1), the patient instruction in the language chosen for the slip, and the date the course ends. If the same brand is already on this prescription, it says so there.',
+      'Fixed while in there: the dose and duration suggestion lists used the same two ids on every drug row, so the second row’s suggestions were attached to the first row’s input. Each row now has its own.',
+    ],
+  },
   {
     version: '1.14.1', date: '2026-11-06', schema: 15,
     highlights: [

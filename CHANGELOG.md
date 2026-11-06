@@ -3,6 +3,43 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.15.0] — 2026-11-06 · schema 15
+
+**The prescription line is written the way a pad is written.** Drug, Dose, How
+often, For and Food relation were five fields, three of them dropdowns, and the
+doctor carried the pattern in their head: *twice a day* became `1-0-1` later, on
+paper, by memory.
+
+- **The pattern is a chip.** Four buttons beside "How often" — `1-0-0`, `1-0-1`,
+  `1-1-1`, `0-0-1` — write the frequency in one tap, and the field still holds the
+  words, now with the shorthand a chemist reads: `Twice a day (BD)`. Frequencies
+  that have no daily pattern stay in the dropdown and never get a fabricated one
+  (`dosePattern()` returns `''` for *When needed*, *every 6 hours*, *once a week*).
+- **Dose chips that know the drug.** The chips are chosen from the form of the drug
+  that was picked — syrup gets `5 ml` / `10 ml` / `2.5 ml` / `15 ml`, an inhaler
+  `1 puff`, an injection `1 dose`, eye drops `1 drop`, a tablet `1 tablet` / `½
+  tablet` / `2 tablets`. Free typing is still there; the chips just remove the two
+  most common typos in a clinic: a tablet measured in millilitres and a half dose
+  typed as `0.5`.
+- **A half tablet is a fraction.** The pattern renders `½-0-½`, not `0.5-0-0.5` —
+  a chemist reads a fraction.
+- **"For" answers with a date.** Quick chips for 3, 5, 7 and 10 days, and a
+  computed "till 11 Nov 2026" from `durationInDays()`, which understands *5 days*,
+  *2 weeks*, *1 month*, a bare `7`, and refuses to invent a number for *till
+  review*.
+- **Food relation is visible.** Five chips instead of a dropdown, plus `— none —`:
+  one glance shows what was chosen, and tapping the chosen one clears it.
+- **The line reads back.** A dashed line under the fields shows the pattern, the
+  instruction as the patient will read it in the language chosen for the slip, the
+  end date, and — if the same brand is already on the prescription — a warning
+  saying so.
+- **Fixed:** the dose and duration `datalist`s shared two fixed ids across every
+  drug row, so from the second drug onwards the browser attached suggestions to the
+  first row's input. Each row now has its own ids.
+
+The stored values are unchanged (`frequency: 'Twice a day'`, `dose: '1 tablet'`),
+so prescriptions written before this release print exactly as they did.
+
 ## [1.14.1] — 2026-11-06 · schema 15
 
 **The directory learned to hold a lakh of brands without slowing down — and

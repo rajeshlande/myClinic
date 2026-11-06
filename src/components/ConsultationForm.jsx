@@ -11,7 +11,10 @@ import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
 import { useToast, Button, Field, Input, Select, Textarea, Modal, Avatar, Badge, IconButton } from './ui.jsx';
 import { addDays, ageLabel, formatDate, formatMoney, nextRxNumber, today, validateConsultation } from '../lib/logic.mjs';
-import { FREQUENCIES, RELATIONS, RX_LANGUAGES, patientInstruction } from '../lib/rx-language.js';
+import {
+  DOSE_PATTERNS, FREQUENCIES, FREQUENCY_SHORTHAND, RELATIONS, RX_LANGUAGES,
+  doseChoicesFor, dosePattern, durationInDays, patientInstruction,
+} from '../lib/rx-language.js';
 
 const blankVitals = { temperature_c: '', pulse_bpm: '', bp_systolic: '', bp_diastolic: '', spo2: '', weight_kg: '', height_cm: '' };
 const newDrug = () => ({
@@ -462,7 +465,10 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
           ) : null}
 
           <div className="stack" style={{ gap: 8 }}>
-            {draft.prescription.map((rx, i) => (
+            {draft.prescription.map((rx, i) => {
+              const name = rx.drug.trim().toLowerCase();
+              const duplicateDrug = Boolean(name) && draft.prescription.some((other, j) => j !== i && other.drug.trim().toLowerCase() === name);
+              return (
               <div key={i} className="card pad" style={{ padding: 10, background: 'var(--surface-2)' }}>
                 <div className="row" style={{ marginBottom: 8 }}>
                   <span className="tiny eyebrow">Drug {i + 1}</span>
@@ -503,18 +509,112 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
                       </span>
                     ) : null}
                   </Field>
-                  <Field label="Dose"><Input value={rx.dose} onChange={setDrug(i, 'dose')} placeholder="1 tablet" list="rx-doses" /><datalist id="rx-doses">{DOSES.map((x) => <option key={x} value={x} />)}</datalist></Field>
-                  <Field label="How often"><Select value={rx.frequency} onChange={setDrug(i, 'frequency')}>{FREQUENCIES.map((f) => <option key={f.value}>{f.value}</option>)}</Select></Field>
-                  <Field label="For"><Input value={rx.duration} onChange={setDrug(i, 'duration')} placeholder="5 days" list="rx-durations" /><datalist id="rx-durations">{DURATIONS.map((x) => <option key={x} value={x} />)}</datalist></Field>
-                  <Field label="Food relation" className="span-2"><Select value={rx.instructions} onChange={setDrug(i, 'instructions')}>{['', ...RELATIONS.map((r) => r.value)].map((f) => <option key={f || 'none'} value={f}>{f || '— none —'}</option>)}</Select></Field>
+                  <Field label="Dose">
+                    <Input value={rx.dose} onChange={setDrug(i, 'dose')} placeholder="1 tablet" list={`rx-doses-${i}`} />
+                    <datalist id={`rx-doses-${i}`}>{DOSES.map((x) => <option key={x} value={x} />)}</datalist>
+                    {/* Chips that suit the form of the drug that was picked: a syrup
+                        is never "1 tablet", an inhaler is never "5 ml". */}
+                    <div className="rx-chips" role="group" aria-label={`Dose for drug ${i + 1}`}>
+                      {doseChoicesFor(rx.form).map((choice) => (
+                        <button
+                          key={choice}
+                          type="button"
+                          className={`rx-chip${rx.dose === choice ? ' on' : ''}`}
+                          aria-pressed={rx.dose === choice}
+                          onClick={() => setDrug(i, 'dose')({ target: { value: choice } })}
+                        >
+                          {choice}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  <Field label="How often">
+                    <Select value={rx.frequency} onChange={setDrug(i, 'frequency')}>
+                      {FREQUENCIES.map((f) => (
+                        <option key={f.value} value={f.value}>
+                          {f.value}{FREQUENCY_SHORTHAND[f.key] ? ` (${FREQUENCY_SHORTHAND[f.key]})` : ''}
+                        </option>
+                      ))}
+                    </Select>
+                    {/* The pad, not the sentence: one tap writes the pattern a chemist
+                        reads, and the words stay in the field for the slip. */}
+                    <div className="rx-chips" role="group" aria-label={`Times a day for drug ${i + 1}`}>
+                      {DOSE_PATTERNS.map((p) => (
+                        <button
+                          key={p.frequency}
+                          type="button"
+                          className={`rx-chip mono${rx.frequency === p.frequency ? ' on' : ''}`}
+                          aria-pressed={rx.frequency === p.frequency}
+                          title={`${p.pattern} — ${p.hint}`}
+                          onClick={() => setDrug(i, 'frequency')({ target: { value: p.frequency } })}
+                        >
+                          {p.pattern}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  <Field label="For">
+                    <Input value={rx.duration} onChange={setDrug(i, 'duration')} placeholder="5 days" list={`rx-durations-${i}`} />
+                    <datalist id={`rx-durations-${i}`}>{DURATIONS.map((x) => <option key={x} value={x} />)}</datalist>
+                    <div className="rx-chips" role="group" aria-label={`Duration for drug ${i + 1}`}>
+                      {['3 days', '5 days', '7 days', '10 days'].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`rx-chip${rx.duration === d ? ' on' : ''}`}
+                          aria-pressed={rx.duration === d}
+                          onClick={() => setDrug(i, 'duration')({ target: { value: d } })}
+                        >
+                          {d.replace(' days', 'd')}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  <Field label="Food relation" className="span-2">
+                    <div className="rx-chips" role="group" aria-label={`Food relation for drug ${i + 1}`}>
+                      {RELATIONS.map((r) => (
+                        <button
+                          key={r.value}
+                          type="button"
+                          className={`rx-chip${rx.instructions === r.value ? ' on' : ''}`}
+                          aria-pressed={rx.instructions === r.value}
+                          onClick={() => setDrug(i, 'instructions')({ target: { value: rx.instructions === r.value ? '' : r.value } })}
+                        >
+                          {r.value}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className={`rx-chip${!rx.instructions ? ' on' : ''}`}
+                        aria-pressed={!rx.instructions}
+                        onClick={() => setDrug(i, 'instructions')({ target: { value: '' } })}
+                      >
+                        — none —
+                      </button>
+                    </div>
+                  </Field>
                 </div>
+
+                {/* One line that says it the way it will be read out loud, and the
+                    date the course ends — the two things a doctor double-checks. */}
                 {rx.drug.trim() ? (
-                  <div className="tiny" style={{ marginTop: 6, color: 'var(--brand-600)', fontWeight: 600 }}>
-                    {patientInstruction(rx, draft.rx_language)}
+                  <div className="rx-sig">
+                    <span className="rx-sig-pattern mono" title="Morning–afternoon–night">{dosePattern(rx) || '—'}</span>
+                    <span className="rx-sig-words">{patientInstruction(rx, draft.rx_language)}</span>
+                    {durationInDays(rx.duration) ? (
+                      <span className="rx-sig-until">till {formatDate(addDays(today(), durationInDays(rx.duration)))}</span>
+                    ) : null}
+                    {duplicateDrug ? (
+                      <span className="rx-sig-dup"><AlertTriangle size={11} /> already on this prescription</span>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
