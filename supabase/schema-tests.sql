@@ -1430,11 +1430,11 @@ begin
   if not has_trgm then
     raise notice 'SKIP: pg_trgm is not installed in this scratch database - fuzzy ranking not asserted';
   else
-    select count(*) into n from pg_indexes where tablename = 'medicines' and indexname = 'medicines_brand_trgm';
+    select count(*) into n from pg_indexes where tablename = 'medicines' and indexname = 'medicines_brand_gin';
     if n <> 1 then
-      raise exception 'FAIL: no GiST trigram index on medicines.brand_name' using errcode = 'P0002';
+      raise exception 'FAIL: no GIN trigram index on medicines.brand_name' using errcode = 'P0002';
     end if;
-    raise notice 'PASS: the brand name is indexed with gist_trgm_ops';
+    raise notice 'PASS: the brand name is indexed with gin_trgm_ops';
   end if;
 
   -- ------------------------------------------------ 2. the obvious brand wins
@@ -1570,6 +1570,171 @@ begin
   raise notice 'PASS: the seed is idempotent - one row per brand, strength and form';
 
   raise notice 'ALL DRUG DIRECTORY CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE K · DRUG SEARCH AT DIRECTORY SCALE (schema 15)
+-- =============================================================================
+-- Schema 14's search was correct on 59 rows and half a second per keystroke on
+-- 242,000. This suite holds the two things migration 15 bought:
+--
+--   1. the candidates come from indexes, not from scoring the whole table;
+--   2. a one-keystroke typo beats a two-keystroke lookalike, which is the
+--      difference between dispensing Augmentin and dispensing Augmentox.
+begin;
+
+do $$
+declare
+  n integer;
+  top_brand text;
+  top_score real;
+  second text;
+  has_trgm boolean := exists (select 1 from pg_extension where extname = 'pg_trgm');
+  plan text;
+begin
+  -- ------------------------------------------- 1. the scale machinery is there
+  if has_trgm then
+    select count(*) into n from pg_indexes
+     where tablename = 'medicines' and indexname in ('medicines_brand_gin', 'medicines_brandword_gin', 'medicines_molecule_gin');
+    if n <> 3 then
+      raise exception 'FAIL: expected 3 GIN trigram indexes on medicines, found %', n using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: brand, brand word and molecule are each trigram-indexed (GIN)';
+
+    select count(*) into n from pg_indexes
+     where tablename = 'medicines' and indexname in ('medicines_brand_trgm', 'medicines_composition_trgm');
+    if n <> 0 then
+      raise exception 'FAIL: the schema 14 GiST indexes are still present' using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: the superseded GiST indexes were dropped, not left to rot';
+
+    -- a lower() index is what a lower() query can actually use
+    select count(*) into n from pg_indexes
+     where tablename = 'medicines' and indexdef like '%gin_trgm_ops%' and indexdef like '%lower(%';
+    if n < 2 then
+      raise exception 'FAIL: no trigram index is on the lowercased column' using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: the trigram indexes are on lower(), the form the query uses';
+  else
+    raise notice 'SKIP: pg_trgm is not installed - index and tie-break checks not asserted';
+  end if;
+
+  -- --------------------------------------------- 2. edit distance does its job
+  if public.drug_edit_distance('augmentn', 'augmentin') <> 1 then
+    raise exception 'FAIL: "augmentn" to "augmentin" is not 1 keystroke' using errcode = 'P0002';
+  end if;
+  if public.drug_edit_distance('augmentn', 'augmentox') <> 2 then
+    raise exception 'FAIL: "augmentn" to "augmentox" is not 2 keystrokes' using errcode = 'P0002';
+  end if;
+  if public.drug_edit_distance('amoxycillin', 'amoxicillin') <> 1 then
+    raise exception 'FAIL: the y/ i spelling of amoxicillin is not 1 keystroke' using errcode = 'P0002';
+  end if;
+  if public.drug_edit_distance('dolo', 'dolo') <> 0 then
+    raise exception 'FAIL: a word is not distance 0 from itself' using errcode = 'P0002';
+  end if;
+  -- capped, so a nonsense term does not cost a matrix
+  if public.drug_edit_distance('zzzzzzzz', 'paracetamol', 2) <> 3 then
+    raise exception 'FAIL: the distance cap did not hold' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: drug_edit_distance() counts keystrokes and stops at the cap';
+
+  -- ------------------------- 3. a lookalike brand cannot outrank the real one
+  -- The case that started this: on 242,000 imported brands, "Augmentox" beat
+  -- "Augmentin 625" for the term "augmentn" because both share seven trigrams
+  -- and the shorter name won the tie.
+  insert into public.medicines (brand_name, composition, form, strength, source)
+  values ('Augmentox 625', 'Amoxicillin', 'Tablet', '625 mg', 'import')
+  on conflict do nothing;
+
+  select brand_name, score into top_brand, top_score
+    from public.search_medicine_brands('augmentn') limit 1;
+  if top_brand is distinct from 'Augmentin 625' then
+    raise exception 'FAIL: the typo "augmentn" ranked % first, with a lookalike present', coalesce(top_brand, 'nothing') using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a one-keystroke typo beats a two-keystroke lookalike (%)', round(top_score::numeric, 3);
+
+  -- and the lookalike is still reachable: it is a real drug, not noise
+  select count(*) into n from public.search_medicine_brands('augmentn') where brand_name = 'Augmentox 625';
+  if n <> 1 then
+    raise exception 'FAIL: the lookalike disappeared from the suggestions entirely' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the lookalike is ranked below, not hidden';
+
+  -- ----------------------------------------- 4. a short term does not fuzz
+  -- Two letters cannot be a typo of anything, and fuzzing them used to surface
+  -- "Zerodol-P" for "pan" (the "P" scored as a near-miss of "pan").
+  select count(*) into n from public.search_medicine_brands('pa');
+  if n = 0 then
+    raise exception 'FAIL: a two-letter prefix found no brand at all' using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands('pan') where brand_name ilike '%zerodol%';
+  if n <> 0 then
+    raise exception 'FAIL: "pan" matched a brand only through a one-letter word' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: short terms stay on the prefix path instead of fuzzing';
+
+  -- ------------------------------- 5. the planner uses an index, not a scan
+  -- The whole point of migration 15: a term with trigrams in it is answered by
+  -- the index. If this ever regresses to a sequential scan, the search is back
+  -- to scoring every row in the table, which is the half-second the migration
+  -- was written to remove.
+  -- On a 59-row table the planner is right to scan: the check only means
+  -- something once the directory is big enough for the choice to matter.
+  if has_trgm and (select count(*) from public.medicines) >= 5000 then
+    n := 0;
+    for plan in execute 'explain (format text) select id from public.medicines where lower(brand_name) like ''%augmentn%'''
+    loop
+      if plan ilike '%seq scan on medicines%' then n := n + 1; end if;
+    end loop;
+    if n > 0 then
+      raise exception 'FAIL: a trigram-searchable term fell back to a sequential scan' using errcode = 'P0002';
+    end if;
+    raise notice 'PASS: a trigram-searchable term is answered from an index';
+  else
+    raise notice 'SKIP: the planner check runs at directory scale (this scratch database has % rows)', (select count(*) from public.medicines);
+  end if;
+
+  -- ------------------------------------------ 6. the guards still hold
+  select count(*) into n from public.search_medicine_brands('a');
+  if n <> 0 then
+    raise exception 'FAIL: a one-letter term returned % rows', n using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands(null);
+  if n <> 0 then
+    raise exception 'FAIL: a null term returned % rows', n using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands('para', 0);
+  if n <> 1 then
+    raise exception 'FAIL: a zero limit returned % rows, expected exactly 1', n using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands('para', 1000);
+  if n > 25 then
+    raise exception 'FAIL: the limit was not clamped (% rows)', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the schema 14 guards survived the rewrite';
+
+  -- ------------------------- 5b. a half-typed molecule is a prefix, not a typo
+  -- "para" is 0.25 similar to "paracetamol" — under every fuzzy threshold — so
+  -- this only works because the prefix branch and its index exist.
+  select count(*) into n from public.search_medicine_brands('para');
+  if n = 0 then
+    raise exception 'FAIL: the half-typed molecule "para" found nothing' using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.search_medicine_brands('amox');
+  if n = 0 then
+    raise exception 'FAIL: the half-typed molecule "amox" found nothing' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a half-typed molecule still finds its brands';
+
+  -- a wrong first hit and a correct one must not score the same
+  select brand_name into second from public.search_medicine_brands('augmentn') offset 1 limit 1;
+  if second is not distinct from top_brand then
+    raise exception 'FAIL: the search returned the same brand twice' using errcode = 'P0002';
+  end if;
+
+  raise notice 'ALL DRUG SEARCH SCALE CHECKS COMPLETED';
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run

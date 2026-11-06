@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FUZZY_FLOOR, MAX_RESULTS, MIN_QUERY_LENGTH, TIERS,
-  foldDoseUnits, highlightRanges, mergeSearchResults, normaliseDrugText, scoreMedicine,
-  searchCatalogue, similarity, trigrams,
+  FUZZY_FLOOR, FUZZY_MIN_LENGTH, MAX_RESULTS, MIN_QUERY_LENGTH, TIERS,
+  editDistance, foldDoseUnits, highlightRanges, mergeSearchResults, normaliseDrugText,
+  scoreMedicine, searchCatalogue, similarity, trigrams,
 } from '../src/lib/drug-search.mjs';
 import {
   MEDICINES, formCode, medicineFromDirectoryRow, searchMedicines,
@@ -215,4 +215,51 @@ test('a pack’s wording maps onto the form the app knows', () => {
 test('a row with an unknown schedule is treated as having none', () => {
   const med = medicineFromDirectoryRow({ brand_name: 'X 10', composition: 'Y', schedule: 'Q' });
   assert.equal(med.schedule, null);
+});
+
+test('a typo prefers the word that matches over a shorter wrong brand', () => {
+  // The real case, found by loading a 242,000-row directory: "Augmentox" is a
+  // shorter string than "Augmentin 625", so whole-string similarity alone hands
+  // it the win. Word-level similarity is what makes the doctor's drug lead.
+  const catalogue = [
+    { id: 'decoy', brand: 'Augmentox 625', salt: 'Amoxicillin', strength: '625 mg', keywords: '' },
+    { id: 'real', brand: 'Augmentin 625', salt: 'Amoxicillin + Clavulanic acid', strength: '500 mg + 125 mg', keywords: '' },
+  ];
+  assert.equal(brands(searchCatalogue(catalogue, 'augmentn'))[0], 'Augmentin 625');
+  assert.equal(brands(searchCatalogue(catalogue, 'augmentn'))[0], 'Augmentin 625');
+  // and an exact prefix still beats both
+  assert.equal(brands(searchCatalogue(catalogue, 'augmento'))[0], 'Augmentox 625');
+});
+
+// ------------------------------------------------- keystrokes, and short words
+
+test('edit distance counts keystrokes and stops at the cap', () => {
+  assert.equal(editDistance('augmentn', 'augmentin'), 1);
+  assert.equal(editDistance('augmentn', 'augmentox'), 2);
+  assert.equal(editDistance('amoxycillin', 'amoxicillin'), 1);
+  assert.equal(editDistance('dolo', 'dolo'), 0);
+  assert.equal(editDistance('crocni', 'crocin'), 2);           // a swapped pair
+  assert.equal(editDistance('zzzzzzzz', 'paracetamol', 2), 3); // capped, not computed
+});
+
+test('nothing shorter than three characters fuzzes', () => {
+  // Two letters are a prefix, not a typo: fuzzing them used to answer "pan" with
+  // "Zerodol-P", because the single letter "P" scored as a near-miss.
+  const catalogue = [
+    { id: 'a', brand: 'Pan 40', salt: 'Pantoprazole', strength: '40 mg', keywords: '' },
+    { id: 'b', brand: 'Zerodol-P', salt: 'Aceclofenac + Paracetamol', strength: '100 mg + 325 mg', keywords: '' },
+  ];
+  assert.equal(brands(searchCatalogue(catalogue, 'pan')).includes('Zerodol-P'), false);
+  assert.equal(FUZZY_MIN_LENGTH, 3);
+  // a one-letter query is not even a prefix
+  assert.deepEqual(searchCatalogue(catalogue, 'p'), []);
+});
+
+test('a one keystroke typo outranks a two keystroke lookalike', () => {
+  const [first, second] = searchCatalogue([
+    { id: 'a', brand: 'Augmentox 625', salt: 'Amoxicillin', strength: '625 mg', keywords: '' },
+    { id: 'b', brand: 'Augmentin 625', salt: 'Amoxicillin + Clavulanic acid', strength: '500 mg + 125 mg', keywords: '' },
+  ], 'augmentn');
+  assert.equal(first.brand, 'Augmentin 625');
+  assert.ok(first.score > second.score, `${first.score} should beat ${second.score}`);
 });

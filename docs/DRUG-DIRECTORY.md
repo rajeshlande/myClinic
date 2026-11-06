@@ -43,7 +43,7 @@ network to show a familiar brand, and nothing breaks when there is no network.
 | molecule contains | `cillin` | 660 |
 | strength | `500` in "500 mg" | 560 |
 | keyword (symptom, class) | `fever`, `cough` | 520 / 460 |
-| trigram similarity (typos) | `augmentn` → Augmentin 625 | 300–560 |
+| trigram similarity + keystroke distance (typos) | `augmentn` → Augmentin 625 | 300–560 |
 | a line this clinic has written | history bonus | +40 |
 
 Ties break alphabetically, always — the same query offers the same list every time.
@@ -55,11 +55,18 @@ dropped letter (`augmentn`), one wrong letter (`amoxycillin`) or a swapped pair
 (`crocni`) still scores above the 0.34 floor; anything below it is treated as a
 different word, so `zzzznotadrug` returns nothing rather than everything.
 
+**Keystroke distance** settles what trigrams cannot. `augmentn` is one deletion
+from *Augmentin* and two keystrokes from *Augmentox*, but both share seven trigrams
+with the query and score identically (0.737 by Dice, 0.583 by `pg_trgm`) — so the
+shorter, wrong brand used to win. One keystroke adds 0.15, two add 0.06, three is
+another drug. Below three characters nothing fuzzes at all: two letters are a
+prefix, not a typo.
+
 **Multi-word terms** only count when every word lands somewhere, and then only as
 strongly as the weakest word. `dolo 650` therefore beats `dolo`, and `dolo zzz` does
 not lead with Dolo.
 
-## The database (schema 14)
+## The database (schema 15)
 
 ```sql
 public.medicines (
@@ -79,10 +86,12 @@ public.medicines (
 
 - **Identity** is `lower(brand_name) + lower(strength) + lower(form)`. "Augmentin
   625" (tablet) and "Augmentin 625 Duo" (sachet) are different rows.
-- **Indexes**: GiST `gist_trgm_ops` on `brand_name` and on `composition`. If the
-  server cannot create `pg_trgm`, the migration says so and falls back to a
-  `text_pattern_ops` index with prefix matching — the table and the function still
-  work, the app simply gets no fuzzy rows from the server (its own search fuzzes).
+- **Indexes**: GIN `gin_trgm_ops` on `lower(brand_name)`, on the brand's first word
+  and on the composition's first molecule, plus `text_pattern_ops` on
+  `lower(composition)` for half-typed molecules (schema 15; schema 14's GiST pair
+  is dropped). If the server cannot create `pg_trgm`, the migration says so and
+  keeps prefix matching — the table and the function still work, the app simply
+  gets no fuzzy rows from the server (its own search fuzzes).
 - **Read-only for the app**: RLS on, one `for select to authenticated using (true)`
   policy, no INSERT/UPDATE/DELETE grant to `anon` or `authenticated`.
 - **The function** is `security invoker` — deliberately not `security definer` — so
@@ -99,8 +108,10 @@ classes, score`. Two guards: a term shorter than two characters returns no rows
 (not an error), and the limit is clamped to 1…25 so no caller can pull the table.
 
 Ranking mirrors the browser exactly — exact, prefix, word-start, composition,
-keyword, then `similarity()` — which is why a directory row slots into the local
-list without re-sorting it.
+keyword, then `similarity()` with the same keystroke tie-break — which is why a
+directory row slots into the local list without re-sorting it. The function's
+`WHERE` clause is four index-usable branches rather than one OR of similarities,
+which is what keeps it fast on 242,000 rows (see *Speed at directory scale*).
 
 ## Putting real data in
 
@@ -153,6 +164,128 @@ not burst it, and this is a laptop tool, not part of the build.
 
 Why bother: `Amoxycillin` and `Amoxicillin` are one drug to a doctor and two strings
 to a duplicate-therapy check.
+
+### The Indian Medicine Dataset (253,973 rows)
+
+[junioralive/Indian-Medicine-Dataset](https://github.com/junioralive/Indian-Medicine-Dataset)
+(MIT) is the largest free Indian brand list there is: 253,973 products, one row per
+**pack**, with `name`, `manufacturer_name`, `short_composition1/2`,
+`pack_size_label`, `Is_discontinued`. It is a **catalogue, not a formulary** — no
+Schedule H/H1/X, no drug classes, no interaction data, and four pack sizes of one
+tablet are four rows. That is exactly what a brand dictionary is for, and exactly
+what a safety check cannot be built on. So it imports as `source='import'`; the 59
+curated rows stay `source='formulary'`.
+
+```bash
+# 1. what would happen — streams the 31 MB file, writes nothing
+node scripts/import-medicines.mjs --file indian_medicine_data.csv --preset inmd
+
+# 2. a 44 MB SQL file, in batches (too big for the SQL editor — use psql)
+node scripts/import-medicines.mjs --file indian_medicine_data.csv --preset inmd \
+  --sql inmd.sql --inherit-classes
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f inmd.sql
+
+# or push it, 1,000 rows at a time
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
+  node scripts/import-medicines.mjs --file indian_medicine_data.csv --preset inmd --push
+
+# a subset, when the whole catalogue is more than the clinic wants
+node scripts/import-medicines.mjs --file indian_medicine_data.csv --preset inmd --limit 20000
+```
+
+What the preset does with a row like
+`Augmentin 625 Duo Tablet | Amoxycillin  (500mg) | Clavulanic Acid (125mg)`:
+
+| field | value |
+| --- | --- |
+| brand | `Augmentin 625 Duo` — the form word and pack size are stripped out |
+| composition | `Amoxicillin + Clavulanic Acid` — normalised, not as spelled |
+| strength | `500 mg + 125 mg` |
+| form | `Tablet` |
+| manufacturer | preserved |
+| schedule / classes | inherited from the curated row with the same first molecule |
+
+Measured on the full file: **253,973 rows read in ~5 s**, 242,186 importable, 7,905
+skipped (every one `Is_discontinued`), 3,890 collapsed into an existing
+brand+strength+form, and the resulting SQL loads in about 11 seconds. Memory stays
+under 512 MB because the reader streams: the first version, which collected every
+row before writing, was killed by the OOM killer mid-run.
+
+`--inherit-classes` matters more than it looks. An imported row arrives with
+`schedule = null` and `classes = '{}'`, which leaves the two-NSAID and two-PPI
+rules, the allergy-by-class check and the H1-register chip silent — a drug that
+cannot be checked is worse than a drug that cannot be found. The statement copies
+the schedule and classes from the curated row with the same first molecule and
+never overwrites a class a row already has: on the full dataset, 98,982 rows
+picked one up from 59 curated brands.
+
+Two caveats worth knowing before importing the lot:
+
+- the catalogue repeats itself — `Crocin 1000mg` exists once per manufacturer, and
+  a blank `pack_size_label` can leave two rows that differ only by pack;
+- brand names carry dosage (`Amoxycillin 125mg` is a *brand*, not a molecule).
+
+Neither breaks anything — the identity index keeps them distinct, search still
+ranks the clinic's own habits first — but nobody should read the row count as a
+formulary count.
+
+## Speed at directory scale (schema 15)
+
+Schema 14 answered correctly and took half a second: its `WHERE` clause ORs a
+`similarity()` into the predicate, so no index can serve it and Postgres scores
+every row. Schema 15 collects candidates from four index-usable branches and ranks
+only those.
+
+`public.search_medicine_brands(term, 8)`, all 242,238 rows loaded, warm, p50/p95
+over 9 runs:
+
+| term | p50 | p95 |
+| --- | --- | --- |
+| `augmentn` | 2.1 ms | 6.2 ms |
+| `crocn` | 1.9 ms | 2.9 ms |
+| `zerodol sp` | 4.0 ms | 5.2 ms |
+| `pantocid` | 13.0 ms | 16.7 ms |
+| `azithral` | 13.1 ms | 19.9 ms |
+| `dolo` | 21.8 ms | 26.6 ms |
+| `paracetamol` | 42.9 ms | 57.0 ms |
+| `amox` | 57.1 ms | 67.5 ms |
+| `metformn` | 58.7 ms | 73.1 ms |
+| `cef` | 58.7 ms | 79.5 ms |
+
+The same queries took 435–563 ms on schema 14. The number a user feels is smaller
+than any of these: the browser's own list answers on the first keystroke, offline,
+and the directory only fills in behind it after a 250 ms pause in typing.
+
+The indexes are GIN, not GiST, and on `lower()` because that is the form the query
+uses:
+
+```sql
+medicines_brand_gin           gin (lower(brand_name) gin_trgm_ops)                     -- contains
+medicines_brandword_gin       gin (split_part(lower(brand_name), ' ', 1) gin_trgm_ops) -- brand typo
+medicines_molecule_gin        gin (split_part(lower(composition), ' + ', 1) gin_trgm_ops)
+medicines_composition_prefix  btree (lower(composition) text_pattern_ops)              -- 'para', 'amox'
+medicines_identity            unique (lower(brand_name), strength, form)
+```
+
+Together they cost about 27 MB on 242k rows, against 62 MB for the two GiST
+indexes they replaced — which were also 50× slower for `LIKE '%term%'` (10.6 ms
+vs 0.20 ms) and 33× slower for a fuzzy match (40 ms vs 1.2 ms). GIN is slower to
+write, and this table is written once by an import job and read on every
+prescription.
+
+Three ranking decisions came out of loading real data:
+
+1. **Edit distance breaks trigram ties.** For `augmentn`, `Augmentin 625` and
+   `Augmentox` share seven trigrams and score identically; the shorter name used
+   to win. `drug_edit_distance()` says what a chemist would — one deletion vs two
+   keystrokes — and one keystroke is worth +0.15, two +0.06, three is another drug.
+2. **A prefix is not a typo.** `paracetamol` is 0.25 similar to `para`, so
+   half-typed molecules get their own indexed branch instead of relying on
+   similarity.
+3. **Two letters do not fuzz, three do not mean a molecule.** Below three
+   characters only the prefix branch runs (otherwise `pan` matched `Zerodol-P`
+   through its single-letter `P`), and the molecule branches wait for a fourth
+   character (`cef` is a brand, `cefi` is a molecule).
 
 ## Using the field
 

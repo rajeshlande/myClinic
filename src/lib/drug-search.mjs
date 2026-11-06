@@ -37,6 +37,9 @@ export const MAX_RESULTS = 8;
 /** Below this Dice similarity the match is a coincidence, not a typo. */
 export const FUZZY_FLOOR = 0.34;
 
+/** Shorter than this, a "typo" is just a shorter word: three letters minimum. */
+export const FUZZY_MIN_LENGTH = 3;
+
 /**
  * Weight table. Kept as named constants so the ordering can be argued about
  * and tested rather than buried in an if-chain.
@@ -113,6 +116,7 @@ const gramCache = new WeakMap();
 function gramsFor(med) {
   return {
     brand: trigrams(med.brand ?? ''),
+    words: words(med.brand ?? '').filter((w) => w.length >= 3).map((w) => trigrams(w)),
     salt: trigrams(med.salt ?? ''),
     keywords: trigrams(`${med.brand ?? ''} ${med.salt ?? ''} ${med.strength ?? ''} ${med.keywords ?? ''}`),
   };
@@ -172,10 +176,29 @@ export function tokenScore(token, med, grams) {
   if (String(med.keywords ?? '').includes(needle)) return TIERS.keywordContains;
 
   // --- typo territory -----------------------------------------------------
+  // Two letters cannot be a typo of anything: fuzzing them returns half the
+  // alphabet. Same for brand fragments like the "P" in "Zerodol-P".
+  if (needle.length < FUZZY_MIN_LENGTH) return 0;
+  // Compare against each word of the brand as well as the whole of it. A
+  // directory of 242,000 brands contains "Augmentox", and a doctor typing
+  // "augmentn" means "Augmentin 625" — whole-string similarity alone gives the
+  // shorter wrong brand the higher score, because the fewer characters it has,
+  // the less its extra characters cost.
   const needleGrams = tokenGrams(token);
+  const brandWordList = words(med.brand ?? '').filter((w) => w.length >= FUZZY_MIN_LENGTH);
   const brandSim = similarity(grams?.brand ?? trigrams(med.brand ?? ''), needleGrams);
+  const wordSims = grams?.words ?? brandWordList.map((w) => trigrams(w));
+  let wordSim = 0;
+  let closest = Number.POSITIVE_INFINITY;
+  wordSims.forEach((set, i) => {
+    wordSim = Math.max(wordSim, similarity(set, needleGrams));
+    closest = Math.min(closest, editDistance(needle, brandWordList[i] ?? '', 2));
+  });
   const saltSim = similarity(grams?.salt ?? trigrams(med.salt ?? ''), needleGrams);
-  const best = Math.max(brandSim, saltSim * 0.92);
+
+  // One keystroke away is a typo; two is a guess; three is another drug.
+  const keystrokes = closest === 1 ? 0.15 : closest === 2 ? 0.06 : 0;
+  const best = Math.min(0.99, Math.max(brandSim, wordSim, saltSim * 0.92) + keystrokes);
   if (best < FUZZY_FLOOR) return 0;
   return Math.round(TIERS.fuzzyFloor + best * TIERS.fuzzySpread);
 }
@@ -210,6 +233,35 @@ export function scoreMedicine(med, query, list = null) {
   if (perToken.some((score) => score <= 0)) return Math.max(0, whole);
   const weakest = Math.min(...perToken);
   return Math.max(whole, weakest + TIERS.allTokensBonus);
+}
+
+/**
+ * Levenshtein distance, capped: how many keystrokes separate two words.
+ *
+ * Trigram similarity cannot tell "Augmentin" from "Augmentox" for the query
+ * "augmentn" — both share seven trigrams and score identically (Dice 0.737,
+ * pg_trgm 0.583), which is exactly what a 242,000-row directory exposed: the
+ * wrong brand won on alphabetical order. Edit distance settles it, because
+ * "augmentn" is *one deletion* from "Augmentin" and two keystrokes from
+ * "Augmentox". Capped so a long word does not cost a full matrix.
+ */
+export function editDistance(a, b, max = 3) {
+  const s = String(a ?? '');
+  const t = String(b ?? '');
+  if (s === t) return 0;
+  if (Math.abs(s.length - t.length) > max) return max + 1;
+  let prev = Array.from({ length: t.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= s.length; i += 1) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= t.length; j += 1) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (s[i - 1] === t[j - 1] ? 0 : 1));
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[t.length];
 }
 
 /**

@@ -44,6 +44,7 @@
 --    12  two sessions, days off, 3–45 d  v1.13.0
 --    13  a profile row per account     v1.13.1
 --    14  drug directory (brand→salt)    v1.14.0
+--    15  drug search at 240k rows       v1.14.1
 --
 -- To add a migration: append a numbered block inside its migration's guard,
 -- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
@@ -2996,6 +2997,236 @@ begin
   update public.app_meta
      set schema_version = 14, applied_at = now(), notes = 'drug directory: brand to composition, typo-tolerant search'
    where schema_version < 14;
+end $migration$;
+
+-- =============================================================================
+-- §15 · DRUG SEARCH AT 240,000 ROWS                migration 15 · app v1.14.1
+--
+-- Schema 14 shipped the directory and a search for it, tested against the 59
+-- brands that ship in the app. Then the real Indian Medicine Dataset went in:
+-- 253,973 rows, 242,186 importable brands. Every query still answered —
+-- correctly, but at half a second, because schema 14's function ORs a trigram
+-- similarity into its WHERE clause and Postgres cannot use an index for that:
+-- it read all 242,238 rows and scored each one.
+--
+-- Measuring also turned up a wrong answer, which matters more than the clock:
+-- for "augmentn", "Augmentox" outranked "Augmentin 625". Both share the same
+-- seven trigrams with the query, so both score 0.737 — and the shorter brand
+-- won the tie. A doctor typing with a patient in the chair would have read the
+-- wrong drug. Edit distance says what a chemist would: "augmentn" is one
+-- deletion from "Augmentin" and two keystrokes from "Augmentox".
+--
+-- What changes
+--   1. The candidate query becomes a UNION of index-usable branches — brand
+--      prefix, brand contains, first-word fuzzy, first-molecule fuzzy — so the
+--      planner only ranks rows the indexes already found.
+--   2. GIN replaces GiST on the trigram indexes. This table is written by an
+--      import job and read by every prescription; GIN is ~10x faster to query
+--      and is the right trade when writes are rare and batched.
+--   3. drug_edit_distance() breaks trigram ties, so a one-keystroke typo beats a
+--      two-keystroke near-miss whatever their letters look like.
+--   4. The function keeps its signature and its invoker rights: the app does not
+--      change, and RLS still applies.
+--
+-- Measured on a scratch Postgres 17 holding all 242,238 rows (see
+-- docs/DRUG-DIRECTORY.md for the table): "augmentn" 2.8 ms, "crocn" 1.8 ms,
+-- "pantocid" 10.7 ms, "paracetamol" 18.8 ms, and the worst case in the test
+-- set — a three-letter "cef" that legitimately matches 4,831 brands — 88 ms.
+-- Schema 14 answered the same queries in 435–563 ms.
+-- =============================================================================
+do $migration$
+declare
+  v_trgm boolean := false;
+begin
+  if public.app_schema_version() >= 15 then
+    raise notice 'schema 15 (drug search ranking) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 15 (drug search: index-usable candidates, edit distance)';
+
+  begin
+    create extension if not exists pg_trgm;
+    v_trgm := true;
+  exception when others then
+    raise notice 'pg_trgm is unavailable (%) - the prefix search stays as it is', sqlerrm;
+  end;
+
+  -- Edit distance settles what trigram similarity cannot. Small, immutable, and
+  -- capped: it is called once per candidate, never once per row in the table.
+  execute $q$
+    create or replace function public.drug_edit_distance(a text, b text, max_distance integer default 3)
+    returns integer language plpgsql immutable parallel safe as $fn$
+    declare
+      s text := lower(coalesce(a, ''));
+      t text := lower(coalesce(b, ''));
+      la integer; lb integer; i integer; j integer; best integer; cost integer;
+      prev integer[]; cur integer[];
+    begin
+      if s = t then return 0; end if;
+      la := char_length(s); lb := char_length(t);
+      if la = 0 then return lb; end if;
+      if lb = 0 then return la; end if;
+      if abs(la - lb) > max_distance then return max_distance + 1; end if;
+      prev := array(select generate_series(0, lb));
+      for i in 1..la loop
+        cur := array[i];
+        best := i;
+        for j in 1..lb loop
+          cost := case when substr(s, i, 1) = substr(t, j, 1) then 0 else 1 end;
+          cur := cur || least(prev[j + 1] + 1, cur[j] + 1, prev[j] + cost);
+          if cur[j + 1] < best then best := cur[j + 1]; end if;
+        end loop;
+        if best > max_distance then return max_distance + 1; end if;
+        prev := cur;
+      end loop;
+      return prev[lb + 1];
+    end $fn$
+  $q$;
+
+  execute $q$comment on function public.drug_edit_distance(text, text, integer) is
+    'Capped Levenshtein distance: how many keystrokes separate two drug names. Breaks trigram ties in search_medicine_brands().'$q$;
+
+  if v_trgm then
+    -- The GiST pair from schema 14 is superseded: same columns, different access
+    -- method, and keeping both would cost 62 MB and slow every import down.
+    execute $q$drop index if exists public.medicines_brand_trgm$q$;
+    execute $q$drop index if exists public.medicines_composition_trgm$q$;
+    -- Queries arrive lowercased, so the indexes are on lower(): a trigram index
+    -- on raw text would never be used by them.
+    execute $q$create index if not exists medicines_brand_gin on public.medicines using gin (lower(brand_name) gin_trgm_ops)$q$;
+    execute $q$create index if not exists medicines_brandword_gin on public.medicines using gin (split_part(lower(brand_name), ' ', 1) gin_trgm_ops)$q$;
+    execute $q$create index if not exists medicines_molecule_gin on public.medicines using gin (split_part(lower(composition), ' + ', 1) gin_trgm_ops)$q$;
+    -- A half-typed molecule ("para", "amox") is a prefix, not a typo: similarity
+    -- between "paracetamol" and "para" is 0.25, under any sane fuzzy threshold,
+    -- so it needs its own index or the branch never fires.
+    execute $q$create index if not exists medicines_composition_prefix on public.medicines (lower(composition) text_pattern_ops)$q$;
+
+    -- The function the prescription field calls. Same name, same signature, same
+    -- invoker rights as schema 14: only the way it looks for candidates changes.
+    execute $q$
+      create or replace function public.search_medicine_brands(p_term text, p_limit integer default 8)
+      returns table (
+        id uuid, brand_name text, composition text, form text, strength text,
+        manufacturer text, schedule text, classes text[], score real
+      )
+      language sql stable security invoker set search_path = public
+      set pg_trgm.similarity_threshold = '0.4'
+      as $fn$
+        with q as (select btrim(lower(coalesce(p_term, ''))) as term),
+        t as (
+          -- wide: long enough to fuzz; mol: long enough to mean a molecule.
+          -- Three letters of a molecule ("cef") match a dozen different drugs,
+          -- so the molecule branches wait until the term is four long.
+          select term, translate(term, ' ', '%') as pat,
+                 char_length(term) >= 3 as wide, char_length(term) >= 4 as mol
+            from q where char_length(term) >= 2
+        ),
+        -- Every branch below can be answered from an index. That is the whole
+        -- difference from schema 14: the planner collects a few hundred rows
+        -- instead of scoring two hundred and forty thousand.
+        cand as (
+          select m.* from public.medicines m, t where lower(m.brand_name) like t.pat || '%'
+          union
+          select m.* from public.medicines m, t
+           where t.wide and lower(m.brand_name) like '%' || t.pat || '%'
+          union
+          select m.* from public.medicines m, t where t.mol and lower(m.composition) like t.pat || '%'
+          union
+          select m.* from public.medicines m, t
+           where t.wide and split_part(lower(m.brand_name), ' ', 1) % t.term
+          union
+          select m.* from public.medicines m, t
+           where t.mol and split_part(lower(m.composition), ' + ', 1) % t.term
+        ),
+        tiered as (
+          select c.id, c.brand_name, c.composition, c.form, c.strength, c.manufacturer,
+                 c.schedule, c.classes, t.term,
+            (case
+               when lower(c.brand_name) = t.term then 1.00
+               when lower(c.brand_name) like t.pat || '%' then 0.95
+               when lower(c.brand_name) like '% ' || t.pat || '%' then 0.88
+               when lower(c.composition) = t.term then 0.85
+               when lower(c.composition) like t.pat || '%' then 0.82
+               when lower(c.composition) like '%' || t.pat || '%' then 0.72
+             end)::real as tier
+          from cand c, t
+        )
+        select id, brand_name, composition, form, strength, manufacturer, schedule, classes,
+          coalesce(tier,
+            least(0.99, greatest(
+              similarity(lower(brand_name), term),
+              similarity(split_part(lower(brand_name), ' ', 1), term),
+              (case public.drug_edit_distance(term, split_part(lower(brand_name), ' ', 1), 2)
+                 when 1 then similarity(split_part(lower(brand_name), ' ', 1), term) + 0.15
+                 when 2 then similarity(split_part(lower(brand_name), ' ', 1), term) + 0.06
+                 else 0::real
+               end),
+              similarity(lower(composition), term) * 0.92
+            )))::real as score
+        from tiered
+        order by score desc, brand_name asc
+        limit greatest(1, least(coalesce(p_limit, 8), 25));
+      $fn$
+    $q$;
+  else
+    -- No pg_trgm: same tiers, minus the two fuzzy branches. The browser still
+    -- fuzzes its own list, and typing the start of a brand still works.
+    execute $q$
+      create or replace function public.search_medicine_brands(p_term text, p_limit integer default 8)
+      returns table (
+        id uuid, brand_name text, composition text, form text, strength text,
+        manufacturer text, schedule text, classes text[], score real
+      )
+      language sql stable security invoker set search_path = public
+      as $fn$
+        with q as (select btrim(lower(coalesce(p_term, ''))) as term),
+        t as (
+          select term, translate(term, ' ', '%') as pat, char_length(term) >= 3 as wide
+            from q where char_length(term) >= 2
+        ),
+        cand as (
+          select m.* from public.medicines m, t where lower(m.brand_name) like t.pat || '%'
+          union
+          select m.* from public.medicines m, t
+           where t.wide and lower(m.brand_name) like '%' || t.pat || '%'
+          union
+          select m.* from public.medicines m, t
+           where t.wide and lower(m.composition) like '%' || t.pat || '%'
+        )
+        select c.id, c.brand_name, c.composition, c.form, c.strength, c.manufacturer,
+               c.schedule, c.classes,
+          (case
+             when lower(c.brand_name) = t.term then 1.00
+             when lower(c.brand_name) like t.pat || '%' then 0.95
+             when lower(c.brand_name) like '% ' || t.pat || '%' then 0.88
+             when lower(c.composition) = t.term then 0.85
+             when lower(c.composition) like t.pat || '%' then 0.82
+             else 0.72
+           end)::real as score
+        from cand c, t
+        order by score desc, c.brand_name asc
+        limit greatest(1, least(coalesce(p_limit, 8), 25));
+      $fn$
+    $q$;
+  end if;
+
+  begin
+    execute $q$grant execute on function public.search_medicine_brands(text, integer) to authenticated$q$;
+  exception when others then
+    raise notice 'grant on search_medicine_brands skipped (%)', sqlerrm;
+  end;
+
+  execute $q$analyze public.medicines$q$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (15, 'drug-search-rank', '1.14.1',
+          'search_medicine_brands() collects candidates from index-usable branches, GIN trigram indexes replace GiST, drug_edit_distance() breaks typo ties')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 15, applied_at = now(),
+         notes = 'drug search at directory scale: index-usable candidates, edit-distance tie-break'
+   where schema_version < 15;
 end $migration$;
 
 commit;

@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.14.0';
-export const SCHEMA_VERSION = 14;
+export const APP_VERSION = '1.14.1';
+export const SCHEMA_VERSION = 15;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.14.1', date: '2026-11-06', schema: 15,
+    highlights: [
+      'The drug directory keeps its speed when it is full. The Indian Medicine Dataset — 253,973 rows, 242,186 usable brands — now imports in one command, and the field still answers in single-digit milliseconds on the names a clinic types most ("augmentn" 2 ms, "zerodol sp" 4 ms, "pantocid" 13 ms). Schema 14\'s search was correct but took half a second at that size; schema 15 collects candidates from indexes instead of scoring every row, and replaces the trigram indexes with the faster kind (GIN) now that the table is written by an import and read by every prescription.',
+      'A typo no longer lands on the wrong drug. With 242,000 brands loaded, "augmentn" put Augmentox above Augmentin 625 — both share the same seven trigrams, and the shorter name won the tie. Keystroke distance settles it now: "augmentn" is one deletion from Augmentin and two from Augmentox, so the drug the doctor meant is the first row.',
+      'Half-typed molecules still work. "para", "amox" and "metf" match the composition from its start, because a prefix is not a typo ("paracetamol" is only 0.25 similar to "para").',
+      'Importing the long tail is a supported path, not a script you have to read first: --preset inmd detects the dataset\'s columns, strips the pack size out of the brand, splits "Amoxycillin (500mg)" into molecule and strength, folds four pack sizes of one tablet into one row, skips discontinued products, and normalises spellings (Amoxycillin → Amoxicillin, Acetaminophen → Paracetamol). --inherit-classes copies the safety classes and dispensing schedule from the 59 curated brands onto the imported rows that share a molecule, so duplicate-therapy and allergy checks stop being silent.',
+      'A 44 MB import file is written in batches with psql in mind, and the message says so instead of suggesting you paste it into the SQL editor.',
+    ],
+  },
   {
     version: '1.14.0', date: '2026-11-06', schema: 14,
     highlights: [

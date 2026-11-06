@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COLUMN_ALIASES, guessColumns, mapRow, parseCsv, readDrugFile, rowKey, tidyComposition,
-  tidyStrength, toInsertSql,
+  COLUMN_ALIASES, INHERIT_CLASSES_SQL, brandFromProductName, compositionFromParts, forEachCsvRow,
+  formFromProductName, guessColumns, isIndianMedicineDataset, mapRow, normaliseMolecule, parseCsv,
+  readDrugFile, rowKey, tidyComposition, tidyStrength, toInsertSql, writeInsertSqlFile,
 } from '../scripts/import-medicines.mjs';
 import {
   MIN_MATCH, canonicaliseComposition, canonicaliseList, splitComposition,
@@ -147,4 +148,129 @@ test('a whole list is cleaned in order, one at a time', async () => {
   assert.equal(out.length, 2);
   assert.deepEqual(calls, ['Paracetamol', 'Pantoprazole']);
   assert.equal(out[0].composition, 'Paracetamol');
+});
+
+/* ------------------------------------------- the Indian Medicine Dataset */
+
+const INMD_CSV = [
+  'id,name,price(₹),Is_discontinued,manufacturer_name,type,pack_size_label,short_composition1,short_composition2',
+  '1,Augmentin 625 Duo Tablet,223.42,FALSE,Glaxo SmithKline Pharmaceuticals Ltd,allopathy,strip of 10 tablets,Amoxycillin  (500mg) ,Clavulanic Acid (125mg)',
+  '2,Azithral 500 Tablet,132.36,FALSE,Alembic Pharmaceuticals Ltd,allopathy,strip of 5 tablets,Azithromycin (500mg),',
+  '3,Azee 250 Tablet,54.10,TRUE,Cipla Ltd,allopathy,strip of 10 tablets,Azithromycin (250mg),',
+  '4,Dolo 650 Tablet,30.50,FALSE,Micro Labs Ltd,allopathy,strip of 15 tablets,Paracetamol (650mg),',
+  '5,Dolo 650 Tablet,30.50,FALSE,Micro Labs Ltd,allopathy,strip of 10 tablets,Paracetamol (650mg),',
+  '6,Calpol 250mg/5ml Suspension,62.00,FALSE,GSK,allopathy,bottle of 60 ml,Paracetamol (250mg/5ml),',
+].join('\n');
+
+test('the dataset is recognised by its header, and its rows are understood', () => {
+  assert.equal(isIndianMedicineDataset(['id', 'name', 'price(₹)', 'Is_discontinued', 'manufacturer_name', 'type', 'pack_size_label', 'short_composition1', 'short_composition2']), true);
+  assert.equal(isIndianMedicineDataset(['Brand Name', 'Composition']), false);
+
+  const result = readDrugFile(INMD_CSV, { filename: 'indian_medicine_data.csv' });
+  assert.equal(result.preset, 'inmd');
+  assert.equal(result.total, 6);
+  assert.equal(result.discontinued, 1, 'the discontinued product is counted');
+  assert.equal(result.skippedCount, 1);
+  assert.equal(result.duplicateCount, 1, 'the same brand in two pack sizes is one row');
+  assert.deepEqual(result.rows.map((r) => r.brand_name), ['Augmentin 625 Duo', 'Azithral 500', 'Dolo 650', 'Calpol 250mg/5ml']);
+});
+
+test('the form comes out of the name and the strength out of the composition', () => {
+  const result = readDrugFile(INMD_CSV, { filename: 'x.csv' });
+  const augmentin = result.rows.find((r) => r.brand_name === 'Augmentin 625 Duo');
+  assert.equal(augmentin.composition, 'Amoxicillin + Clavulanic Acid');
+  assert.equal(augmentin.strength, '500 mg + 125 mg');
+  assert.equal(augmentin.form, 'Tablet');
+  assert.equal(augmentin.manufacturer, 'Glaxo SmithKline Pharmaceuticals Ltd');
+  const calpol = result.rows.find((r) => r.brand_name.startsWith('Calpol'));
+  assert.equal(calpol.form, 'Suspension');
+  assert.equal(calpol.strength, '250 mg/5 ml');
+});
+
+test('a brand is the name without the form word, and nothing more', () => {
+  assert.equal(brandFromProductName('Augmentin 625 Duo Tablet'), 'Augmentin 625 Duo');
+  assert.equal(brandFromProductName('Dolo 650 Tablet SR'), 'Dolo 650 SR');
+  assert.equal(brandFromProductName('Alkamax MB Oral'), 'Alkamax MB');
+  assert.equal(formFromProductName('Human Actrapid Injection 40 IU/ml'), 'Injection');
+  assert.equal(formFromProductName('Otrivin Nasal Spray'), 'Spray');
+  assert.equal(formFromProductName('Mystery Tonic'), null);
+});
+
+test('salt forms and Indian spellings do not hide the same drug', () => {
+  assert.equal(normaliseMolecule('Amoxycillin'), 'Amoxicillin');
+  assert.equal(normaliseMolecule('Acetaminophen'), 'Paracetamol');
+  assert.equal(normaliseMolecule('Pantoprazole Sodium'), 'Pantoprazole');
+  assert.equal(normaliseMolecule('Cefpodoxime Proxetil'), 'Cefpodoxime');
+  // a drug that *is* a salt keeps its name
+  assert.equal(normaliseMolecule('Calcium Carbonate'), 'Calcium Carbonate');
+  assert.equal(normaliseMolecule('Sodium Bicarbonate'), 'Sodium Bicarbonate');
+  assert.equal(normaliseMolecule(''), '');
+  // and the whole composition inherits the normalisation
+  assert.deepEqual(compositionFromParts(['Amoxycillin (500mg)', 'Clavulanic Acid (125mg)']), {
+    composition: 'Amoxicillin + Clavulanic Acid', strength: '500 mg + 125 mg',
+  });
+});
+
+test('the same molecule twice in one composition is listed once', () => {
+  assert.equal(compositionFromParts(['Amoxycillin (500mg)', 'Amoxicillin (250mg)']).composition, 'Amoxicillin');
+});
+
+test('a limit stops at N importable rows and is reported', () => {
+  const result = readDrugFile(INMD_CSV, { filename: 'x.csv', limit: 2 });
+  assert.equal(result.rows.length, 2);
+});
+
+test('the CSV reader streams, and gives the same rows as the collected one', () => {
+  const text = 'a,b\n"x, y","he said ""hi"""\n\nlast,field\n';
+  const collected = [];
+  forEachCsvRow(text, (row) => collected.push(row));
+  assert.deepEqual(collected, parseCsv(text));
+  assert.deepEqual(collected, [['a', 'b'], ['x, y', 'he said "hi"'], ['last', 'field']]);
+});
+
+test('the inherited-safety SQL is offered when asked for', () => {
+  const rows = [{ brand_name: 'Pantocid 40', composition: 'Pantoprazole', form: 'Tablet', strength: '40 mg', manufacturer: null, schedule: null, keywords: '', source: 'import' }];
+  assert.doesNotMatch(toInsertSql(rows), /update public\.medicines/);
+  const withInherit = toInsertSql(rows, { inheritClasses: true });
+  assert.match(withInherit, /update public\.medicines m/);
+  assert.match(withInherit, /source = 'formulary'/);
+  // it must never overwrite a class that is already there
+  assert.match(withInherit, /cardinality\(m\.classes\) = 0/);
+});
+
+// --------------------------------------- a 44 MB file is written, not assembled
+
+test('a large import is written in batches, and psql can read it', async () => {
+  const { mkdtemp, readFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'inmd-sql-'));
+  const path = join(dir, 'import.sql');
+
+  const rows = Array.from({ length: 2500 }, (_, i) => ({
+    brand_name: `Brand ${i}`, composition: 'Paracetamol', form: 'Tablet', strength: '500 mg',
+    manufacturer: 'Test Labs', schedule: null, keywords: '', source: 'import',
+  }));
+  const written = await writeInsertSqlFile(rows, path, { batch: 1000 });
+  assert.equal(written, 2500);
+
+  const sql = await readFile(path, 'utf8');
+  const statements = sql.match(/^insert into public\.medicines/gm) ?? [];
+  assert.equal(statements.length, 3, 'one statement per 1,000 rows');
+  assert.match(sql, /on conflict do nothing;/);
+  assert.equal((sql.match(/^  \(/gm) ?? []).length, 2500);
+  assert.doesNotMatch(sql, /INHERIT/i, 'no class inheritance unless it was asked for');
+});
+
+test('--inherit-classes appends the inheritance statement, once', async () => {
+  const { mkdtemp, readFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'inmd-sql-'));
+  const path = join(dir, 'import.sql');
+  const rows = [{ brand_name: 'X 1', composition: 'Paracetamol', form: 'Tablet', strength: '500 mg', manufacturer: '', schedule: null, keywords: '', source: 'import' }];
+
+  await writeInsertSqlFile(rows, path, { batch: 500, inheritClasses: true });
+  const sql = await readFile(path, 'utf8');
+  assert.equal(sql.split(INHERIT_CLASSES_SQL).length - 1, 1);
 });

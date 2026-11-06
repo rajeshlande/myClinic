@@ -3,6 +3,69 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.14.1] — 2026-11-06 · schema 15
+
+**The directory learned to hold a lakh of brands without slowing down — and
+stopped picking the wrong one.** 1.14.0 shipped a typo-tolerant search tested
+against the 59 brands that live inside the app. Then the real thing went in: the
+Indian Medicine Dataset, 253,973 rows, 242,186 importable brands. Every query
+still answered, and two problems appeared that only real data shows.
+
+- **Half a second per keystroke.** The schema 14 function ORs a trigram
+  similarity into its `WHERE` clause, which no index can serve: Postgres read all
+  242,238 rows and scored each one, 435–563 ms per query. Schema 15 splits the
+  term into four index-usable branches — brand prefix, brand contains, first-word
+  fuzzy, first-molecule prefix/fuzzy — and ranks only what the indexes return.
+  Measured on 242,238 rows, warm, p50/p95: `augmentn` 2.1/6.2 ms, `crocn`
+  1.9/2.9 ms, `zerodol sp` 4.0/5.2 ms, `pantocid` 13.0/16.7 ms, `dolo`
+  21.8/26.6 ms, `paracetamol` 42.9/57.0 ms, and the worst term in the set — a
+  three-letter `cef` that legitimately matches 4,831 brands — 58.7/79.5 ms.
+- **The wrong drug won a tie.** For `augmentn`, `Augmentox` ranked above
+  `Augmentin 625`: both share seven trigrams with the query and score exactly the
+  same (Dice 0.737, `pg_trgm` 0.583), and the shorter brand won on alphabetical
+  order. Trigram similarity cannot separate them at any threshold. Keystroke
+  distance can — `augmentn` is one deletion from *Augmentin*, two from
+  *Augmentox* — so `drug_edit_distance()` now breaks the tie in SQL and
+  `editDistance()` breaks it in the browser. One keystroke is worth +0.15, two
+  +0.06, three is another drug.
+- **A prefix is not a typo.** `paracetamol` is 0.25 similar to `para`, under any
+  useful fuzzy threshold, so half-typed molecules get their own indexed branch
+  (`lower(composition) text_pattern_ops`). Three letters, though, is not a
+  molecule: `cef` waits for a fourth character before the molecule branches fire,
+  which is most of why it answers in 59 ms instead of 167 ms.
+- **GIN, not GiST.** The trigram indexes are rebuilt on `lower(brand_name)`,
+  `split_part(lower(brand_name), ' ', 1)` and
+  `split_part(lower(composition), ' + ', 1)`, using `gin_trgm_ops`. On 242k rows
+  a `LIKE '%term%'` went from 10.6 ms (GiST) to 0.20 ms (GIN), and a `%` fuzzy
+  match from 40 ms to 1.2 ms. This table is written by an import job and read by
+  every prescription; GIN is the right trade, and the two GiST indexes from
+  schema 14 are dropped rather than left to cost 62 MB and slow imports down.
+- **The long tail imports in one command.** `--preset inmd` reads the dataset's
+  columns (id, name, price, Is_discontinued, manufacturer_name, type,
+  pack_size_label, short_composition1/2), detects the header rather than trusting
+  it, strips the pack size out of the brand (`Augmentin 625 Duo Tablet` → brand
+  `Augmentin 625 Duo`, form `Tablet`), splits `Amoxycillin (500mg)` into molecule
+  and strength, collapses four pack sizes of one tablet into one row (3,890
+  collapsed from 253,973 rows), skips discontinued products (7,905), and
+  normalises spellings — `Amoxycillin → Amoxicillin`, `Acetaminophen →
+  Paracetamol`, `Pantoprazole Sodium → Pantoprazole` — while leaving `Calcium
+  Carbonate` alone. 253,973 rows → 242,186 insertable in about 5 seconds.
+- **Safety classes ride along.** An imported row lands with `schedule` null and
+  `classes` empty, which would leave the two-NSAID and two-PPI rules, the
+  allergy-by-class check and the H1-register chip silent. `--inherit-classes`
+  copies them from the curated row with the same first molecule and never
+  overwrites an existing class: 98,982 of the imported rows picked up a schedule
+  and a class set from the 59 curated brands.
+- **A 44 MB file is written in batches.** The importer streams inserts 1,000 rows
+  at a time and says plainly that the file is for `psql`, not the SQL editor.
+  Memory stays flat; the first version of this, collecting every row then
+  string-building the file, was killed at 512 MB heap.
+
+Also in this release: the dataset is MIT-licensed and used as a *brand
+dictionary*, not as a formulary — one row per pack, no Schedule H/H1/X, no
+interaction data — so imported rows are `source='import'` and the curated 59 stay
+`source='formulary'`.
+
 ## [1.14.0] — 2026-11-06 · schema 14
 
 **The drug field stops demanding the exact spelling.** A doctor writing twelve
