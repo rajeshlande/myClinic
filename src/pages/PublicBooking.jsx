@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   AlertCircle, ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, Clock, Copy,
@@ -43,6 +43,15 @@ export default function PublicBooking() {
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(null);
   const [refLookup, setRefLookup] = useState('');
+  // One id per page visit: a retried submit is the same device asking again, which
+  // is how the reference is recovered. A different device gets a different id and
+  // therefore learns nothing about this booking.
+  const attemptRef = useRef(null);
+  if (!attemptRef.current) {
+    attemptRef.current = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `00000000-0000-4000-8000-${String(Date.now()).slice(-12).padStart(12, '0')}`;
+  }
 
   const doctors = profile?.doctors ?? [];
   const doctor = doctors.find((d) => d.id === doctorId) ?? doctors[0] ?? null;
@@ -125,7 +134,9 @@ export default function PublicBooking() {
     }
     setSubmitting(true);
     try {
-      const result = await bookingApi.book({ slug, doctorId: doctor.id, iso: dayIso, time, name, phone, reason });
+      const result = await bookingApi.book({
+        slug, doctorId: doctor.id, iso: dayIso, time, name, phone, reason, clientId: attemptRef.current,
+      });
       setConfirmed({ ...result, doctorName: result.doctor ?? doctor.full_name, time });
       setTime(null);
       setBusy(await bookingApi.busy(slug, doctor.id));

@@ -65,10 +65,30 @@ test('every security definer function pins search_path', () => {
 });
 
 test('the five booking RPCs are executable by anon and nothing else is granted to it', () => {
-  const granted = [...sql.matchAll(/grant execute on function public\.(\w+)\([^)]*\) to anon/gi)].map((m) => m[1]);
+  // A set, not a list: schema 17 drops public_book to change its signature and
+  // re-grants it afterwards, so the same function is granted twice by design.
+  const granted = [...new Set(
+    [...sql.matchAll(/grant execute on function public\.(\w+)\([^)]*\) to anon/gi)].map((m) => m[1]),
+  )];
   assert.deepEqual(granted.sort(), [
     'public_book', 'public_booking_busy', 'public_booking_lookup', 'public_cancel_booking', 'public_clinic_profile',
   ]);
+});
+
+test('the booking RPC that took a new argument re-grants itself after the drop', () => {
+  // Dropping a function drops its privileges with it. The migration that replaced
+  // public_book with an 8-argument version has to grant it back, or the public
+  // booking page stops working on the next deploy.
+  const block = sql.slice(sql.indexOf('§17 · THE AUDIT FIXES'));
+  assert.match(block, /drop function if exists public\.public_book\(text, uuid, date, time, text, text, text\)/);
+  assert.match(block, /grant execute on function public\.public_book\(text, uuid, date, time, text, text, text, uuid\) to anon/);
+  assert.match(block, /p_client uuid default null/);
+});
+
+test('the operator licence switch is not granted to the tenant', () => {
+  const block = sql.slice(sql.indexOf('§17 · THE AUDIT FIXES'));
+  assert.match(block, /revoke all on function public\.set_license_status\(uuid, text\) from public, authenticated/);
+  assert.match(block, /grant execute on function public\.set_license_status\(uuid, text\) to service_role/);
 });
 
 test('the booking RPCs are revoked from public before being handed to anon', () => {

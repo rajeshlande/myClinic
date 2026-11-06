@@ -223,6 +223,7 @@ declare
   lic jsonb;
   seat_before integer;
   n integer;
+  status_before text;
 begin
   -- ---------------------------------------------------------------- fixtures
   insert into auth.users (id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, aud, role)
@@ -292,11 +293,18 @@ begin
     raise notice 'PASS: a downgrade below current seat usage is refused';
   end;
 
+  -- Schema 17: a plan change moves the plan and the interval, never the status.
+  -- Before this a tenant could self-activate by "switching plan" with a made-up
+  -- collection reference; the money has to arrive through renew_subscription.
+  select status into status_before from public.clinic_subscriptions where clinic_id = clinic_a;
   lic := public.change_plan(clinic_a, 'chain', 'yearly', '{"email":"billing@a.test","collection_ref":"UPI-1"}'::jsonb);
   reset role;
-  if (lic->>'status') <> 'active' then raise exception 'FAIL: plan change did not activate'; end if;
   if (lic->>'interval') <> 'yearly' then raise exception 'FAIL: interval not stored'; end if;
-  raise notice 'PASS: owner switched to Multi-clinic yearly and it is active';
+  if (lic->>'plan') <> 'chain' then raise exception 'FAIL: plan not stored (got %)', lic->>'plan'; end if;
+  if (lic->>'status') is distinct from status_before then
+    raise exception 'FAIL: a plan change moved the status from % to %', status_before, lic->>'status';
+  end if;
+  raise notice 'PASS: owner switched to Multi-clinic yearly; the interval moved and the status did not';
 
   -- ================================================================ 4. tenant isolation
   perform set_config('request.jwt.claims', json_build_object('sub', owner_b, 'role', 'authenticated', 'email', 'owner-b@license.test')::text, true);
@@ -394,6 +402,8 @@ declare
   res jsonb;
   busy jsonb;
   ref1 text;
+  ref2 text;
+  client1 uuid;
   nm text;
   code text;
   n integer;
@@ -448,20 +458,39 @@ begin
   set local role anon;
 
   -- ======================================================= 3. the same tap twice
-  res := public.public_book('booking-test', doc, d, '10:00', 'Rohit Patel', '9820011223', 'fever');
-  if (res->>'duplicate') <> 'true' or (res->>'ref') <> ref1 then
-    raise exception 'FAIL: sending the same tap twice booked a second appointment' using errcode = 'P0002';
+  -- Schema 17: the reference belongs to the device that booked. The first booking
+  -- above carried no client id, so this retry is a *different* device as far as
+  -- the database is concerned and gets nothing back — which is the point.
+  client1 := gen_random_uuid();
+  res := public.public_book('booking-test', doc, d, '11:15', 'Kabir Rao', '9000000091', 'fever', client1);
+  ref2 := res->>'ref';
+  res := public.public_book('booking-test', doc, d, '11:15', 'Kabir Rao', '9000000091', 'fever', client1);
+  if (res->>'duplicate') <> 'true' or (res->>'ref') <> ref2 then
+    raise exception 'FAIL: a double tap from the booking device lost its reference' using errcode = 'P0002';
   end if;
-  raise notice 'PASS: the same tap twice returns the same reference instead of booking again';
+  raise notice 'PASS: the same tap twice from the booking device returns the same reference';
 
   -- ======================================================= 4. one live booking per phone per day
+  -- A phone number is not a credential: the refusal names neither the slot the
+  -- patient already holds nor the reference that is on it.
   begin
-    perform public.public_book('booking-test', doc, d, '11:00', 'Rohit Patel', '98200 11223', '');
+    perform public.public_book('booking-test', doc, d, '11:00', 'Rohit Patel', '98200 11223', '', gen_random_uuid());
     raise exception 'FAIL: a second live appointment for one phone was accepted' using errcode = 'P0002';
   exception when sqlstate 'P0001' then
-    if sqlerrm <> 'booking:already:10:00' then raise exception 'FAIL: wrong refusal (%), expected booking:already:10:00', sqlerrm; end if;
-    raise notice 'PASS: a second slot for the same phone is refused with the time they already hold';
+    if sqlerrm <> 'booking:already' then
+      raise exception 'FAIL: the refusal leaked detail (%) — expected booking:already', sqlerrm;
+    end if;
+    raise notice 'PASS: a second slot for the same phone is refused with no time and no reference';
   end;
+
+  -- ...and a third party cannot collect the first booking's reference either
+  begin
+    res := public.public_book('booking-test', doc, d, '10:00', 'Mallory', '98200 11223', '', gen_random_uuid());
+    raise exception 'FAIL: a stranger was handed the reference for someone else''s appointment' using errcode = 'P0002';
+  exception when sqlstate 'P0001' then
+    if sqlerrm <> 'booking:already' then raise exception 'FAIL: wrong refusal (%)', sqlerrm; end if;
+  end;
+  raise notice 'PASS: knowing the phone and the slot is not enough to collect the reference';
 
   -- ======================================================= 5. the slot is gone
   begin
@@ -1844,6 +1873,219 @@ begin
   reset role;
 
   raise notice 'ALL INVESTIGATIONS CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE K · THE AUDIT FIXES (schema 17)
+-- =============================================================================
+-- Five findings from the first full security audit run. Each assertion here is
+-- the attack, run again, expected to fail — the booking reference is not handed
+-- to a phone number, a tenant cannot write its own entitlement, the counter
+-- helpers need membership, and a row cannot name another clinic's patient.
+begin;
+
+do $$
+declare
+  clinic_a uuid;
+  clinic_b uuid;
+  doc_a uuid;
+  doc_b uuid;
+  desk_a uuid;
+  desk_user uuid := gen_random_uuid();
+  owner_a uuid := gen_random_uuid();
+  pat_a uuid;
+  pat_b uuid;
+  d date := current_date + 1;
+  res jsonb;
+  ref1 text;
+  n integer;
+  status_after text;
+  refused boolean;
+  client_mine uuid := gen_random_uuid();
+  client_other uuid := gen_random_uuid();
+begin
+  insert into auth.users (id, email)
+    values (owner_a, 'owner-a-' || owner_a || '@example.test'),
+           (desk_user, 'desk-a-' || desk_user || '@example.test')
+    on conflict do nothing;
+  insert into public.clinics (name, slug, phone, address)
+    values ('Audit Clinic A', 'audit-a', '9000000101', 'A address') returning id into clinic_a;
+  insert into public.clinics (name, slug, phone, address)
+    values ('Audit Clinic B', 'audit-b', '9000000102', 'B address') returning id into clinic_b;
+
+  insert into public.staff (clinic_id, user_id, full_name, role, day_start, day_end)
+    values (clinic_a, owner_a, 'Owner A', 'owner', '09:00', '18:00') returning id into doc_a;
+  insert into public.staff (clinic_id, user_id, full_name, role, day_start, day_end)
+    values (clinic_a, desk_user, 'Desk A', 'frontdesk', '09:00', '18:00') returning id into desk_a;
+  insert into public.staff (clinic_id, full_name, role, day_start, day_end)
+    values (clinic_b, 'Owner B', 'owner', '09:00', '18:00') returning id into doc_b;
+
+  insert into public.patients (clinic_id, code, full_name, phone)
+    values (clinic_a, 'PT-00001', 'Patient Alpha', '9820000001') returning id into pat_a;
+  insert into public.patients (clinic_id, code, full_name, phone)
+    values (clinic_b, 'PT-00001', 'Patient Beta', '9820000002') returning id into pat_b;
+
+  -- A subscription row exists the moment a clinic is created; give this fixture
+  -- one so the renewal assertions have something to renew.
+  insert into public.clinic_subscriptions (clinic_id, plan, interval, status, current_period_end)
+    values (clinic_a, 'solo', 'monthly', 'trial', now() + interval '7 days')
+    on conflict (clinic_id) do nothing;
+
+  -- ================================= 1. the booking reference is not a phone lookup
+  set local role anon;
+  res := public.public_book('audit-a', doc_a, d, '10:00', 'Patient Alpha', '9820000001', 'fever', client_mine);
+  ref1 := res->>'ref';
+  if ref1 is null then raise exception 'FAIL: the first booking got no reference' using errcode = 'P0002'; end if;
+
+  -- the same device retries: same reference, flagged duplicate
+  res := public.public_book('audit-a', doc_a, d, '10:00', 'Patient Alpha', '9820000001', 'fever', client_mine);
+  if (res->>'ref') <> ref1 then raise exception 'FAIL: a retry from the booking device lost its reference' using errcode = 'P0002'; end if;
+  if (res->>'duplicate') <> 'true' then raise exception 'FAIL: a retry was not flagged duplicate' using errcode = 'P0002'; end if;
+  raise notice 'PASS: the device that booked can collect its own reference again';
+
+  -- another device, same phone, same slot: refused with no time and no reference
+  begin
+    res := public.public_book('audit-a', doc_a, d, '10:00', 'Mallory', '9820000001', 'fever', client_other);
+    raise exception 'FAIL: a stranger collected a reference with nothing but a phone number' using errcode = 'P0002';
+  exception when others then
+    if sqlerrm <> 'booking:already' then
+      raise exception 'FAIL: the refusal leaked detail (%)', sqlerrm using errcode = 'P0002';
+    end if;
+  end;
+  raise notice 'PASS: the refusal names neither the appointment time nor the reference';
+
+  -- and a third device at a different slot learns nothing either
+  begin
+    res := public.public_book('audit-a', doc_a, d, '11:00', 'Mallory', '9820000001', 'fever', client_other);
+    raise exception 'FAIL: a probe at another slot was answered with detail' using errcode = 'P0002';
+  exception when others then
+    if sqlerrm <> 'booking:already' then
+      raise exception 'FAIL: a nearby slot disclosed the appointment time (%)', sqlerrm using errcode = 'P0002';
+    end if;
+  end;
+  reset role;
+
+  -- ==================================== 2. the tenant cannot mint its own licence
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+
+  -- the operator switch is gone from the tenant's reach
+  begin
+    perform public.set_license_status(clinic_a, 'active');
+    raise exception 'FAIL: a clinic owner still holds the operator switch' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  raise notice 'PASS: set_license_status is not executable by the tenant';
+
+  -- a renewal without a collection reference is refused
+  begin
+    perform public.renew_subscription(clinic_a, '', 12);
+    raise exception 'FAIL: a renewal was accepted with no collection reference' using errcode = 'P0002';
+  exception when invalid_parameter_value then
+    null;
+  end;
+  raise notice 'PASS: a renewal needs a collection reference';
+
+  -- with one, the clinic is active and the claim is written down
+  status_after := public.renew_subscription(clinic_a, 'UPI-UTR-445566', 1) ->> 'status';
+  if status_after <> 'active' then
+    raise exception 'FAIL: a paid renewal left the clinic at %', status_after using errcode = 'P0002';
+  end if;
+  select count(*) into n from public.license_events where clinic_id = clinic_a and kind = 'renew';
+  if n <> 1 then raise exception 'FAIL: the renewal was not logged (% rows)', n using errcode = 'P0002'; end if;
+  raise notice 'PASS: a renewal with a reference activates the clinic and logs the claim';
+
+  -- the term is capped at a year
+  begin
+    perform public.renew_subscription(clinic_a, 'UPI-UTR-445567', 36);
+    raise exception 'FAIL: a 36-month self-renewal was accepted' using errcode = 'P0002';
+  exception when invalid_parameter_value then
+    null;
+  end;
+  raise notice 'PASS: a self-renewal is capped at twelve months';
+
+  -- changing plan does not buy time
+  status_after := public.change_plan(clinic_a, 'solo', 'monthly', '{}'::jsonb) ->> 'status';
+  if status_after <> 'active' then
+    raise exception 'FAIL: change_plan moved the status to %', status_after using errcode = 'P0002';
+  end if;
+  update public.clinic_subscriptions set status = 'read_only' where clinic_id = clinic_a;
+  status_after := public.change_plan(clinic_a, 'growth', 'monthly', '{}'::jsonb) ->> 'status';
+  if status_after <> 'read_only' then
+    raise exception 'FAIL: change_plan reactivated a lapsed clinic (%)', status_after using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: changing plan leaves the entitlement alone';
+
+  -- Put the clinic back to a paying state: the read-only guard below would block
+  -- every write in the rest of this suite, which is not what is under test here.
+  reset role;
+  update public.clinic_subscriptions
+     set status = 'active', current_period_end = now() + interval '30 days'
+   where clinic_id = clinic_a;
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+
+  -- a trial is a one-time thing
+  begin
+    perform public.start_trial(clinic_a);
+    raise exception 'FAIL: the trial was restarted after expiry' using errcode = 'P0002';
+  exception when sqlstate '53400' then
+    null;
+  end;
+  raise notice 'PASS: a trial cannot be restarted';
+
+  reset role;
+
+  -- ============================ 3. counters need membership; writes need a clinic
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.next_token_no(doc_b, current_date);
+    raise exception 'FAIL: another clinic''s token counter was readable' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    perform public.next_invoice_number(clinic_b, 'LEAK');
+    raise exception 'FAIL: another clinic''s invoice counter was readable' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  raise notice 'PASS: both counter helpers refuse a caller from another clinic';
+
+  -- ...and the same helper from a member of A (front desk, not the owner) works
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', desk_user, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from public.patients where clinic_id = clinic_a and id = pat_a;
+  if n <> 1 then raise exception 'FAIL: a member lost access to its own clinic' using errcode = 'P0002'; end if;
+  n := public.next_token_no(doc_a, current_date);
+  if n < 1 then raise exception 'FAIL: a member cannot allocate a token in its own clinic' using errcode = 'P0002'; end if;
+  raise notice 'PASS: a member of the clinic still sees its own rows and its own counters';
+
+  -- a row cannot name another clinic's patient
+  refused := false;
+  begin
+    insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source)
+      values (clinic_a, pat_b, doc_a, current_date, '16:30', 'walk-in');
+  exception when insufficient_privilege then
+    refused := true;
+  end;
+  if not refused then
+    raise exception 'FAIL: an appointment was stored against another clinic''s patient' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a cross-clinic patient reference is refused';
+
+  -- the same insert with A's own patient is fine
+  insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source)
+    values (clinic_a, pat_a, doc_a, current_date, '16:45', 'walk-in');
+  raise notice 'PASS: the same insert with a same-clinic patient succeeds';
+  reset role;
+
+  raise notice 'ALL AUDIT FIX CHECKS COMPLETED';
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run

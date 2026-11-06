@@ -12,7 +12,7 @@ import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
 import { TRIAL_DAYS } from './license.mjs';
 import {
-  TABLES, mergeFields, readCache, writeCache, clearAllCache, readOutbox, writeOutbox, enqueue,
+  TABLES, mergeFields, readCache, writeCache, clearAllCache, purgeExpiredCache, readOutbox, writeOutbox, enqueue,
   newClientId, replayOutbox, readSyncMeta, writeSyncMeta, unknownColumn,
 } from './offline.js';
 
@@ -85,6 +85,10 @@ export function StoreProvider({ children, session }) {
   const userId = session?.user?.id ?? null;
 
   /* ------------------------------------------------------------------ demo mode */
+  // Clinical data left behind by a previous session is removed before anything
+  // reads the cache: the TTL is a storage rule, not only a read rule.
+  useEffect(() => { purgeExpiredCache(); }, []);
+
   const bootDemo = useCallback(() => {
     const cached = readDemo();
     const next = cached ?? makeDemoWorkspace();

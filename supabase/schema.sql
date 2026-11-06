@@ -3291,4 +3291,490 @@ begin
    where schema_version < 16;
 end $migration$;
 
+-- =============================================================================
+-- §17 · THE AUDIT FIXES                              migration 17 · app v1.19.1
+--
+-- Five findings from the first full security audit run (see
+-- `security-audit-skill/myclinic/run-1/`), fixed where they belong — in the
+-- database, at the last trusted decision point.
+--
+--   1. The public booking reference was obtainable with nothing but a phone
+--      number: public_book() handed the existing booking's reference (and its
+--      time, in an error message) to whoever named that number and guessed the
+--      slot. The reference cancels the appointment, so that was an
+--      unauthenticated takeover. Now a booking's reference is returned only to
+--      the device that created it (a client id it supplies and we store), and
+--      everyone else learns only that a booking exists.
+--
+--   2. The tenant could write its own entitlement: change_plan() switched a
+--      clinic to 'active', renew_subscription() extended it for 36 months with
+--      an empty reference, set_license_status() was the operator's switch handed
+--      to the customer, and start_trial() could be restarted after expiry. There
+--      is now one door — renew_subscription() with a reference it records — and
+--      the operator switch is service_role only.
+--
+--   3. Two sequence helpers were security definer with no membership check, so
+--      any signed-in user could read another clinic's token and invoice counters.
+--
+--   4. A row could name another clinic's patient: the write policies checked the
+--      row's clinic and never the patient's. Same-clinic is now a condition of
+--      the insert.
+--
+-- Additive and idempotent: functions are replaced, four policies are replaced,
+-- one table is added, and a database already at 17 skips the block.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 17 then
+    raise notice 'schema 17 (audit fixes) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 17 (booking reference, entitlement, counters, cross-clinic writes)';
+
+  -- ------------------------------------------------------- 1. the booking reference
+  -- A new signature (p_client), so the old one has to go; grants are re-issued
+  -- below because dropping a function drops its privileges with it.
+  execute $q$drop function if exists public.public_book(text, uuid, date, time, text, text, text)$q$;
+
+  execute $q$
+  create or replace function public.public_book(
+    p_slug text,
+    p_doctor uuid,
+    p_date date,
+    p_time time,
+    p_name text,
+    p_phone text,
+    p_reason text default '',
+    p_client uuid default null)
+  returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare
+    alphabet constant text := 'ACDEFGHJKLMNPQRTUVWXY2346789';
+    c public.clinics;
+    d public.staff;
+    pat public.patients;
+    appt public.appointments;
+    existing public.appointments;
+    digits text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+    clean_name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
+    ref text := 'BK-';
+    patient_code text;
+    seq bigint;
+    i integer;
+    recent integer;
+    v_hours jsonb;
+    v_shut text;
+  begin
+    select * into c from public.clinics where slug = lower(btrim(p_slug));
+    if not found or not c.booking_enabled then
+      raise exception 'booking:closed' using errcode = 'P0001';
+    end if;
+
+    select * into d from public.staff
+     where id = p_doctor and clinic_id = c.id and active and role in ('owner', 'doctor');
+    if not found then
+      raise exception 'booking:doctor' using errcode = 'P0001';
+    end if;
+
+    if char_length(clean_name) < 2 or char_length(clean_name) > 80 then
+      raise exception 'booking:name' using errcode = 'P0001';
+    end if;
+    if char_length(digits) not in (10, 11, 12) then
+      raise exception 'booking:phone' using errcode = 'P0001';
+    end if;
+    if p_date < current_date or p_date > current_date + c.booking_horizon_days then
+      raise exception 'booking:date' using errcode = 'P0001';
+    end if;
+
+    v_shut := public.closed_on(c.closed_weekdays, c.closed_dates, p_date);
+    if v_shut is not null then
+      raise exception 'booking:dayoff' using errcode = 'P0001';
+    end if;
+    v_shut := public.closed_on(d.closed_weekdays, d.closed_dates, p_date);
+    if v_shut is not null then
+      raise exception 'booking:leave' using errcode = 'P0001';
+    end if;
+
+    v_hours := public.sessions_or(d.sessions, d.day_start, d.day_end);
+    if not public.sessions_has_slot(v_hours, p_time, d.slot_minutes) then
+      raise exception 'booking:slot' using errcode = 'P0001';
+    end if;
+    if p_date = current_date and p_time < localtime + interval '30 minutes' then
+      raise exception 'booking:past' using errcode = 'P0001';
+    end if;
+
+    perform pg_advisory_xact_lock(hashtextextended(d.id::text || ':' || p_date::text, 0));
+
+    -- Already booked with this doctor that day? The device that made the booking
+    -- may collect its reference again (a retried submit); anyone else learns only
+    -- that a booking exists — no time, no reference. Handing the reference to a
+    -- caller who merely knows the phone number made the phone a credential.
+    select a.* into existing
+      from public.appointments a
+      join public.patients p on p.id = a.patient_id
+     where a.doctor_id = d.id and a.scheduled_on = p_date and a.status = 'booked'
+       and p.clinic_id = c.id and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+     order by a.scheduled_at
+     limit 1;
+    if found then
+      if p_client is not null
+         and existing.client_id is not null
+         and existing.client_id = p_client
+         and existing.booking_ref is not null then
+        return jsonb_build_object(
+          'ref', existing.booking_ref, 'iso', existing.scheduled_on,
+          'at', to_char(existing.scheduled_at, 'HH24:MI'),
+          'doctor', d.full_name, 'clinic', c.name,
+          'minutes', existing.duration_minutes, 'duplicate', true);
+      end if;
+      raise exception 'booking:already' using errcode = 'P0001';
+    end if;
+
+    -- Flood guards: a phone gets three online bookings a day, a clinic forty an
+    -- hour. Both are far above real use and cheap enough to count.
+    select count(*) into recent
+      from public.appointments a
+      join public.patients p on p.id = a.patient_id
+     where p.clinic_id = c.id and a.source = 'online'
+       and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+       and a.created_at::date = current_date;
+    if recent >= 3 then
+      raise exception 'booking:toomany' using errcode = 'P0001';
+    end if;
+
+    select count(*) into recent
+      from public.appointments a
+     where a.clinic_id = c.id and a.source = 'online'
+       and a.created_at > now() - interval '1 hour';
+    if recent >= 40 then
+      raise exception 'booking:busy' using errcode = 'P0001';
+    end if;
+
+    if exists (select 1 from public.appointments a
+                where a.doctor_id = d.id and a.scheduled_on = p_date
+                  and a.status <> 'cancelled'
+                  and a.scheduled_at < p_time + make_interval(mins => d.slot_minutes)
+                  and a.scheduled_at + make_interval(mins => a.duration_minutes) > p_time) then
+      raise exception 'booking:slot_taken' using errcode = 'P0001';
+    end if;
+
+    perform pg_advisory_xact_lock(hashtextextended('patient:' || c.id::text, 0));
+    select * into pat from public.patients p
+     where p.clinic_id = c.id and regexp_replace(p.phone, '[^0-9]', '', 'g') = digits
+     order by p.created_at
+     limit 1;
+
+    if not found then
+      select coalesce(max(nullif(regexp_replace(p.code, '[^0-9]', '', 'g'), '')::bigint), 0) + 1
+        into seq
+        from public.patients p
+       where p.clinic_id = c.id and p.code ~ '^PT-[0-9]+$';
+      patient_code := 'PT-' || lpad(coalesce(seq, 1)::text, 5, '0');
+      insert into public.patients (clinic_id, code, full_name, phone, notes)
+      values (c.id, patient_code, clean_name, btrim(p_phone), 'Registered from the online booking page.')
+      returning * into pat;
+    end if;
+
+    for i in 1..6 loop
+      ref := ref || substr(alphabet, 1 + floor(random() * char_length(alphabet))::int, 1);
+    end loop;
+
+    begin
+      insert into public.appointments
+        (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, duration_minutes,
+         kind, status, reason, source, booking_ref, client_id)
+      values
+        (c.id, pat.id, d.id, p_date, p_time, d.slot_minutes,
+         'New consultation', 'booked', left(coalesce(p_reason, ''), 120), 'online', ref, p_client)
+      returning * into appt;
+    exception when unique_violation then
+      raise exception 'booking:slot_taken' using errcode = 'P0001';
+    end;
+
+    return jsonb_build_object(
+      'ref', appt.booking_ref, 'iso', appt.scheduled_on,
+      'at', to_char(appt.scheduled_at, 'HH24:MI'),
+      'doctor', d.full_name, 'clinic', c.name,
+      'minutes', appt.duration_minutes, 'duplicate', false);
+  end $fn$
+  $q$;
+
+  execute $q$revoke all on function public.public_book(text, uuid, date, time, text, text, text, uuid) from public$q$;
+  execute $q$grant execute on function public.public_book(text, uuid, date, time, text, text, text, uuid) to anon, authenticated$q$;
+
+  -- The reference is a credential, so the lookup that spends it should at least
+  -- not be free to hammer: one clinic-scoped booking per reference, no sets.
+  execute $q$
+  comment on column public.appointments.client_id is
+    'Offline-generated id. For an online booking it is also the proof that the caller is the device that made it.'
+  $q$;
+
+  -- --------------------------------------------- 2. counters need a membership
+  execute $q$
+  create or replace function public.next_token_no(p_doctor uuid, p_on date default current_date)
+  returns integer language plpgsql stable security definer set search_path = public as $fn$
+  declare v_clinic uuid;
+  begin
+    select clinic_id into v_clinic from public.staff where id = p_doctor;
+    if v_clinic is null or not public.is_clinic_staff(v_clinic) then
+      raise exception 'not a member of this clinic' using errcode = '42501';
+    end if;
+    return (select coalesce(max(token_no), 0) + 1 from public.appointments
+             where doctor_id = p_doctor and scheduled_on = p_on);
+  end $fn$
+  $q$;
+
+  execute $q$
+  create or replace function public.next_invoice_number(p_clinic uuid, p_prefix text)
+  returns text language plpgsql stable security definer set search_path = public as $fn$
+  declare n bigint;
+  begin
+    if not public.has_role(p_clinic, array['owner','doctor','frontdesk']) then
+      raise exception 'not a member of this clinic' using errcode = '42501';
+    end if;
+    select count(*) + 1 into n from public.invoices where clinic_id = p_clinic;
+    return p_prefix || '/2526/' || lpad(n::text, 4, '0');
+  end $fn$
+  $q$;
+
+  -- --------------------------------------- 3. a row's patient is in the row's clinic
+  execute $q$drop policy if exists appointments_write on public.appointments$q$;
+  execute $q$
+  create policy appointments_write on public.appointments for insert to authenticated
+    with check (
+      public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = appointments.clinic_id)
+      and exists (select 1 from public.staff sd
+                   where sd.id = doctor_id and sd.clinic_id = appointments.clinic_id)
+    )
+  $q$;
+
+  execute $q$drop policy if exists consultations_write on public.consultations$q$;
+  execute $q$
+  create policy consultations_write on public.consultations for insert to authenticated
+    with check (
+      public.has_role(clinic_id, array['owner','doctor'])
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = consultations.clinic_id)
+      and exists (select 1 from public.staff sd
+                   where sd.id = doctor_id and sd.clinic_id = consultations.clinic_id)
+    )
+  $q$;
+
+  execute $q$drop policy if exists invoices_write on public.invoices$q$;
+  execute $q$
+  create policy invoices_write on public.invoices for insert to authenticated
+    with check (
+      public.has_role(clinic_id, array['owner','frontdesk'])
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = invoices.clinic_id)
+      and (doctor_id is null or exists (select 1 from public.staff sd
+                                         where sd.id = doctor_id and sd.clinic_id = invoices.clinic_id))
+    )
+  $q$;
+
+  -- The update policies get the same treatment: re-pointing a row at another
+  -- clinic's patient is the same defect with an extra step.
+  execute $q$drop policy if exists appointments_update on public.appointments$q$;
+  execute $q$
+  create policy appointments_update on public.appointments for update to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor','frontdesk']))
+    with check (
+      public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = appointments.clinic_id)
+    )
+  $q$;
+
+  execute $q$drop policy if exists consultations_update on public.consultations$q$;
+  execute $q$
+  create policy consultations_update on public.consultations for update to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor']))
+    with check (
+      public.has_role(clinic_id, array['owner','doctor'])
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = consultations.clinic_id)
+    )
+  $q$;
+
+  -- ------------------------------------------------- 4. one door to a paid state
+  -- The collection log: who claimed a payment, for what reference, for how long.
+  -- The operator reconciles it against the bank and can revert; the tenant can
+  -- read its own rows and write none.
+  execute $q$
+  create table if not exists public.license_events (
+    id uuid primary key default gen_random_uuid(),
+    clinic_id uuid not null references public.clinics(id) on delete cascade,
+    actor uuid references auth.users(id) on delete set null,
+    kind text not null check (kind in ('renew','plan','trial','status')),
+    plan text not null default '',
+    months integer,
+    reference text not null default '' check (char_length(reference) <= 120),
+    amount_paise bigint,
+    note text not null default '' check (char_length(note) <= 400),
+    created_at timestamptz not null default now()
+  )
+  $q$;
+  execute $q$create index if not exists license_events_clinic_idx on public.license_events(clinic_id, created_at desc)$q$;
+  execute $q$alter table public.license_events enable row level security$q$;
+  execute $q$drop policy if exists license_events_read on public.license_events$q$;
+  execute $q$
+  create policy license_events_read on public.license_events for select to authenticated
+    using (public.is_clinic_owner(clinic_id))
+  $q$;
+
+  -- The operator switch is not the customer's to flip.
+  execute $q$revoke all on function public.set_license_status(uuid, text) from public, authenticated$q$;
+  execute $q$grant execute on function public.set_license_status(uuid, text) to service_role$q$;
+
+  -- A plan change is a plan change, not a payment. It updates what is being sold
+  -- and when it renews, and leaves the entitlement exactly as it was.
+  execute $q$
+  create or replace function public.change_plan(
+    p_clinic uuid,
+    p_plan text,
+    p_interval text default 'monthly',
+    p_billing jsonb default '{}'::jsonb
+  ) returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare
+    v_doctors integer;
+    v_frontdesk integer;
+    v_limit integer;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can change the subscription' using errcode = '42501';
+    end if;
+    if p_plan not in ('solo','growth','chain') then
+      raise exception 'unknown plan %', p_plan using errcode = '22023';
+    end if;
+    if p_interval not in ('monthly','yearly') then
+      raise exception 'interval must be monthly or yearly' using errcode = '22023';
+    end if;
+
+    select count(*) filter (where role in ('owner','doctor')), count(*) filter (where role = 'frontdesk')
+      into v_doctors, v_frontdesk from public.staff where clinic_id = p_clinic and active;
+
+    v_limit := public.plan_seat_limit(p_plan, 'doctors');
+    if v_limit is not null and v_doctors > v_limit then
+      raise exception 'this clinic has % doctors; the % plan allows %', v_doctors, p_plan, v_limit
+        using errcode = '53400';
+    end if;
+    v_limit := public.plan_seat_limit(p_plan, 'frontdesk');
+    if v_limit is not null and v_frontdesk > v_limit then
+      raise exception 'this clinic has % front-desk seats; the % plan allows %', v_frontdesk, p_plan, v_limit
+        using errcode = '53400';
+    end if;
+
+    -- A clinic that has no subscription row yet (created before licensing) gets
+    -- one from license_state's own defaults, and keeps whatever status that is.
+    insert into public.clinic_subscriptions (clinic_id) values (p_clinic)
+    on conflict (clinic_id) do nothing;
+
+    update public.clinic_subscriptions s set
+      plan = p_plan,
+      interval = p_interval,
+      billing_name  = coalesce(nullif(p_billing->>'name',''),  s.billing_name),
+      billing_email = coalesce(nullif(p_billing->>'email',''), s.billing_email),
+      billing_phone = coalesce(nullif(p_billing->>'phone',''), s.billing_phone),
+      billing_gstin = coalesce(nullif(p_billing->>'gstin',''), s.billing_gstin),
+      collection_ref = coalesce(nullif(p_billing->>'collection_ref',''), s.collection_ref),
+      notes = coalesce(nullif(p_billing->>'notes',''), s.notes)
+    where s.clinic_id = p_clinic;
+
+    insert into public.license_events (clinic_id, actor, kind, plan, note)
+    values (p_clinic, auth.uid(), 'plan', p_plan, coalesce(p_billing->>'notes',''));
+
+    return public.license_state(p_clinic);
+  end $fn$
+  $q$;
+
+  -- Renewal is the one door: a collection reference is required, the term is
+  -- capped at a year, and the claim is written down where the operator can see
+  -- it. A clinic that has not paid cannot move itself into a paid state.
+  execute $q$
+  create or replace function public.renew_subscription(
+    p_clinic uuid,
+    p_reference text default '',
+    p_months integer default null
+  ) returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare s public.clinic_subscriptions; v_from timestamptz; v_add interval; v_months integer;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can change the subscription' using errcode = '42501';
+    end if;
+    if char_length(btrim(coalesce(p_reference, ''))) < 4 then
+      raise exception 'a collection reference is required (UPI UTR, receipt number or bank reference)'
+        using errcode = '22023';
+    end if;
+
+    select * into s from public.clinic_subscriptions where clinic_id = p_clinic;
+    if not found then raise exception 'no subscription for this clinic' using errcode = '02000'; end if;
+
+    v_months := coalesce(p_months, case when s.interval = 'yearly' then 12 else 1 end);
+    if v_months < 1 or v_months > 12 then
+      raise exception 'months must be between 1 and 12' using errcode = '22023';
+    end if;
+
+    v_from := greatest(coalesce(s.current_period_end, now()), now());
+    v_add := make_interval(months => v_months);
+
+    update public.clinic_subscriptions
+       set status = 'active',
+           current_period_start = coalesce(current_period_start, now()),
+           current_period_end = v_from + v_add,
+           collection_ref = btrim(p_reference)
+     where clinic_id = p_clinic;
+
+    insert into public.license_events (clinic_id, actor, kind, plan, months, reference)
+    values (p_clinic, auth.uid(), 'renew', s.plan, v_months, btrim(p_reference));
+
+    return public.license_state(p_clinic);
+  end $fn$
+  $q$;
+
+  -- A free trial is a one-time thing. It used to be restartable the moment the
+  -- old one lapsed, which made the trial a permanent free plan.
+  execute $q$
+  create or replace function public.start_trial(p_clinic uuid)
+  returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare s public.clinic_subscriptions;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can change the subscription' using errcode = '42501';
+    end if;
+
+    select * into s from public.clinic_subscriptions where clinic_id = p_clinic;
+
+    if found and s.status = 'trial' and s.trial_ends_at > now() then
+      return public.license_state(p_clinic);          -- already running: idempotent
+    end if;
+    if found and s.trial_started_at is not null then
+      raise exception 'a trial has already been used for this clinic' using errcode = '53400';
+    end if;
+
+    insert into public.clinic_subscriptions (clinic_id, plan, status, trial_started_at, trial_ends_at)
+    values (p_clinic, 'growth', 'trial', now(), now() + interval '14 days')
+    on conflict (clinic_id) do update
+      set plan = 'growth', status = 'trial',
+          trial_started_at = coalesce(public.clinic_subscriptions.trial_started_at, now()),
+          trial_ends_at = now() + interval '14 days';
+
+    insert into public.license_events (clinic_id, actor, kind, plan, months)
+    values (p_clinic, auth.uid(), 'trial', 'growth', 0);
+
+    return public.license_state(p_clinic);
+  end $fn$
+  $q$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (17, 'audit-1-fixes', '1.19.1',
+          'booking reference only for the device that made it; one door to a paid state with a collection log; membership checks on the counter helpers; same-clinic patient on every clinical write')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 17, applied_at = now(),
+         notes = 'audit run 1 fixes: booking reference disclosure, entitlement self-grant, counter helpers, cross-clinic writes'
+   where schema_version < 17;
+end $migration$;
+
 commit;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BOOKING_HORIZON_DAYS, availabilityByDay, bookingApi, bookingDays, bookingErrorMessage, bookingUrl,
+  BOOKING_ERRORS, BOOKING_HORIZON_DAYS, availabilityByDay, bookingApi, bookingDays, bookingErrorMessage, bookingUrl,
   cleanRef, dayLabel, firstOpenDay, groupedSlots, isBookingRef, leadSourceMix, makeBookingRef,
   manageUrl, normalizePhone, slotLabel, slotsForDay, validateBooking,
 } from '../src/lib/public-booking.mjs';
@@ -260,7 +260,12 @@ test('the public links point at the hash router, not the app shell', () => {
 
 test('the database’s refusal tokens become sentences a patient can act on', () => {
   assert.equal(bookingErrorMessage('booking:slot_taken'), 'That slot was taken a moment ago.');
-  assert.equal(bookingErrorMessage('booking:already:16:30'), 'You already have an appointment that day at 16:30.');
+  // Schema 17 answers `booking:already` with no time. An older database still
+  // sends `booking:already:16:30`, and that time is somebody else's appointment —
+  // so the sentence is the same either way and the detail is dropped.
+  assert.equal(bookingErrorMessage('booking:already'), BOOKING_ERRORS.already);
+  assert.equal(bookingErrorMessage('booking:already:16:30'), BOOKING_ERRORS.already);
+  assert.doesNotMatch(bookingErrorMessage('booking:already:16:30'), /16:30/);
   assert.match(bookingErrorMessage('booking:toomany'), /Three online bookings/);
   assert.match(bookingErrorMessage('booking:phone'), /10-digit/);
   // schema 12 emits these two when the clinic or the doctor is closed that day;
@@ -345,11 +350,22 @@ test('a second tap on the same slot returns the reference already issued', async
   const free = bookingDays({ count: 3 })
     .flatMap((d) => slotsForDay({ doctor, iso: d.iso, busy }).map((s) => ({ iso: d.iso, ...s })))
     .find((s) => s.free);
-  const payload = { slug: profile.clinic.slug, doctorId: doctor.id, iso: free.iso, time: free.time, name: 'Meera Iyer', phone: '9820011233' };
+  const device = 'cccccccc-5555-4555-8555-000000000003';
+  const payload = {
+    slug: profile.clinic.slug, doctorId: doctor.id, iso: free.iso, time: free.time,
+    name: 'Meera Iyer', phone: '9820011233', clientId: device,
+  };
   const first = await bookingApi.book(payload);
   const second = await bookingApi.book(payload);
   assert.equal(second.ref, first.ref);
   assert.equal(second.duplicate, true);
+
+  // A second tap from a device that is not the one that booked is refused — the
+  // phone number alone no longer opens the reference (schema 17).
+  await assert.rejects(
+    () => bookingApi.book({ ...payload, clientId: 'dddddddd-6666-4666-8666-000000000004' }),
+    /already an appointment/,
+  );
 });
 
 test('the same patient cannot book two times with one doctor on one day', async () => {
@@ -366,7 +382,7 @@ test('the same patient cannot book two times with one doctor on one day', async 
   if (free[0].iso === free[1].iso) {
     await assert.rejects(
       () => bookingApi.book({ ...base, iso: free[1].iso, time: free[1].time }),
-      /already have an appointment/,
+      /already an appointment for this number/,
     );
   }
 });
@@ -418,4 +434,52 @@ test('a clinic that has closed online booking answers with its phone number only
   assert.deepEqual(profile.doctors, []);
   assert.ok(profile.clinic.phone);
   assert.equal(profile.clinic.booking_note, undefined);
+});
+
+/* ------------------------------------------- schema 17: the reference is not a phone */
+
+test('a phone number is not a credential: the "already booked" refusal names no time and no reference', () => {
+  // The database used to answer `booking:already:16:30` — the victim's slot — and
+  // hand the booking reference to whoever supplied the phone and the time.
+  const neutral = bookingErrorMessage('booking:already');
+  assert.match(neutral, /already an appointment for this number/i);
+  assert.doesNotMatch(neutral, /\d{1,2}:\d{2}/, 'no appointment time in the refusal');
+
+  // An older database still sends the time. It must not reach the screen either.
+  const legacy = bookingErrorMessage('booking:already:16:30');
+  assert.equal(legacy, neutral);
+  assert.doesNotMatch(legacy, /\d{1,2}:\d{2}/);
+});
+
+test('the device that booked can collect its reference again; another device learns nothing', async () => {
+  const profile = await demoClinic();
+  const doctor = profile.doctors[0];
+  const busy = await bookingApi.busy(profile.clinic.slug, doctor.id);
+  const free = bookingDays({ count: 3 })
+    .flatMap((d) => slotsForDay({ doctor, iso: d.iso, busy }).map((s) => ({ iso: d.iso, ...s })))
+    .find((s) => s.free);
+  assert.ok(free, 'expected a free slot in the demo diary');
+
+  const payload = {
+    slug: profile.clinic.slug, doctorId: doctor.id, iso: free.iso, time: free.time,
+    name: 'Anita Rao', phone: '98333 22110', reason: 'Cough',
+  };
+  const mine = 'aaaaaaaa-3333-4333-8333-000000000001';
+  const first = await bookingApi.book({ ...payload, clientId: mine });
+  assert.match(first.ref, /^BK-/);
+
+  // the same device retries (a double tap, or a flaky connection) — same reference
+  const retry = await bookingApi.book({ ...payload, clientId: mine });
+  assert.equal(retry.ref, first.ref);
+  assert.equal(retry.duplicate, true);
+
+  // a different device with the same phone number and the same slot gets nothing
+  await assert.rejects(
+    () => bookingApi.book({ ...payload, clientId: 'bbbbbbbb-4444-4444-8444-000000000002' }),
+    (error) => {
+      assert.equal(error.code, 'already-booked');
+      assert.doesNotMatch(error.message, /16:30|BK-/);
+      return true;
+    },
+  );
 });

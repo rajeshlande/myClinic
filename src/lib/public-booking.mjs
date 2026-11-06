@@ -294,7 +294,7 @@ function demoBusy(slug, doctorId) {
     .map((a) => ({ iso: a.scheduled_on, at: a.scheduled_at, minutes: a.duration_minutes ?? 15 }));
 }
 
-function demoBook({ slug, doctorId, iso, time, name, phone, reason }) {
+function demoBook({ slug, doctorId, iso, time, name, phone, reason, clientId }) {
   const ws = readDemoWorkspace();
   if (!ws.clinic || ws.clinic.slug !== slug) throw new Error('This clinic is not taking online bookings.');
   if (ws.clinic.booking_enabled === false) throw new Error('This clinic is not taking online bookings.');
@@ -319,13 +319,17 @@ function demoBook({ slug, doctorId, iso, time, name, phone, reason }) {
       && a.scheduled_on === iso && a.status === 'booked'
       && a.patient_id === patientByPhone.id);
     if (sameDay) {
-      if (String(sameDay.scheduled_at).slice(0, 5) === time && sameDay.booking_ref) {
+      // Only the device that made the booking may collect the reference again
+      // (schema 17). Anyone else is told that a booking exists and nothing more —
+      // the phone number reaches the same row, so it must not become a credential.
+      const sameDevice = Boolean(clientId) && sameDay.client_id === clientId;
+      if (sameDevice && String(sameDay.scheduled_at).slice(0, 5) === time && sameDay.booking_ref) {
         return {
           ref: sameDay.booking_ref, iso, at: String(sameDay.scheduled_at).slice(0, 5),
           doctor: doctor.full_name, clinic: ws.clinic.name, minutes, duplicate: true,
         };
       }
-      const e = new Error(`You already have an appointment with ${doctor.full_name} that day at ${slotLabel(String(sameDay.scheduled_at).slice(0, 5))}.`);
+      const e = new Error(bookingErrorMessage('booking:already'));
       e.code = 'already-booked';
       throw e;
     }
@@ -392,6 +396,9 @@ function demoBook({ slug, doctorId, iso, time, name, phone, reason }) {
     notes: '',
     source: 'online',
     booking_ref: ref,
+    // Proof that this device made this booking, so a retried submit can collect
+    // the reference again without the phone number becoming a credential.
+    client_id: clientId ?? null,
     created_at: new Date().toISOString(),
   };
   ws.appointments = [...(ws.appointments ?? []), appointment];
@@ -500,6 +507,10 @@ export const bookingApi = {
       p_name: payload.name,
       p_phone: payload.phone,
       p_reason: payload.reason ?? '',
+      // Schema 17: the reference comes back only to the device that created the
+      // booking. A phone number is not an identity, so the database will no
+      // longer hand the reference (or the appointment time) to whoever names one.
+      p_client: payload.clientId ?? null,
     });
     if (error) throw bookingError(error);
     return data;
@@ -556,6 +567,7 @@ export const BOOKING_ERRORS = {
   toomany: 'Three online bookings from this number today — call the clinic for more.',
   busy: 'The booking page is busy right now. Try again in a minute, or call the clinic.',
   slot_taken: 'That slot was taken a moment ago.',
+  already: 'There is already an appointment for this number with that doctor that day. Call the clinic if you need its reference.',
   dayoff: 'The clinic is closed that day — pick another date.',
   leave: 'That doctor is away that day — pick another date, or another doctor.',
 };
@@ -565,7 +577,10 @@ export function bookingErrorMessage(message) {
   const match = /booking:([a-z_]+)(?::(.+))?/.exec(raw);
   if (!match) return raw || 'Could not book that slot.';
   const [, token, detail] = match;
-  if (token === 'already') return `You already have an appointment that day at ${detail}.`;
+  // `already` arrives without a time in schema 17. An older database still sends
+  // `booking:already:16:30`; the detail is dropped on the floor rather than shown,
+  // because it described somebody else's appointment.
+  if (token === 'already') return BOOKING_ERRORS.already;
   return BOOKING_ERRORS[token] ?? 'Could not book that slot.';
 }
 

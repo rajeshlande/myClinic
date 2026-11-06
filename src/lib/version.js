@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.19.0';
-export const SCHEMA_VERSION = 16;
+export const APP_VERSION = '1.19.1';
+export const SCHEMA_VERSION = 17;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,16 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.19.1', date: '2026-11-06', schema: 17,
+    highlights: [
+      'The booking reference is no longer a phone lookup. A stranger who typed a patient’s phone number and a slot used to be answered with `booking:already:16:30` — the time of somebody else’s appointment — and could collect that appointment’s reference and cancel it. The refusal is now the same sentence whatever the number and whatever the slot, carries no time and no reference, and the reference is only handed back to the device that booked (a random id kept for that visit, sent as `p_client`).',
+      'Signing out now clears the offline copy of the clinic. Patients, consultations and invoices are cached in localStorage so the app works without a network; the cache was scoped to the device but not to the session, so the next person to open the browser on a shared front-desk machine could still read the previous user’s patients from the cache. Sign-out clears every cached workspace and outbox, and expired snapshots are deleted at boot instead of waiting for the same clinic to be opened again.',
+      'A tenant can no longer write its own licence. `set_license_status` is now `service_role` only; `change_plan` moves the plan and the interval but not the status; `renew_subscription` needs a collection reference of four characters or more, caps a self-renewal at twelve months and records what was claimed in a new `license_events` table; and `start_trial` refuses a second trial for the same clinic.',
+      'Two helpers stopped answering questions about other clinics: `next_token_no` and `next_invoice_number` now assert membership of the clinic they are asked about, instead of counting rows and returning the next number to any signed-in user who passed a doctor or clinic id.',
+      'A row can no longer name another clinic’s patient. The write policies on appointments, consultations and invoices check that the `patient_id` (and the `doctor_id` where there is one) belongs to the same clinic as the row being written.',
+    ],
+  },
   {
     version: '1.19.0', date: '2026-11-06', schema: 16,
     highlights: [

@@ -3,6 +3,48 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.19.1] — 2026-11-06 · schema 17
+
+**The five findings from the first full security audit, closed in the code that
+caused them.**
+
+- **The booking reference is not a phone lookup** (`booking/public-book-phone-ref-disclosure`,
+  high). `public_book` answered a second booking for the same phone with
+  `booking:already:16:30` — somebody else's appointment time — and returned that
+  appointment's reference, which `public_booking_lookup` and `public_cancel_booking`
+  then accept. The function now takes `p_client uuid` (the booking page keeps a
+  random id for the visit): the same client gets its reference back and a
+  `duplicate: true`, any other caller gets `booking:already` with no time and no
+  reference, and the client drops any `:detail` suffix an older database still
+  appends, so the time cannot reach the screen either way. A third booking per
+  phone per day is refused alongside the existing 40/hour cap.
+- **The offline cache is cleared on sign-out** (`client/phi-cache-not-cleared-on-signout`,
+  medium). `clearAllCache()` runs on sign-out — every cached workspace and every
+  outbox, leaving theme and other non-clinical keys alone — and
+  `purgeExpiredCache()` runs at boot, so an expired snapshot is deleted rather
+  than left in localStorage until that clinic is opened again.
+- **A tenant cannot write its own licence** (`licensing/tenant-self-grant-subscription`,
+  medium). `set_license_status` is revoked from `public` and `authenticated` and
+  granted to `service_role` alone; `change_plan` moves plan and interval only and
+  logs a `plan` event; `renew_subscription(clinic, reference, months)` requires a
+  collection reference of at least four characters, caps a self-renewal at twelve
+  months, sets the clinic active and logs a `renew` event to the new
+  `license_events` table (owner-readable, service-role-writable); `start_trial`
+  refuses a clinic that has already used its trial.
+- **The counters need membership** (`rls/next-token-next-invoice-cross-tenant`,
+  low). `next_token_no` and `next_invoice_number` raise `not a member of this
+  clinic` for a caller from another clinic instead of returning that clinic's next
+  number.
+- **Writes cannot name another clinic's patient**
+  (`rls/appointments-cross-tenant-patient-reference`, low). The insert and update
+  policies on `appointments`, `consultations` and `invoices` require a
+  same-clinic `patient_id` (and `doctor_id` where present).
+
+Applied as schema 17 — paste `supabase/schema.sql` again; it is additive. The old
+7-argument `public_book` is dropped and replaced by the 8-argument version, so a
+caller still sending seven arguments keeps working and simply does not get
+duplicate-reference recovery.
+
 ## [1.19.0] — 2026-11-06 · schema 16
 
 **Contributing is now a checklist a machine runs, not a paragraph a reviewer

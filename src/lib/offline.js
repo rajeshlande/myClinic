@@ -138,6 +138,26 @@ export function writeCache(userId, clinicId, state, now = Date.now()) {
   } catch { /* quota or private mode — the app still works online */ }
 }
 
+/**
+ * Delete cached workspaces whose TTL has passed.
+ *
+ * readCache() refuses an expired entry, which is enough to stop the app showing
+ * stale data — but the bytes were still on the device, and a device that is never
+ * signed out never cleared them. Called on boot, so the 24-hour promise is about
+ * storage as well as about the read path.
+ */
+export function purgeExpiredCache(now = Date.now()) {
+  const doomed = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('myclinic.cache.')) continue;
+    const entry = safeParse(localStorage.getItem(k));
+    if (!entry || !entry.savedAt || now - entry.savedAt > CACHE_TTL_MS) doomed.push(k);
+  }
+  doomed.forEach((k) => localStorage.removeItem(k));
+  return doomed.length;
+}
+
 /** Wipe every cached workspace on this device (sign-out, role change). */
 export function clearAllCache() {
   const doomed = [];

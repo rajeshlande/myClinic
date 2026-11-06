@@ -4,9 +4,10 @@ This page records the security posture of myClinic: the audit that was run, what
 it found, and what changed. It is written for whoever next touches the database
 layer.
 
-> Re-run the audit with the Cloudflare `security-audit` skill before shipping a
-> schema change. Findings below refer to v1.1.0; all confirmed items are fixed in
-> v1.2.0.
+> Re-run the audit with the Cloudflare `security-audit` skill (vendored at
+> `.claude/skills/security-audit/`) before shipping a schema change. The v1.1.0
+> findings below are fixed in v1.2.0; the v1.19.1 run is recorded first, because
+> it is the current state of the database.
 
 ## How to verify the fixes
 
@@ -42,6 +43,68 @@ npm test
 | 7 | Patient data retention, PITR backups and staff access to backups are not defined in-repo | needs_validation | — |
 
 The dominant issue is that **membership and role were client-asserted** rather than granted: one staff-policy gap chained into full cross-tenant access to patient and billing data. The other confirmed findings are consequences of the same design — roles enforced only in the UI, ids trusted inside SECURITY DEFINER functions, and a device cache that was neither scoped nor expired.
+
+## Audit report (v1.19.1) — the full six-phase run
+
+**Target** the whole repository · **Profile** full six phases (reconnaissance →
+coverage-led hunting → candidate validation → structured output → independent
+record verification → report) · **Policy** source-and-local-only: nothing was
+executed as audit evidence, so every candidate that needed a running database was
+filed as `needs_validation` with no severity.
+
+**Coverage**: 14 units in the ledger — 12 covered, 2 blocked on hosted
+configuration, 0 not applicable. **Verdicts**: 5 confirmed, 2 needs_validation,
+6 rejected. Artifacts, including the per-agent artifacts and the two validators'
+output, are kept outside the repository.
+
+| # | Finding | Verdict | Severity | Fixed in |
+|---|---|---|---|---|
+| 1 | A phone number plus a slot returns somebody else's booking reference and appointment time | confirmed | **high** | schema 17 |
+| 2 | The offline cache survives sign-out on a shared device | confirmed | **medium** | 1.19.1 |
+| 3 | A tenant can write its own licence (`set_license_status`, `change_plan`, `renew_subscription`) | confirmed | **medium** | schema 17 |
+| 4 | `next_token_no` / `next_invoice_number` answer for another clinic | confirmed | **low** | schema 17 |
+| 5 | A write can name another clinic's `patient_id` | confirmed | **low** | schema 17 |
+| 6 | No effective rate limit on the public booking RPCs | needs_validation | — | partial: per-phone caps added |
+| 7 | `accept_invite` trusts an email that the invite flow has not verified | needs_validation | — | open |
+
+### What changed
+
+- **`public_book(text, uuid, date, time, text, text, text, uuid)`** — the eighth
+  argument is the booking page's own random client id. The duplicate branch
+  returns the reference only when the caller sends the same `p_client`; anyone
+  else gets `booking:already`, with no time and no reference. The client maps any
+  `:detail` suffix an un-migrated database still appends to the same neutral
+  sentence, so the disclosure cannot reappear through an old project. A third
+  booking per phone per day is refused next to the existing 40-per-hour cap.
+- **`clearAllCache()` on sign-out, `purgeExpiredCache()` at boot** — the cache is
+  per user and per clinic and expires after 24 hours, but until 1.19.1 it was only
+  *ignored* when stale and only removed when that clinic was opened again. Theme
+  and other non-clinical keys are untouched.
+- **Licensing** — `set_license_status` is `service_role` only; `change_plan` moves
+  plan and interval and leaves the status alone; `renew_subscription(clinic,
+  reference, months)` requires a collection reference of ≥ 4 characters, caps a
+  self-renewal at 12 months and logs a `renew` event; `start_trial` refuses a
+  second trial. The new `license_events` table is owner-readable and
+  service-role-writable, so a clinic can see what it claimed but cannot write it.
+- **Counters** — `next_token_no` and `next_invoice_number` raise `not a member of
+  this clinic` rather than answering.
+- **Write policies** — `appointments`, `consultations` and `invoices` require a
+  same-clinic `patient_id` (and `doctor_id` where present) on insert and update.
+
+### Residual risk, stated plainly
+
+- Booking is still identified by a phone number: a stranger can learn *that* a
+  number already has an appointment today, just not when, with whom, or under which
+  reference. That is the deliberate trade — the alternative was requiring an SMS
+  round-trip before the page would answer.
+- The public booking RPCs remain the only `anon` surface. Server-side rate limiting
+  is a Supabase/proxy setting and is not expressible in `schema.sql`; the per-phone
+  caps are advisory, not a defence against a determined flood from many numbers.
+- `accept_invite` is unchanged: it trusts the address the invite was sent to, and
+  email confirmation for that address is a hosted-project setting. Enable "Confirm
+  email" in Supabase Auth.
+- An operator who holds the `service_role` key can still set any licence. That key
+  is not in the app, not in the bundle and not in this repository.
 
 ## Confirmed findings
 

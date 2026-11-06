@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase, supabaseConfigured, authErrorMessage } from './supabase.js';
+import { clearAllCache } from './offline.js';
 
 const AuthContext = createContext(null);
 
@@ -46,7 +47,13 @@ export function AuthProvider({ children }) {
       if (e) throw e;
       return data;
     }),
-    signOut: () => run(async () => { await supabase.auth.signOut(); }),
+    signOut: () => run(async () => {
+      await supabase.auth.signOut();
+      // The cached clinic snapshot and the outbox hold patients, notes and
+      // invoices. Signing out has to take them off the device, not just off the
+      // screen — this is a shared reception machine more often than not.
+      clearAllCache();
+    }),
     resetPassword: (email) => run(async () => {
       const { error: e } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}${window.location.pathname}#/reset-password`,
