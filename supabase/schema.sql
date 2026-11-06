@@ -3004,7 +3004,7 @@ end $migration$;
 --
 -- Schema 14 shipped the directory and a search for it, tested against the 59
 -- brands that ship in the app. Then the real Indian Medicine Dataset went in:
--- 253,973 rows, 242,186 importable brands. Every query still answered —
+-- 253,973 rows, 242,178 importable brands. Every query still answered —
 -- correctly, but at half a second, because schema 14's function ORs a trigram
 -- similarity into its WHERE clause and Postgres cannot use an index for that:
 -- it read all 242,238 rows and scored each one.

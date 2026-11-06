@@ -205,7 +205,7 @@ What the preset does with a row like
 | manufacturer | preserved |
 | schedule / classes | inherited from the curated row with the same first molecule |
 
-Measured on the full file: **253,973 rows read in ~5 s**, 242,186 importable, 7,905
+Measured on the full file: **253,973 rows read in ~5 s**, 242,178 importable, 7,905
 skipped (every one `Is_discontinued`), 3,890 collapsed into an existing
 brand+strength+form, and the resulting SQL loads in about 11 seconds. Memory stays
 under 512 MB because the reader streams: the first version, which collected every

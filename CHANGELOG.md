@@ -8,7 +8,7 @@ Supabase migration level this release expects (`app_schema_version()`).
 **The directory learned to hold a lakh of brands without slowing down — and
 stopped picking the wrong one.** 1.14.0 shipped a typo-tolerant search tested
 against the 59 brands that live inside the app. Then the real thing went in: the
-Indian Medicine Dataset, 253,973 rows, 242,186 importable brands. Every query
+Indian Medicine Dataset, 253,973 rows, 242,178 importable brands. Every query
 still answered, and two problems appeared that only real data shows.
 
 - **Half a second per keystroke.** The schema 14 function ORs a trigram
@@ -49,7 +49,7 @@ still answered, and two problems appeared that only real data shows.
   collapsed from 253,973 rows), skips discontinued products (7,905), and
   normalises spellings — `Amoxycillin → Amoxicillin`, `Acetaminophen →
   Paracetamol`, `Pantoprazole Sodium → Pantoprazole` — while leaving `Calcium
-  Carbonate` alone. 253,973 rows → 242,186 insertable in about 5 seconds.
+  Carbonate` alone. 253,973 rows → 242,178 insertable in about 5 seconds.
 - **Safety classes ride along.** An imported row lands with `schedule` null and
   `classes` empty, which would leave the two-NSAID and two-PPI rules, the
   allergy-by-class check and the H1-register chip silent. `--inherit-classes`
