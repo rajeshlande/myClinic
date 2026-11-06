@@ -628,6 +628,11 @@ export function validateConsultation(draft) {
   if (draft.temperature_c != null && draft.temperature_c !== '' && (Number(draft.temperature_c) < 90 || Number(draft.temperature_c) > 110)) errors.temperature_c = 'Temperature looks out of range.';
   if (draft.pulse_bpm && (Number(draft.pulse_bpm) < 30 || Number(draft.pulse_bpm) > 220)) errors.pulse_bpm = 'Pulse must be between 30 and 220 bpm.';
   if (draft.spo2 && (Number(draft.spo2) < 50 || Number(draft.spo2) > 100)) errors.spo2 = 'SpO₂ must be 50–100%.';
+  // Investigations are a short list, not a lab report: the database refuses more
+  // than 1,000 characters, so the form says so before the save is attempted.
+  if (typeof draft.investigations === 'string' && draft.investigations.trim().length > 1000) {
+    errors.investigations = 'Keep the investigations to a short list (under 1,000 characters).';
+  }
   return errors;
 }
 

@@ -19,6 +19,7 @@
 
 import { formatDate, formatTime, formatMoney, tokenLabel } from './logic.mjs';
 import { normaliseVpa, upiPayeeName } from './upi.mjs';
+import { quantityToDispense } from './rx-language.js';
 
 /** Keep in step with `reminders.body` in supabase/schema.sql. */
 export const BODY_LIMIT = 1200;
@@ -186,7 +187,10 @@ export function prescriptionMessage({
   clinic, doctor, patient, visit, languageLabel = 'English', instructionFor = () => '', } = {}) {
   const meds = (visit?.prescription ?? []).map((rx, i) => {
     const direction = instructionFor(rx);
-    return `${i + 1}. ${rx?.drug ?? 'Medicine'}${direction ? ` — ${direction}` : ''}`;
+    // The quantity matters to the person buying it: "10 tablets" is the
+    // difference between a complete course and a second trip to the chemist.
+    const quantity = quantityToDispense(rx)?.label;
+    return `${i + 1}. ${rx?.drug ?? 'Medicine'}${direction ? ` — ${direction}` : ''}${quantity ? ` (${quantity})` : ''}`;
   });
   const lines = [
     `Hello ${firstName(patient?.full_name)},`,

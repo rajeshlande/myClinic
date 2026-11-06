@@ -46,6 +46,7 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
     examination: '',
     diagnoses: '',
     advice: '',
+    investigations: '',
     vitals: { ...blankVitals },
     prescription: [newDrug()],
     follow_up_on: '',
@@ -145,6 +146,9 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
         examination: draft.examination.trim(),
         diagnoses: draft.diagnoses.split(',').map((d) => d.trim()).filter(Boolean),
         advice: draft.advice.trim(),
+        // Tests advised at this visit (schema 16): their own list, so the slip can
+        // print them under their own heading and the next visit can read them back.
+        investigations: draft.investigations.split(',').map((x) => x.trim()).filter(Boolean),
         vitals,
         prescription: draft.prescription.filter((rx) => rx.drug.trim()),
         rx_language: draft.rx_language,
@@ -392,9 +396,18 @@ export default function ConsultationForm({ open, onClose, appointment, patient, 
           </Field>
         </div>
 
-        <Field label="Advice / plan">
-          <Textarea value={draft.advice} onChange={set('advice')} rows={2} placeholder="Investigations, lifestyle, red-flag instructions" />
-        </Field>
+        <div className="form-grid">
+          <Field label="Investigations advised" hint="Comma separated — printed on the slip">
+            <Input
+              value={draft.investigations}
+              onChange={set('investigations')}
+              placeholder="CBC, HbA1c, X-ray chest"
+            />
+          </Field>
+          <Field label="Advice / plan">
+            <Textarea value={draft.advice} onChange={set('advice')} rows={2} placeholder="Lifestyle, diet, red-flag instructions" />
+          </Field>
+        </div>
 
         <div>
           <div className="row wrap" style={{ marginBottom: 8, gap: 8 }}>

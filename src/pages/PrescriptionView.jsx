@@ -4,7 +4,7 @@ import { ArrowLeft, Printer, Stethoscope, ShieldAlert, Languages, Pill, Calendar
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Card, EmptyState, Segmented } from '../components/ui.jsx';
 import { ageLabel, formatDate } from '../lib/logic.mjs';
-import { RX_LANGUAGES, patientInstruction, rxSheet, fontStackFor, durationParts } from '../lib/rx-language.js';
+import { RX_LANGUAGES, patientInstruction, quantityToDispense, rxSheet, fontStackFor } from '../lib/rx-language.js';
 import { DocumentHeader } from '../components/Branding.jsx';
 import { logoOnDocuments } from '../lib/branding.mjs';
 import { prescriptionMessage } from '../lib/messages.mjs';
@@ -116,6 +116,11 @@ export default function PrescriptionView() {
           <div><b>Age / Sex</b>{ageLabel(patient)}</div>
           <div><b>Date</b>{formatDate(visit.visited_on)}</div>
           <div><b>Visit</b>{appointment?.kind ?? 'Consultation'}{appointment?.token_no ? ` · T-${String(appointment.token_no).padStart(2, '0')}` : ''}</div>
+          {/* The format asks for the patient's address, and a slip that can be
+              traced back to a person is a slip a pharmacist can query. */}
+          {[patient?.address, patient?.city].filter(Boolean).length ? (
+            <div style={{ gridColumn: '1 / -1' }}><b>Address</b>{[patient?.address, patient?.city].filter(Boolean).join(', ')}</div>
+          ) : null}
         </div>
 
         {hasAllergy ? (
@@ -125,9 +130,9 @@ export default function PrescriptionView() {
         ) : null}
 
         {/* ---------------------------------------------------------------- vitals */}
-        {[v.temperature_c, v.pulse_bpm, v.bp_systolic, v.spo2, v.weight_kg].some(Boolean) ? (
+        {[v.temperature_c, v.pulse_bpm, v.bp_systolic, v.spo2, v.weight_kg, v.height_cm].some(Boolean) ? (
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', background: '#f6faf8', borderRadius: 8, padding: '8px 12px', margin: '12px 0', fontSize: '0.76rem', color: '#374a45' }}>
-            {[['Temp', v.temperature_c ? `${v.temperature_c} °F` : null], ['Pulse', v.pulse_bpm ? `${v.pulse_bpm} bpm` : null], ['BP', v.bp_systolic ? `${v.bp_systolic}/${v.bp_diastolic} mmHg` : null], ['SpO₂', v.spo2 ? `${v.spo2}%` : null], ['Weight', v.weight_kg ? `${v.weight_kg} kg` : null]].filter(([, val]) => val).map(([label, val]) => (
+            {[['Temp', v.temperature_c ? `${v.temperature_c} °F` : null], ['Pulse', v.pulse_bpm ? `${v.pulse_bpm} bpm` : null], ['BP', v.bp_systolic ? `${v.bp_systolic}/${v.bp_diastolic} mmHg` : null], ['SpO₂', v.spo2 ? `${v.spo2}%` : null], ['Weight', v.weight_kg ? `${v.weight_kg} kg` : null], ['Height', v.height_cm ? `${v.height_cm} cm` : null]].filter(([, val]) => val).map(([label, val]) => (
               <span key={label}><strong>{label}:</strong> {val}</span>
             ))}
           </div>
@@ -164,10 +169,11 @@ export default function PrescriptionView() {
             <table className="rx-table" style={{ marginTop: 6 }}>
               <thead>
                 <tr>
-                  <th style={{ width: 22 }}>#</th>
-                  <th style={{ width: '32%' }}>Medicine</th>
-                  <th style={{ width: 72 }}>{sheet.columns.dose}</th>
+                  <th style={{ width: 20 }}>#</th>
+                  <th style={{ width: '30%' }}>Medicine</th>
+                  <th style={{ width: 66 }}>{sheet.columns.dose}</th>
                   <th>{lang === 'en' ? 'How to take' : 'Directions'}</th>
+                  <th style={{ width: 74 }}>Qty</th>
                 </tr>
               </thead>
               <tbody>
@@ -176,9 +182,10 @@ export default function PrescriptionView() {
                     <td>{i + 1}</td>
                     <td>
                       <div style={{ fontWeight: 700, fontFamily: 'var(--font)' }}>{rx.drug}</div>
-                      {/* The generic name is what a pharmacist and the next doctor read. */}
+                      {/* The generic name is what a pharmacist and the next doctor read,
+                          and the prescribed format wants it legible: capitals. */}
                       {rx.salt ? (
-                        <div className="rx-salt" style={{ fontFamily: 'var(--font)' }}>
+                        <div className="rx-salt" style={{ fontFamily: 'var(--font)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
                           {rx.salt}
                           {rx.form ? ` · ${rx.form}` : ''}
                           {rx.schedule === 'H1' ? ' · Schedule H1' : rx.schedule === 'X' ? ' · Schedule X' : ''}
@@ -193,12 +200,29 @@ export default function PrescriptionView() {
                         <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{patientInstruction(rx, 'en')}</div>
                       ) : null}
                     </td>
+                    {/* What the chemist hands over. A dash, never a guess, when the
+                        frequency has no per-day rate or the course has no length. */}
+                    <td className="mono" style={{ fontFamily: 'var(--font)', whiteSpace: 'nowrap' }}>
+                      {quantityToDispense(rx)?.label ?? '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : <p style={{ fontSize: '0.84rem', color: '#7b8b86', marginTop: 6 }}>{d.no_medicine}</p>}
         </div>
+
+        {/* ----------------------------------------------------------- investigations */}
+        {(visit.investigations ?? []).length ? (
+          <div style={{ marginTop: 14 }}>
+            <div className="rx-eyebrow">Investigations advised</div>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+              {(visit.investigations ?? []).map((test) => (
+                <span key={test} style={{ border: '1px solid #cfe0db', color: '#374a45', padding: '2px 8px', borderRadius: 5, fontSize: '0.75rem', fontWeight: 600 }}>{test}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {/* ------------------------------------------------------------------ advice */}
         {visit.advice ? (
@@ -220,7 +244,12 @@ export default function PrescriptionView() {
           <div style={{ textAlign: 'right' }}>
             <div style={{ height: 38 }} />
             <div className="rx-sign-line">{doctor?.full_name}</div>
-            <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>{sheet.signature}</div>
+            <div className="rx-lang" style={{ fontFamily: 'var(--font)' }}>
+              {[doctor?.qualification, doctor?.registration_no ? `Reg. ${doctor.registration_no}` : null].filter(Boolean).join(' · ')}
+            </div>
+            {/* The format asks for a signature and the clinic's seal; the slip says
+                where they go, so a printed sheet is not mistaken for a signed one. */}
+            <div className="rx-lang" style={{ fontFamily: 'var(--font)', marginTop: 2 }}>{sheet.signature} &amp; clinic seal</div>
           </div>
         </div>
 
@@ -233,7 +262,8 @@ export default function PrescriptionView() {
           </div>
           <div className="doc-foot-right">
             <span>Prescription · {patient?.full_name ?? 'Patient'} · {formatDate(visit.visited_on)}</span>
-            <span className="doc-foot-fine">Computer-generated · bring this sheet to your next visit</span>
+            <span className="doc-foot-fine">Computer-generated e-prescription · valid only with the prescriber’s signature and clinic seal</span>
+            <span className="doc-foot-fine">Bring this sheet to your next visit</span>
             <span className="doc-foot-fine">myClinic</span>
           </div>
         </footer>

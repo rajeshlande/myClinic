@@ -1738,3 +1738,112 @@ begin
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE L · INVESTIGATIONS ADVISED (schema 16)
+-- =============================================================================
+-- A prescription in India is read against a format, and the one thing the app
+-- stored nowhere was the tests the doctor wants done next. This suite holds the
+-- column that fixes it: it exists, it defaults to an empty list (so an old row
+-- and an old client both keep working), it round-trips, and it refuses a pasted
+-- lab report without refusing a normal list.
+begin;
+
+do $$
+declare
+  owner_l uuid := gen_random_uuid();
+  clinic uuid;
+  doctor_staff uuid;
+  patient uuid;
+  visit uuid;
+  tests text[];
+  n integer;
+  refused boolean := false;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values (owner_l, 'inv-owner@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_l, 'role', 'authenticated', 'email', 'inv-owner@test.local')::text, true);
+  set local role authenticated;
+
+  clinic := public.create_clinic('{"name":"Investigations Clinic"}'::jsonb, '{"full_name":"Owner L"}'::jsonb);
+  reset role;
+
+  select id into doctor_staff from public.staff where clinic_id = clinic and role = 'owner';
+  insert into public.patients (clinic_id, code, full_name) values (clinic, 'PT-00002', 'Inv Patient') returning id into patient;
+
+  -- --------------------------------------------------- 1. the column is there
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'consultations' and column_name = 'investigations';
+  if n <> 1 then
+    raise exception 'FAIL: consultations.investigations does not exist' using errcode = 'P0002';
+  end if;
+
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'consultations'
+     and column_name = 'investigations' and data_type = 'ARRAY' and is_nullable = 'NO';
+  if n <> 1 then
+    raise exception 'FAIL: investigations must be a not-null text array' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the consultation carries an investigations list';
+
+  -- -------------------------------- 2. a row written without it still works
+  -- An older client (or the sync queue replaying an old change) never sends the
+  -- column; the default has to be an empty list, not a null.
+  insert into public.consultations (clinic_id, patient_id, doctor_id, visited_on)
+    values (clinic, patient, doctor_staff, current_date) returning id into visit;
+  select investigations into tests from public.consultations where id = visit;
+  if tests is null then
+    raise exception 'FAIL: a consultation saved without investigations got a null' using errcode = 'P0002';
+  end if;
+  if cardinality(tests) <> 0 then
+    raise exception 'FAIL: the default list is not empty (%)', tests using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: an old client that sends no investigations still saves';
+
+  -- --------------------------------------------- 3. the list round-trips as typed
+  update public.consultations
+     set investigations = array['CBC', 'HbA1c', 'X-ray chest']
+   where id = visit;
+  select investigations into tests from public.consultations where id = visit;
+  if tests <> array['CBC', 'HbA1c', 'X-ray chest']::text[] then
+    raise exception 'FAIL: the investigations list came back as %', tests using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: investigations round-trip in order, three of them';
+
+  -- --------------------------- 4. a pasted lab report is refused, a list is not
+  begin
+    update public.consultations set investigations = array[repeat('x', 1200)] where id = visit;
+    raise exception 'FAIL: a 1,200-character test name was accepted' using errcode = 'P0002';
+  exception when check_violation then
+    refused := true;
+  end;
+  if not refused then
+    raise exception 'FAIL: the length guard did not fire' using errcode = 'P0002';
+  end if;
+
+  -- the same guard must not be so tight that a real list trips it
+  update public.consultations
+     set investigations = array['CBC with ESR', 'HbA1c (after 3 months)', 'USG abdomen and pelvis', 'X-ray chest PA view', 'TSH']
+   where id = visit;
+  select cardinality(investigations) into n from public.consultations where id = visit;
+  if n <> 5 then
+    raise exception 'FAIL: a normal five-test list was refused (%)', n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the guard stops a pasted report, not a clinic list';
+
+  -- ---------------------------------- 5. it obeys the same RLS as the rest of the row
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from public.consultations where id = visit;
+  if n <> 0 then
+    raise exception 'FAIL: a stranger read a consultation to see its investigations' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: investigations are as private as the consultation they belong to';
+  reset role;
+
+  raise notice 'ALL INVESTIGATIONS CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run

@@ -2,8 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DOSE_PATTERNS, FREQUENCIES, FREQUENCY_SHORTHAND, RELATIONS,
-  doseChoicesFor, dosePattern, durationInDays, frequencyKey, slotsForFrequency,
+  doseChoicesFor, dosePattern, dosesPerDay, durationInDays, frequencyKey,
+  quantityToDispense, slotsForFrequency,
 } from '../src/lib/rx-language.js';
+import { validateConsultation } from '../src/lib/logic.mjs';
 
 // ------------------------------------------------ the pattern, not the sentence
 
@@ -101,4 +103,59 @@ test('food relation chips cover every stored value, and none of them is a senten
     assert.ok(r.value.length <= 16, `${r.value} is too long for a chip`);
   }
   assert.equal(RELATIONS.some((r) => r.value === ''), false, 'the empty option is drawn separately');
+});
+
+// ------------------------------------------------- what the chemist hands over
+
+test('a course has a quantity, and it is arithmetic not a guess', () => {
+  const qty = (dose, frequency, duration) => quantityToDispense({ dose, frequency, duration })?.label ?? null;
+  assert.equal(qty('1 tablet', 'Twice a day', '5 days'), '10 tablets');
+  assert.equal(qty('1 tablet', 'Once a day', '7 days'), '7 tablets');
+  assert.equal(qty('½ tablet', 'Once a day', '10 days'), '5 tablets');
+  assert.equal(qty('2 tablets', 'Three times a day', '5 days'), '30 tablets');
+  assert.equal(qty('5 ml', 'Three times a day', '5 days'), '75 ml');
+  assert.equal(qty('1 puff', 'Twice a day', '1 month'), '60 puffs');
+  assert.equal(qty('1 capsule', 'At night', '7 days'), '7 capsules');
+  // every 6 hours is four a day, every 8 hours is three: that is the point
+  assert.equal(qty('1 tablet', 'Every 6 hours', '2 days'), '8 tablets');
+  assert.equal(qty('1 tablet', 'Every 8 hours', '2 days'), '6 tablets');
+});
+
+test('a quantity is a dash when it would be a lie', () => {
+  const qty = (dose, frequency, duration) => quantityToDispense({ dose, frequency, duration });
+  assert.equal(qty('1 tablet', 'When needed', '5 days'), null, 'SOS has no per-day rate');
+  assert.equal(qty('1 tablet', 'Once a week', '1 month'), null);
+  assert.equal(qty('1 tablet', 'Twice a day', 'till review'), null, 'no length, no total');
+  assert.equal(qty('Apply thinly', 'Twice a day', '5 days'), null, 'a cream is not counted');
+  assert.equal(qty('As directed', 'Twice a day', '5 days'), null);
+  assert.equal(qty('1 tablet', '', '5 days'), null);
+  assert.equal(qty('', 'Twice a day', '5 days'), null);
+});
+
+test('singular stays singular, and millilitres never pluralise', () => {
+  assert.equal(quantityToDispense({ dose: '1 tablet', frequency: 'Once a day', duration: '1 day' }).label, '1 tablet');
+  assert.equal(quantityToDispense({ dose: '2.5 ml', frequency: 'Once a day', duration: '1 day' }).label, '2.5 ml');
+});
+
+test('doses per day covers every frequency that has a rate', () => {
+  assert.equal(dosesPerDay('Once a day'), 1);
+  assert.equal(dosesPerDay('Twice a day'), 2);
+  assert.equal(dosesPerDay('Three times a day'), 3);
+  assert.equal(dosesPerDay('Four times a day'), 4);
+  assert.equal(dosesPerDay('At night'), 1);
+  assert.equal(dosesPerDay('Every 6 hours'), 4);
+  assert.equal(dosesPerDay('Every 8 hours'), 3);
+  assert.equal(dosesPerDay('When needed'), null);
+  assert.equal(dosesPerDay('Once a week'), null);
+  assert.equal(dosesPerDay(''), null);
+});
+
+// ---------------------------------- the investigations list is a list, not a report
+
+test('an investigations list is refused on the form before the database refuses it', () => {
+  const base = { complaint: 'fever' };
+  assert.deepEqual(validateConsultation({ ...base, investigations: 'CBC, HbA1c' }), {});
+  assert.deepEqual(validateConsultation(base), {}, 'no investigations is fine');
+  const long = 'x'.repeat(1001);
+  assert.ok(validateConsultation({ ...base, investigations: long }).investigations);
 });

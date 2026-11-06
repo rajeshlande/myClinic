@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.15.0';
-export const SCHEMA_VERSION = 15;
+export const APP_VERSION = '1.16.0';
+export const SCHEMA_VERSION = 16;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.16.0', date: '2026-11-06', schema: 16,
+    highlights: [
+      'The printed prescription now carries the quantity to be dispensed — “1 tablet twice a day for 5 days” prints as 10 tablets, a half tablet daily for 10 days as 5 tablets, 5 ml thrice a day for 5 days as 75 ml. It is arithmetic on what you already typed, never a guess: “when needed”, “till review” and “apply thinly” print a dash rather than a number that would be wrong.',
+      'Tests advised are their own field now (schema 16), listed under “Investigations advised” on the slip instead of buried in the advice — CBC, HbA1c after 3 months, X-ray chest. Type them comma-separated in the consultation, the way diagnoses already work.',
+      'The slip reads like the prescribed format: the generic name in capitals under the brand (AMOXICILLIN + CLAVULANIC ACID), the patient’s address with name, age and sex, height alongside weight, and the doctor’s registration number repeated at the signature with “Signature & seal” under the line.',
+      'The footer says what an e-prescription has to say: computer-generated, valid only with the doctor’s signature and clinic seal, and the phone and email of the clinic that issued it.',
+    ],
+  },
   {
     version: '1.15.0', date: '2026-11-06', schema: 15,
     highlights: [

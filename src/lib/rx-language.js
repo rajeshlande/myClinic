@@ -325,6 +325,57 @@ export function durationInDays(value) {
 }
 
 /**
+ * How many doses a day a frequency means.
+ *
+ * Every-6-hours is four a day and every-8-hours is three, which is what makes a
+ * quantity calculable; "when needed" and "once a week" have no per-day rate and
+ * return null rather than a guess.
+ */
+export function dosesPerDay(frequency) {
+  const key = frequencyKey(frequency);
+  const rate = { od: 1, bd: 2, tds: 3, qid: 4, hs: 1, q6h: 4, q8h: 3 }[key];
+  return rate ?? null;
+}
+
+/** Units a dose can be counted in, so a quantity can be labelled rather than guessed. */
+const DOSE_UNITS = ['tablet', 'capsule', 'puff', 'drop', 'sachet', 'respule', 'dose', 'ml', 'application'];
+
+function doseUnit(dose) {
+  const text = String(dose ?? '').toLowerCase();
+  return DOSE_UNITS.find((u) => new RegExp(`(^|[^a-z])${u}`).test(text)) ?? null;
+}
+
+function doseAmount(dose) {
+  const text = String(dose ?? '').trim().toLowerCase();
+  if (!text) return null;
+  if (/(^|[^0-9])½|half/.test(text)) return 0.5;
+  const n = Number((text.match(/\d+(?:\.\d+)?/) ?? [])[0]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/**
+ * What the chemist has to hand over: 1 tablet twice a day for 5 days is 10
+ * tablets, and a slip that says so is a slip nobody has to count out twice.
+ *
+ * Returns null when the answer would be a guess — "when needed", "till review",
+ * "apply thinly" — and the print then shows a dash instead of a false number.
+ */
+export function quantityToDispense(rx) {
+  const perDay = dosesPerDay(rx?.frequency);
+  const days = durationInDays(rx?.duration);
+  const amount = doseAmount(rx?.dose);
+  const unit = doseUnit(rx?.dose);
+  if (!perDay || !days || !amount || !unit) return null;
+  const count = Math.round(amount * perDay * days * 100) / 100;
+  const singular = unit === 'ml' ? 'ml' : unit;
+  const label = unit === 'ml'
+    ? `${count} ml`
+    : `${count} ${singular}${count === 1 ? '' : 's'}`;
+  return { count, unit, label };
+}
+
+/**
  * Dose chips that match the form of the drug that was picked.
  *
  * "1 tablet" is nonsense for a syrup and "5 ml" is nonsense for an inhaler, and

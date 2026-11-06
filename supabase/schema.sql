@@ -45,6 +45,7 @@
 --    13  a profile row per account     v1.13.1
 --    14  drug directory (brand→salt)    v1.14.0
 --    15  drug search at 240k rows       v1.14.1
+--    16  investigations advised        v1.16.0
 --
 -- To add a migration: append a numbered block inside its migration's guard,
 -- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
@@ -3227,6 +3228,67 @@ begin
      set schema_version = 15, applied_at = now(),
          notes = 'drug search at directory scale: index-usable candidates, edit-distance tie-break'
    where schema_version < 15;
+end $migration$;
+
+-- =============================================================================
+-- §16 · INVESTIGATIONS ADVISED                     migration 16 · app v1.16.0
+--
+-- A prescription in India is judged against a format: prescriber details with
+-- the State Medical Council registration number, the patient's name, age, sex
+-- and address, the drug in generic form with dose, frequency, duration and the
+-- quantity dispensed, the clinical findings that justified it, and the advice —
+-- including the investigations the doctor wants done next.
+--
+-- Everything on that list except one was already stored. The missing one was the
+-- investigations: "CBC, HbA1c after 3 months" lived in the free-text advice, so
+-- it could not be listed, ticked off at the next visit, or printed under its own
+-- heading. This adds the column that holds them.
+--
+-- Additive and idempotent: an older database gains one nullable-free column with
+-- a default, and nothing else changes. A database already at 16 skips the block.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 16 then
+    raise notice 'schema 16 (investigations advised) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 16 (investigations advised, as a list on the consultation)';
+
+  execute $q$
+    alter table public.consultations
+      add column if not exists investigations text[] not null default '{}'
+  $q$;
+
+  -- A consultation note is not a lab report: the list is short by design. The
+  -- guard is on the joined length so a pasted report cannot arrive here.
+  execute $q$
+    do $guard$
+    begin
+      if not exists (
+        select 1 from pg_constraint
+         where conrelid = 'public.consultations'::regclass
+           and conname = 'consultations_investigations_len'
+      ) then
+        alter table public.consultations
+          add constraint consultations_investigations_len
+          check (char_length(array_to_string(investigations, ', ')) <= 1000);
+      end if;
+    end $guard$
+  $q$;
+
+  execute $q$comment on column public.consultations.investigations is
+    'Tests advised at this visit (CBC, HbA1c, X-ray chest). Printed under their own heading on the prescription.'$q$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (16, 'investigations', '1.16.0',
+          'consultations.investigations: the tests advised at the visit, printed on the slip and carried to the next one')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 16, applied_at = now(),
+         notes = 'investigations advised: a list on the consultation, a heading on the prescription'
+   where schema_version < 16;
 end $migration$;
 
 commit;

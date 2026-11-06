@@ -3,6 +3,46 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.16.0] — 2026-11-06 · schema 16
+
+**The printed slip now answers to the format it will be judged against.** A
+prescription in India is read against the NMC model format and the Drugs Rules:
+prescriber identity with the State Medical Council number, patient identity
+including address and weight, the drug with its generic name, dose, frequency,
+duration **and the quantity dispensed**, the findings that justified it, the
+investigations advised, and a signature. Most of that was already on the sheet.
+Three things were not.
+
+- **Quantity to be dispensed.** A `Qty` column, computed from what the doctor
+  already typed: 1 tablet × twice a day × 5 days → **10 tablets**; ½ tablet daily
+  for 10 days → **5 tablets**; 5 ml thrice a day for 5 days → **75 ml**; 1 puff
+  twice a day for a month → **60 puffs**. Every 6 hours counts as four a day,
+  every 8 hours as three. Where the arithmetic would be a guess — *when needed*,
+  *once a week*, *till review*, *apply thinly* — the column prints a dash rather
+  than a number a chemist would dispense to.
+- **Investigations advised, as their own list (schema 16).** *CBC, HbA1c after 3
+  months, X-ray chest* used to live inside the free-text advice, where it could
+  not be printed under its own heading, ticked off at the next visit, or read
+  back. It is now `consultations.investigations text[]`, typed comma-separated in
+  the consultation (the way diagnoses already work) and printed as a list. The
+  column is additive and defaulted, so an old client that never sends it keeps
+  saving, and an old row reads back as an empty list.
+- **The slip reads like the format.** The generic name prints in **capitals**
+  under the brand; the patient's **address** joins name, age and sex; **height**
+  sits beside weight in the vitals strip; the doctor's **registration number is
+  repeated at the signature** with *Signature & clinic seal* under the line; and
+  the footer says *computer-generated e-prescription · valid only with the
+  prescriber's signature and clinic seal* — so an unsigned sheet cannot pass for a
+  signed one.
+- The WhatsApp version of the prescription carries the quantity too: *"1.
+  Augmentin 625 — after food · twice a day · for 5 days (10 tablets)"* — the
+  difference between a complete course and a second trip to the chemist.
+
+`docs/PRESCRIPTION-FORMAT.md` maps every element of the format to the column it is
+stored in and the place it prints, and states plainly what the app does not do: no
+digital signature certificate, no registration-number validation, no Schedule X
+register, no pharmacy licence block.
+
 ## [1.15.0] — 2026-11-06 · schema 15
 
 **The prescription line is written the way a pad is written.** Drug, Dose, How
