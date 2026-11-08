@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.22.0';
+export const APP_VERSION = '1.22.1';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.22.1', date: '2026-11-02', schema: 18,
+    highlights: [
+      'A CI type-check of the licence Edge Function failed with “Import \'https://esm.sh/\' failed: 522” — and nothing was wrong with esm.sh. The import had been shortened to the bare host, `from \'https://esm.sh\'`, and a host is not a module: it answers with a web page when it is healthy and with a 522 when Cloudflare’s edge cannot reach it. Neither is JavaScript.',
+      'The specifier is pinned again (`https://esm.sh/@supabase/supabase-js@2.119.0`), and `tests/function-imports.test.mjs` now reads the function and refuses a bare host, an unpinned version or an empty specifier — without any network, so the mistake is caught before CI reaches for a CDN.',
+      'The type-check step now caches Deno’s module cache and retries three times: a bad minute at a third-party CDN is an outage, not a bug in the clinic, and it should not turn into a red build on an unrelated commit.',
+    ],
+  },
   {
     version: '1.22.0', date: '2026-11-06', schema: 18,
     highlights: [

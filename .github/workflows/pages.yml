@@ -49,11 +49,47 @@ jobs:
         # so without this step a direct push to main was never checked at all.
         run: npm run check:contributing
 
-      - name: Type-check the licence Edge Function
+      - name: Set up Deno
+        # Deno, not tsc: the function is deployed from source, and `deno check`
+        # is the only compiler that knows Deno.serve, Deno.env and the esm.sh
+        # import. It caught a BufferSource typing bug that Deploy had happily
+        # shipped because Deploy does not type-check.
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno check supabase/functions/sync-clinic-license/index.ts
+
+      - name: Cache Deno's module cache
+        # The function imports exactly one module, from a third-party CDN. Cache
+        # it, so a rerun does not have to reach esm.sh at all.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/deno
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/sync-clinic-license/index.ts') }}
+          restore-keys: |
+            deno-${{ runner.os }}-
+
+      - name: Type-check the licence Edge Function
+        # esm.sh is not part of this repository: a 5xx or a timeout from it is an
+        # outage, not a bug here, so the *network* is retried. A bare or unpinned
+        # import specifier is a bug here, and tests/function-imports.test.mjs
+        # catches that without any network at all.
+        run: |
+          FN=supabase/functions/sync-clinic-license/index.ts
+          for attempt in 1 2 3; do
+            echo "::group::deno check (attempt $attempt of 3)"
+            if deno check "$FN"; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::deno check failed on attempt $attempt of 3 — its imports come from esm.sh, a third-party CDN"
+            sleep $(( attempt * 15 ))
+          done
+          echo "::error::deno check could not type-check $FN after 3 attempts."
+          echo "::error::Check the import specifiers before blaming the CDN — each must be a full module URL, pinned:"
+          echo "::error::    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';"
+          echo "::error::A bare host such as 'https://esm.sh' is a web page, not a module, and can never resolve."
+          exit 1
 
       - name: Build
         # Relative asset paths mean this works at /, /<repo>/ and custom domains

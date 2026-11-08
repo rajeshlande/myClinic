@@ -3,6 +3,48 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.22.1] — 2026-11-02 · schema 18
+
+**A host is not a module.**
+
+- **The failure that prompted this.** CI, on `npm run` of the function
+  type-check:
+
+  ```
+  Download https://esm.sh/
+  error: Import 'https://esm.sh/' failed: 522 <unknown status code>
+      at .../sync-clinic-license/index.ts:24:30
+  ```
+
+  The 522 sent everyone to esm.sh’s status. The file had the answer: the
+  import had been shortened to the bare host —
+
+  ```ts
+  import { createClient } from 'https://esm.sh';   // a web page, not a module
+  ```
+
+  A bare host serves the esm.sh landing page when it is healthy and a 522 when
+  Cloudflare’s edge cannot reach the origin. Neither response is JavaScript, so
+  `deno check` could never have succeeded, however well esm.sh was behaving.
+  `createClient` would also have been `undefined` at runtime: a deploy from this
+  commit would have failed on the first request, not at build time.
+
+- **Fixed** — pinned again, to the version that exists:
+
+  ```ts
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
+  ```
+
+- **Guarded** — `tests/function-imports.test.mjs` reads the function and fails
+  on a bare host, on a specifier with no package path, on a version that is not
+  an exact `x.y.z`, and on anything computed at runtime. It needs no network, so
+  it runs in `npm test` before CI ever resolves the CDN.
+
+- **Hardened** — the type-check step in `ci.yml` and `pages.yml` caches
+  `~/.cache/deno` keyed on the function file and retries three times with a
+  backoff, printing which attempt failed and, on the last one, how to tell a
+  CDN outage from a broken specifier.
+
 ## [1.22.0] — 2026-11-06 · schema 18
 
 **Two envelopes, one key.**

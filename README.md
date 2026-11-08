@@ -252,7 +252,7 @@ node scripts/security-check.mjs
 
 | Gate | Scope |
 |---|---|
-| `npm test` | **492 tests / 24 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the licence authority (real RS256 signatures), replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
+| `npm test` | **499 tests / 25 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the licence authority (real RS256 signatures), replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
 | `supabase/schema-tests.sql` | **Thirteen SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion, hours, profiles, the drug directory and drug search at scale, investigations, the audit fixes (schema 17) and the licence authority (schema 18). |
 | CI (`.github/workflows/ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
 
