@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.20.0';
+export const APP_VERSION = '1.20.1';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.20.1', date: '2026-11-06', schema: 18,
+    highlights: [
+      '`supabase/schema.sql` now lists every released schema version. The header still stopped at 16 while the file itself applied 18, so anyone reading the top of the file to answer “which schema is this?” got a wrong answer — and the section index stopped at §7 while the file ran to §18. Both are complete now, and `docs/SUPABASE-SETUP.md` gains the migration rows 9–18 it was missing.',
+      'A check so the three lists cannot drift apart again: `npm run check:contributing` compares the schema.sql header, the highest `set schema_version = N` in the file and the setup guide’s table against `SCHEMA_VERSION`, and fails on any disagreement. It has disagreed twice.',
+      'No database change — the migrations, the registry rows and `app_meta` were already correct at 18. This release is the file telling the truth about itself.',
+    ],
+  },
   {
     version: '1.20.0', date: '2026-11-06', schema: 18,
     highlights: [

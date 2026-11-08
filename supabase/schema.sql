@@ -19,6 +19,17 @@
 --   §5  helper functions                 tokens, invoice numbers, provisioning
 --   §6  prescription numbering           RX series + safety acknowledgement log
 --   §7  day close + reminder log         cash reconciliation + what was sent
+--   §8  public booking                   a stranger books a slot, and only that
+--   §9  clinic slug                      one clinic, one public address
+--  §10  who reads what                  the role matrix, seat by seat
+--  §11  WhatsApp consent + log          what was sent, to whom, and when
+--  §12  sessions, days off, slots        3–45 minute visits, clinic hours
+--  §13  a profile row per account       names that survive a re-login
+--  §14  drug directory                  brand → salt, dose and class
+--  §15  drug search at 240k rows        ranking by edit distance
+--  §16  investigations advised          its own list on the prescription
+--  §17  the audit fixes                 booking, licence, counters, writes
+--  §18  the licence authority           a signed verdict, recorded server-side
 --
 -- ── Versioning ───────────────────────────────────────────────────────────────
 --   `public.app_schema_version()` reports this schema. The app compares it with
@@ -46,9 +57,15 @@
 --    14  drug directory (brand→salt)    v1.14.0
 --    15  drug search at 240k rows       v1.14.1
 --    16  investigations advised        v1.16.0
+--    17  the audit fixes                v1.19.1
+--    18  the licence authority          v1.20.0
 --
--- To add a migration: append a numbered block inside its migration's guard,
--- add its id to `migrations` in §0, and bump SCHEMA_VERSION in the app.
+-- To add a migration: append a numbered block at the end of the file, inside its
+-- own `do $migration$ … $migration$` guard (it returns early when
+-- `app_schema_version()` is already at that number), insert its row and bump
+-- `app_meta.schema_version` inside that same block, add it to this list, and bump
+-- SCHEMA_VERSION in src/lib/version.js. `npm run check:contributing` fails if this
+-- list and SCHEMA_VERSION disagree, because they have disagreed before.
 -- =============================================================================
 begin;
 

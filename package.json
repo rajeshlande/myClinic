@@ -1,7 +1,7 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.20.0",
+  "version": "1.20.1",
   "type": "module",
   "description": "myClinic \u2014 OPD clinic management SaaS: appointments, public booking, token queue, patient records, consultations with a typo-tolerant Indian drug directory, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {

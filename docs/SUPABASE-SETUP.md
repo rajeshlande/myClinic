@@ -87,6 +87,16 @@ rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`, `5 upi`, `6 
 | 6 | §6 | prescription numbering (`rx_number`, `rx_version`, `rx_safety`), per-clinic unique |
 | 7 | §7 | `day_closes` (frozen day snapshot, cash reconciliation) and `reminders` (append-only send log) |
 | 8 | §8 | public booking: `clinics.booking_*`, `appointments.booking_ref` / `cancelled_at`, live-slot partial unique index, five `anon`-granted RPCs |
+| 9 | §9 | clinic slug: `clinics.slug` (unique), backfill for existing clinics, owner-editable `set_clinic_slug()` |
+| 10 | §10 | role split: notes readable by owner + doctor, money writable by owner + front desk — the split the Team page prints |
+| 11 | §11 | WhatsApp consent (`patients.wa_opt_in`, `wa_opt_out_at`) and a message log that accepts token, invoice and prescription rows |
+| 12 | §12 | sessions and days off (`clinics.sessions`, `staff.sessions`, `closed_weekdays`, `closed_dates`), 3–45 day follow-up window |
+| 13 | §13 | a profile row for every existing account — the missing row that made the account screen unsaveable |
+| 14 | §14 | drug directory: `medicines`, trigram indexes, `search_medicine_brands()` for signed-in seats, starter rows |
+| 15 | §15 | drug search at 240,000 rows: index-usable candidates, GIN trigrams, `drug_edit_distance()` for typo ties |
+| 16 | §16 | `consultations.investigations` — the tests advised at the visit, printed on the slip |
+| 17 | §17 | audit fixes: the booking reference belongs to the device that made it, one door to a paid state with a collection log, membership checks on the counter helpers, same-clinic patient on every clinical write |
+| 18 | §18 | licence authority: `authority_*` columns, `apply_authority_license()` (`service_role` only), renewal/plan/trial refused once bound, the `authority` block in `license_state()` |
 
 Confirm the licensing and branding objects exist:
 

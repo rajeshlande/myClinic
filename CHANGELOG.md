@@ -3,6 +3,26 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.20.1] — 2026-11-06 · schema 18
+
+**`supabase/schema.sql` says what it is.**
+
+- **The header's released-version list stopped at 16** while the file itself
+  applied 18 — schema 17 (the audit fixes) and schema 18 (the licence authority)
+  were missing from it. The section index above it stopped at §7 while the file
+  runs to §18. Anyone reading the top of the file to answer "which schema is
+  this?" was told the wrong thing, and the operator who reported it was right.
+- **`docs/SUPABASE-SETUP.md` gained the migration rows 9–18** it never had, one
+  line each, taken from the registry rows the migrations write.
+- **`npm run check:contributing` now compares three lists against
+  `SCHEMA_VERSION`**: the header, the highest `set schema_version = N` in
+  `schema.sql`, and the setup guide's table. Any disagreement fails the build —
+  it has disagreed twice now, which is once too often.
+- **No database change.** The migrations, the `schema_migrations` rows (1–18) and
+  `app_meta.schema_version = 18` were already correct; a fresh apply reports 18
+  with all eighteen rows, verified in this release. This is the file telling the
+  truth about itself.
+
 ## [1.20.0] — 2026-11-06 · schema 18
 
 **A clinic can take its subscription from the licence authority instead of

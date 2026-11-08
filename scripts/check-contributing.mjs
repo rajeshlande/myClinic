@@ -366,6 +366,26 @@ export function runChecks({ cwd = process.cwd(), online = false, only = null } =
       'package.json, APP_VERSION and CHANGELOG agree',
       `${versions.fromPackage} / ${versions.appVersion} / ${versions.changelogHead ?? '—'} · schema ${versions.schemaVersion}`);
 
+    // Three lists describe the same history, and they drifted: schema.sql's header
+    // stopped at 16 while the file itself applied 18, and the setup guide's table
+    // stopped at 8. Someone asking "which schema is this?" from the file got a
+    // wrong answer, so all three are now compared against SCHEMA_VERSION.
+    const schemaSql = at('supabase/schema.sql') ?? '';
+    const schemaNum = Number(/SCHEMA_VERSION\s*=\s*(\d+)/.exec(at('src/lib/version.js') ?? '')?.[1] ?? 0);
+    const highest = (list) => (list.length ? Math.max(...list) : 0);
+    const listedHeader = highest([...schemaSql.matchAll(/^--\s+(\d+)\s{2,}\S[^\n]*v\d+\.\d+\.\d+/gm)].map((m) => Number(m[1])));
+    const appliedBlocks = highest([...schemaSql.matchAll(/set schema_version = (\d+)/g)].map((m) => Number(m[1])));
+    const listedGuide = highest([...(at('docs/SUPABASE-SETUP.md') ?? '').matchAll(/^\|\s*(\d+)\s*\|/gm)].map((m) => Number(m[1])));
+    const drift = [];
+    if (schemaNum && listedHeader !== schemaNum) drift.push(`schema.sql header lists ${listedHeader}`);
+    if (schemaNum && appliedBlocks !== schemaNum) drift.push(`schema.sql applies ${appliedBlocks}`);
+    if (schemaNum && listedGuide !== schemaNum) drift.push(`SUPABASE-SETUP.md lists ${listedGuide}`);
+    add('schema-version-lists', drift.length ? FAIL : PASS,
+      'every released-version list reaches SCHEMA_VERSION',
+      drift.length
+        ? `${drift.join(' · ')} — SCHEMA_VERSION is ${schemaNum}`
+        : `header, migration and setup guide all at ${schemaNum}`);
+
     const missing = ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md']
       .filter((f) => !existsSync(`${cwd}/${f}`));
     add('doc-set', missing.length ? FAIL : PASS,
