@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.6';
+export const APP_VERSION = '1.21.7';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.7', date: '2026-11-06', schema: 18,
+    highlights: [
+      'The licence function never deployed — and not because of the function. Supabase CLI 3.0.0 became `latest` on 2026-11-02 and refuses to load a `supabase/config.toml` written by 2.x, so `functions deploy` exits at config load with a message about local email. This project carries no config.toml at all; the file an older CLI left in the working tree is the thing to delete.',
+      '`npm run deploy:function -- <ref>` replaces the one-liner: it checks the project ref, refuses when the CLI cannot load the local config and says which file and which two ways out, type-checks the function with the same `deno check` CI runs, and then deploys.',
+      'The guide now uses `--remote` instead of `--project-ref` (deprecated in 3.x, removed in 4.x, and the flag that decides whether `db push` hits the remote database or the local one).',
+    ],
+  },
   {
     version: '1.21.6', date: '2026-11-06', schema: 18,
     highlights: [

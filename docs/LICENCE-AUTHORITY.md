@@ -117,7 +117,43 @@ npx supabase secrets set \
   LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----" \
   MYCLINIC_ORIGINS="https://clinic.github.io"
 
-npx supabase functions deploy sync-clinic-license --project-ref <CLINIC_PROJECT_REF>
+npm run deploy:function -- <CLINIC_PROJECT_REF>
+```
+
+That wrapper type-checks the function with the same `deno check` CI runs, refuses
+to run if the working tree carries a `supabase/config.toml` that the current CLI
+cannot load (see below), and then deploys with the flags of the current CLI. The
+raw command it runs is:
+
+```bash
+npx supabase@3 functions deploy sync-clinic-license --remote=<CLINIC_PROJECT_REF>
+```
+
+`--remote` replaces `--project-ref`, which 3.x deprecates and 4.x removes; `--remote`
+also matters for `supabase db push`, which in 3.x targets the **local** database
+unless it is given.
+
+**If the deploy exits before it bundles anything**, the message is not about the
+function:
+
+```text
+[inbucket] in supabase/config.toml is no longer supported. Use [local_smtp] instead.
+```
+
+Supabase CLI 3.0.0 became `latest` on 2026-11-02 and refuses to load a config
+written by 2.x. Renaming `[inbucket]` to `[local_smtp]` fixes 3.x and breaks every
+2.x CLI, so this project carries **no** `supabase/config.toml` at all — it is
+applied by pasting `schema.sql`, not by `supabase start`. If an old CLI left one in
+your working tree, delete it (it is untracked):
+
+```bash
+rm supabase/config.toml
+```
+
+Or pin the CLI you deploy with, which is the other half of the same decision:
+
+```bash
+SUPABASE_CLI=2.122.1 npm run deploy:function -- <CLINIC_PROJECT_REF>
 ```
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are injected by

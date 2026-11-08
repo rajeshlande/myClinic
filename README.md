@@ -85,6 +85,7 @@ Requirements: **Node 26 LTS** (pinned in `.nvmrc`; anything ≥ 22.22 works) and
 | `npm test` | 286 unit tests across 13 suites |
 | `npm run check:pages` | Proves the bundle is deployable as-is |
 | `npm run check:key` | Is a licence public key usable — and are two of them the same key |
+| `npm run deploy:function` | Deploys the licence Edge Function: type-checks it, dodges the CLI's config trap, then deploys |
 | `npm run verify` | `test` + `build` + `check:pages` — the gate CI runs |
 
 ## Screenshots

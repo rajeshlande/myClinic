@@ -3,6 +3,28 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.7] — 2026-11-06 · schema 18
+
+**The deploy never reached the function.**
+
+- **What stopped it.** `npx supabase functions deploy` printed a warning about
+  `--project-ref`, then a note about `[inbucket]` in `supabase/config.toml`, then
+  exited. Supabase CLI **3.0.0 became `latest` on 2026-11-02** and refuses to load a
+  `config.toml` written by 2.x, so it dies at *config load* — before it bundles,
+  before it uploads, and with a message about local email that never mentions the
+  function.
+- **Why the config is not renamed here.** `[inbucket]` works on 2.x and is refused
+  by 3.x; `[local_smtp]` is the reverse. This project carries no `supabase/config.toml`
+  at all — `schema.sql` is applied by pasting it — so the fix is to delete the
+  untracked file an older CLI left behind, not to pick a side in that trench.
+- **`npm run deploy:function -- <ref>`** does the whole thing: refuses without a
+  real project ref, refuses when the working tree has a config the CLI cannot load
+  (naming the file and the two ways out), type-checks the function with the same
+  `deno check` CI runs, then deploys with the current CLI's flags.
+- **`--remote` instead of `--project-ref`** throughout the guide: deprecated in 3.x,
+  removed in 4.x, and the flag that decides whether `db push` touches the remote
+  database or the local one.
+
 ## [1.21.6] — 2026-11-06 · schema 18
 
 **`token-key` was never about the token.**
