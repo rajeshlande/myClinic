@@ -204,6 +204,35 @@ A build compiled without the key cannot be repaired from the browser: the app is
 told whether an authority exists at build time, which is why the deploy log says
 so out loud.
 
+### The variable is set and the card still says *Not in this build*
+
+Work down this list — each line is a real way for a repository variable to exist
+and still not reach the bundle:
+
+1. **Did a build run after you added it?** Adding or editing a variable starts
+   nothing. Re-run the Pages workflow (Actions → Pages → *Re-run all jobs*) or push
+   any commit. The card prints the build it is running (`build v1.21.3 · …`), and
+   the landing page footer prints the version — if either predates your change, you
+   are looking at an older artifact, not at a broken variable.
+2. **Variables tab, not Secrets tab.** The workflow reads
+   `${{ vars.VITE_LICENSE_PUBLIC_KEY }}`. A value stored under *Secrets* is
+   `secrets.…` and leaves `vars.…` empty. The key is public; it belongs in
+   Variables.
+3. **Repository scope, not environment scope.** The `build` job declares no
+   `environment:`, so a variable scoped to the `github-pages` environment is
+   invisible to it. Create it at *Settings → Secrets and variables → Actions →
+   Variables* with no environment selected.
+4. **The right repository.** A variable on the authority repo does nothing for the
+   clinic app, and vice versa.
+5. **The shape of the value.** It must be the whole PEM, `-----BEGIN PUBLIC KEY-----`
+   included. If it is not, the deploy fails the job with *Public key not recognised*
+   rather than deploying silently — so a green run means the value was well-formed
+   or empty.
+6. **A stray `.env.local` in CI.** If the build also reads a committed or generated
+   `.env` file, it can override the variable. `vite` gives `import.meta.env` the
+   process environment precedence, so this is rare — but delete the file if the
+   guard says *did not reach the bundle*.
+
 ---
 
 ## When it refuses

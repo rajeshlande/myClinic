@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.2';
+export const APP_VERSION = '1.21.3';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.3', date: '2026-11-06', schema: 18,
+    highlights: [
+      '“Not in this build” now prints the build it is talking about: `This build: v1.21.3 · <stamp>`. The first question a stale deploy asks is “is this even the artifact I just made?”, and the card could not answer it — the version was two screens away in Settings.',
+      'The deploy notice for a missing public key names the three ways a repository variable exists and still does not reach the bundle: the Variables tab (`vars.*` does not read Secrets), repository scope (the build job declares no `environment:`, so an environment-scoped variable is invisible), and the fact that adding a variable starts no build. Re-running the workflow is the fix.',
+      '`docs/LICENCE-AUTHORITY.md` gains the matching six-line checklist for “the variable is set and the card still says Not in this build”.',
+    ],
+  },
   {
     version: '1.21.2', date: '2026-11-06', schema: 18,
     highlights: [

@@ -3,6 +3,29 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.3] — 2026-11-06 · schema 18
+
+**Which build am I looking at?**
+
+- **The authority card now prints its own build**: `This build: v1.21.3 · <stamp>`,
+  on the unconnected branch and beside the fingerprint on the bound one. When a
+  card says *Not in this build*, the next question is always whether the deploy in
+  front of you is the one you just triggered — answering it used to mean hunting
+  for the version in Settings or the landing-page footer.
+- **The missing-key notice in `pages.yml` now names the three traps** that make a
+  repository variable exist without reaching a bundle:
+  1. *Variables*, not *Secrets* — the workflow reads `vars.VITE_LICENSE_PUBLIC_KEY`,
+     and a value under Secrets leaves it empty;
+  2. repository scope, not environment scope — the `build` job declares no
+     `environment:`, so a variable scoped to `github-pages` is invisible to it;
+  3. adding a variable starts no run — the workflow has to be re-run after.
+- **`docs/LICENCE-AUTHORITY.md`** carries the same checklist as six numbered
+  steps, including the PEM shape and the `.env.local`-in-CI edge case.
+
+Nothing about the licensing logic changed: a build made *with* the key already
+behaved correctly, which is what this release is for — telling those two states
+apart without guessing.
+
 ## [1.21.2] — 2026-11-06 · schema 18
 
 **A 403 that explains itself.**

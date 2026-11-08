@@ -103,7 +103,7 @@ jobs:
           # refuse the one mistake that cannot be undone — a private key in a
           # variable that is compiled into a public bundle.
           if [ -z "${VITE_LICENSE_PUBLIC_KEY:-}" ]; then
-            echo "::notice title=No licence authority::VITE_LICENSE_PUBLIC_KEY is not set as a repository variable, so this deploy licenses itself locally and the Subscription screen will not offer a licence check. Add it under Settings -> Secrets and variables -> Actions -> Variables (the PUBLIC key only), then re-run this workflow."
+            echo "::notice title=No licence authority::VITE_LICENSE_PUBLIC_KEY reached this build empty, so this deploy licenses itself locally and the Subscription screen says 'Not in this build'. Check three things: (1) it is on the Variables tab, not the Secrets tab -- vars.* reads Variables only; (2) it is repository-wide, not scoped to the github-pages environment -- this build job declares no environment, so an environment variable is invisible to it; (3) adding or changing a variable does NOT start a run, so re-run this workflow afterwards. Then look for 'Licence authority configured' in this step's log."
           elif grep -q 'PRIVATE KEY' <<< "${VITE_LICENSE_PUBLIC_KEY}"; then
             echo "::error title=Private key in a public variable::VITE_LICENSE_PUBLIC_KEY contains a PRIVATE KEY block. Everything here is compiled into the bundle and served to every visitor. Remove the variable and roll the authority's key pair before doing anything else."
             status=1

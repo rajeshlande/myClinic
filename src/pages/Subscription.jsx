@@ -11,7 +11,7 @@ import {
   GRACE_DAYS, TRIAL_DAYS, billingPeriod, canWrite, formatExpiry, licenseHeadline, licenseTone,
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
-import { SCHEMA_VERSION } from '../lib/version.js';
+import { APP_VERSION, BUILD_LABEL, SCHEMA_VERSION } from '../lib/version.js';
 import { authorityConfig, authorityErrorMessage, authorityPanel, seatsForTier } from '../lib/authority.mjs';
 
 const PLAN_BLURB = {
@@ -268,6 +268,7 @@ export default function Subscription() {
                     <Fingerprint size={12} />
                     <span className="mono">{authority?.fingerprint || authorityBinding?.fingerprint || '—'}</span>
                   </span>
+                  <span className="tiny faint mono">build v{APP_VERSION} · {BUILD_LABEL}</span>
                   <span className="tiny faint">
                     {store.authoritySync?.at || authorityBinding?.synced_at
                       ? `Last checked ${formatExpiry(store.authoritySync?.at ?? authorityBinding?.synced_at)}`
@@ -298,6 +299,7 @@ export default function Subscription() {
                     </span>
                   </div>
                 ) : null}
+                <span className="tiny faint mono">This build: v{APP_VERSION} · {BUILD_LABEL}</span>
                 {store.authoritySync?.state === 'error' && store.authoritySync?.error ? (
                   <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 11 }}>
                     <TriangleAlert size={14} />
