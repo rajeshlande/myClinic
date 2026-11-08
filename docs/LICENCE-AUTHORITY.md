@@ -1,0 +1,202 @@
+# Connecting a clinic to the licence authority
+
+`myClinic` can take its subscription from an external licence authority —
+[`myClinicLicenseAuthority`](https://github.com/rajeshlande/myClinicLicenseAuthority)
+— instead of licensing itself. The authority's operator records payments in a
+Control Room, issues a 32-character licence key, and its Supabase Edge Function
+signs a **7-day RS256 capability token** for each clinic deployment.
+
+This page is the clinic side of that handshake, and the reasoning behind it.
+
+---
+
+## Who enforces what
+
+Three separate things check the same token. Only one of them can actually stop a
+clinic from writing, and it is not the browser.
+
+| Layer | Runs where | Verifies | Can be bypassed by |
+| --- | --- | --- | --- |
+| 1. Authority | vendor's Supabase Edge Function | licence key, hardware/origin fingerprint, seat cap, contract dates | — (private key never leaves it) |
+| 2. **Clinic Edge Function** (`supabase/functions/sync-clinic-license`) | **the clinic's own Supabase project** | RS256 signature with the public key, then writes `apply_authority_license()` | nobody: `service_role` only, and the tenant has no such key |
+| 3. Browser | the clinic's SPA | RS256 signature again, with the same public key | someone with DevTools — **which is why it decides nothing** |
+
+Layer 3 exists so the Subscription screen can show a signed fact (tier, contract
+date, seat caps) rather than a status string the page invented. Layer 2 is the
+enforcement: `public_can_write`, the RLS policies and the write guards all read
+`clinic_subscriptions`, and only a `service_role` caller may write the verdict
+there. Editing JavaScript in Chrome cannot reach it.
+
+**Consequence worth stating plainly:** the licence key stays in the clinic's Edge
+Function secrets. It is never compiled into the bundle. The authority also offers
+a browser-only mode that embeds `VITE_LICENSE_KEY`; myClinic deliberately does
+not use it.
+
+---
+
+## What you need
+
+| Item | Where it comes from | Where it goes |
+| --- | --- | --- |
+| `AUTHORITY_VERIFY_URL` | `https://<authority-ref>.supabase.co/functions/v1/verify-license` | Edge Function secret |
+| `LICENSE_KEY` | the Control Room, when you provision the subscription | Edge Function secret |
+| `LICENSE_PUBLIC_KEY` | `npm run keygen` in the authority repo (`SPKI`, public half) | Edge Function secret **and** the app build variable |
+| `MYCLINIC_ORIGINS` *(optional)* | your deployment origin, e.g. `https://clinic.github.io` | Edge Function secret |
+| Clinic project ref | Supabase → your clinic project | `npx supabase link` |
+
+The public key is safe in both places — it can only *verify*, never sign.
+
+---
+
+## Step 1 — let the browser verify tokens
+
+The app needs the public key so it can check what the Edge Function hands back.
+Add it as a build variable (GitHub → Settings → Secrets and variables → Actions →
+Variables):
+
+```dotenv
+VITE_LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...\n-----END PUBLIC KEY-----"
+```
+
+Locally, the same line goes in `.env.local`. With no key present the whole
+feature is dormant: myClinic licenses itself locally exactly as it did before,
+and the Subscription page says so.
+
+Optional, if you ever run the authority under a different `iss`:
+
+```dotenv
+VITE_LICENSE_ISSUER=myclinic-license-authority
+```
+
+---
+
+## Step 2 — deploy the clinic's Edge Function
+
+This is the function in `supabase/functions/sync-clinic-license/`. It is part of
+this repository, so it ships with the app.
+
+```bash
+npx supabase login
+npx supabase link --project-ref <CLINIC_PROJECT_REF>
+
+npx supabase secrets set \
+  AUTHORITY_VERIFY_URL="https://<authority-ref>.supabase.co/functions/v1/verify-license" \
+  LICENSE_KEY="7A3F91C4082BD6E54A109F83C2D17E6B" \
+  LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----" \
+  MYCLINIC_ORIGINS="https://clinic.github.io"
+
+npx supabase functions deploy sync-clinic-license --project-ref <CLINIC_PROJECT_REF>
+```
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are injected by
+the platform; you never set them.
+
+What the function does, in order:
+
+1. rejects anything that is not a signed-in **owner** of the clinic being synced
+   (checked with the caller's own JWT, so RLS decides — not a header the caller
+   controls);
+2. optionally rejects an origin that is not on `MYCLINIC_ORIGINS`;
+3. calls the authority with `{ license_key, machine_fingerprint: "web:<origin>" }`;
+4. verifies the returned token itself — signature, `iss`, `exp`/`iat`, fingerprint,
+   licence key and contract date — and refuses anything that does not add up;
+5. records the verdict through `apply_authority_license()` with the service role;
+6. returns the token, so the browser can verify it too.
+
+---
+
+## Step 3 — connect the clinic
+
+Paste `supabase/schema.sql` again. It is additive and lands the project at schema
+**18**, which is what creates `apply_authority_license()` and the binding columns.
+
+Open **Subscription** as the owner and press **Check the licence now**. The card
+shows the tier, the contract date, the seat caps, the deployment fingerprint and
+when it was last verified. From then on the clinic phones home on boot whenever
+six hours have passed, and only the owner triggers it — every other seat reads
+what the database already holds.
+
+---
+
+## What changes once a clinic is bound
+
+- **Renewal, plan change and a second trial stop working in the app.** The three
+  database functions raise `license:managed` (`42501`); the app hides the plan
+  picker and the payment dialog rather than offering an action that would be
+  refused. Money is collected by the authority.
+- **The plan comes from the tier.** `solo → solo`, `standard|growth → growth`,
+  `chain|enterprise → chain`. An unknown tier is refused outright rather than
+  guessed at.
+- **Seats follow the tier**: 1/1/1, 5/3/1, or unlimited.
+- **Offline behaviour is unchanged and deliberate:**
+
+  | Situation | What the clinic gets |
+  | --- | --- |
+  | Authority reachable, contract live | `active`, writing allowed |
+  | Authority unreachable, token still valid (≤ 7 days) | keeps the last verdict, writing allowed |
+  | Authority unreachable, token expired | stays on the last recorded period; the normal grace → read-only decay applies |
+  | Contract date passed | `read_only` — reads and exports still work |
+
+- **Unbinding is an operator action**, not a UI one:
+  `select public.unbind_authority_license('<clinic-id>', 'why');` — `service_role`
+  only, and it is logged in `license_events`.
+
+---
+
+## Optional: a heartbeat that does not need a browser
+
+myClinic syncs on boot. If you want the verdict refreshed even when nobody opens
+the app, schedule the Edge Function with `pg_cron` + `pg_net` in the clinic
+project. The service role key then has to live in Vault rather than in a policy:
+
+```sql
+select vault.create_secret('<clinic-service-role-key>', 'clinic_service_key');
+
+select cron.schedule('myclinic-licence-heartbeat', '0 */6 * * *', $$
+  select net.http_post(
+    url     := 'https://<clinic-ref>.supabase.co/functions/v1/sync-clinic-license',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'clinic_service_key')
+    ),
+    body    := jsonb_build_object('clinic_id', '<clinic-id>', 'origin', 'https://clinic.github.io')
+  );
+$$);
+```
+
+Note the trade: the function requires the **caller to be the owner**, and a cron
+job has no user, so this only works if you also allow a
+`service_role` bearer token through to the RPC path. Either keep the boot-time
+sync (recommended, no extra secret) or extend the function to accept a
+service-role caller. The boot-time sync is enough for every case where someone
+actually uses the clinic, which is the case that matters for enforcement.
+
+---
+
+## When it refuses
+
+| Code | What it means | What to do |
+| --- | --- | --- |
+| `not-configured` | the clinic's Edge Function has no authority secrets | run the `secrets set` step |
+| `not-owner` | a non-owner pressed the button | the owner signs in |
+| `origin-not-allowed` | the deployment origin is not on `MYCLINIC_ORIGINS` | add it, or fix the Pages URL |
+| `authority-refused` | the authority said no: revoked key, suspended or expired subscription, seat cap | check the Control Room; the message carries the authority's own sentence |
+| `authority-unreachable` | network or the authority is down | the clinic keeps working on its last valid licence |
+| `token-signature` / `token-issuer` | the token was not signed by the authority's key | the public keys on both sides disagree — re-copy `LICENSE_PUBLIC_KEY` |
+| `token-fingerprint` | the token was issued for a different deployment address | re-issue in the Control Room, or fix `MYCLINIC_ORIGINS` |
+| `token-expired` | the 7-day window closed while offline | open the app with a connection |
+| `license:managed` | a local renewal was attempted while bound | renewals happen in the Control Room |
+
+---
+
+## Testing it without the cloud
+
+`npm test` covers the whole verification path against real RS256 signatures —
+`tests/authority.test.mjs` mints its own keypair and signs its own tokens, so the
+verifier is exercised exactly as it is in production. The database side is
+`supabase/schema-tests.sql` **suite L**, which binds a clinic, proves the three
+tenant doors are shut, and proves a lapsed contract degrades to read-only.
+
+In the app, the browser layer runs even in the demo workspace's absence: with
+`VITE_LICENSE_PUBLIC_KEY` unset, every authority code path returns "not
+configured" and the rest of myClinic is untouched.

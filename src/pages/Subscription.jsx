@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  BadgeCheck, CalendarClock, Check, CreditCard, Download, IndianRupee, ReceiptText,
-  ShieldCheck, Sparkles, TriangleAlert, Users,
+  BadgeCheck, CalendarClock, Check, CreditCard, Download, Fingerprint, IndianRupee,
+  ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, Users,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -12,6 +12,7 @@ import {
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
 import { SCHEMA_VERSION } from '../lib/version.js';
+import { authorityConfig, authorityErrorMessage, seatsForTier } from '../lib/authority.mjs';
 
 const PLAN_BLURB = {
   solo: 'One doctor, one front desk. The whole clinic on a single screen.',
@@ -43,6 +44,21 @@ export default function Subscription() {
   const plan = license?.plan ?? 'growth';
   const seats = store.licenseSeats ?? [];
 
+  /**
+   * Two sources, one answer. `store.authority` is the RS256 token this browser
+   * verified itself; `license.authority.bound` is the verdict the clinic's Edge
+   * Function already wrote into the database. Either one means the subscription
+   * is not the clinic's to change, so the plan picker and the payment dialog go
+   * away — not hidden out of politeness, but because the database now refuses
+   * those calls with `license:managed`.
+   */
+  const authority = store.authority;
+  const authorityBinding = license?.authority ?? null;
+  const managed = Boolean(authority || authorityBinding?.bound);
+  const authorityConfigured = authorityConfig(import.meta.env).enabled;
+  const tierSeats = seatsForTier(authority?.tier ?? authorityBinding?.tier ?? '');
+  const tierName = String(authority?.tier ?? authorityBinding?.tier ?? '').trim();
+
   const buy = async () => {
     if (!isOwner) { toast.error('Only the clinic owner can change the subscription.'); return; }
     setBusy(true);
@@ -66,6 +82,18 @@ export default function Subscription() {
       setRenewOpen(false); setReference('');
     } catch (e) {
       toast.error(e.message ?? 'Could not renew the subscription.');
+    } finally { setBusy(false); }
+  };
+
+  const syncLicence = async () => {
+    setBusy(true);
+    try {
+      const result = await store.syncAuthority();
+      if (result?.ok) toast.success(`Licence verified — ${result.view?.tier ?? 'active'} until ${formatExpiry(result.view?.endsAt)}.`);
+      else if (result) toast.error(authorityErrorMessage(result.code, result.error));
+      else toast.error('This build is not connected to a licence authority.');
+    } catch (e) {
+      toast.error(e.message ?? 'The licence could not be synced.');
     } finally { setBusy(false); }
   };
 
@@ -143,7 +171,25 @@ export default function Subscription() {
           </div>
 
           <div className="row wrap" style={{ gap: 8, marginTop: 16 }}>
-            {isOwner ? (
+            {managed ? (
+              <>
+                {isOwner ? (
+                  <Button
+                    variant="primary"
+                    icon={RefreshCw}
+                    loading={busy || store.authoritySync?.state === 'syncing'}
+                    onClick={syncLicence}
+                  >
+                    Check the licence now
+                  </Button>
+                ) : (
+                  <span className="tiny muted">Only the clinic owner can check the licence with the authority.</span>
+                )}
+                <span className="tiny muted">
+                  Plan and renewal are managed by the licence authority — they are changed in its Control Room, not here.
+                </span>
+              </>
+            ) : isOwner ? (
               <>
                 <Button variant="primary" icon={Sparkles} onClick={() => setOpen(plan)}>Change plan</Button>
                 <Button variant="subtle" icon={CalendarClock} onClick={() => setRenewOpen(true)}>Record a payment</Button>
@@ -152,7 +198,7 @@ export default function Subscription() {
               <span className="tiny muted">Only the clinic owner can change the subscription.</span>
             )}
             <Button variant="ghost" icon={Download} onClick={exportBilling}>Export summary</Button>
-            {isOwner && !writable ? (
+            {isOwner && !writable && !managed ? (
               <Button variant="subtle" icon={BadgeCheck} onClick={() => store.startTrial().then(() => toast.success('Trial restarted.')).catch((e) => toast.error(e.message))}>
                 Restart 14-day trial
               </Button>
@@ -160,6 +206,82 @@ export default function Subscription() {
           </div>
         </div>
       </Card>
+
+      {/* ----------------------------------------------------- licence authority */}
+      {(managed || authorityConfigured) ? (
+        <Card style={{ marginBottom: 16 }}>
+          <CardHead
+            title="Licence authority"
+            sub={managed
+              ? 'This clinic’s subscription is issued and signed by the licence authority.'
+              : 'This build can check a licence authority; this clinic is not bound to one yet.'}
+            icon={ShieldCheck}
+            action={(
+              <Badge tone={managed ? 'success' : 'neutral'} dot>
+                {managed ? (authority?.status === 'read_only' ? 'Contract ended' : 'Verified') : 'Not connected'}
+              </Badge>
+            )}
+          />
+          <div className="card-body stack" style={{ gap: 12 }}>
+            {managed ? (
+              <>
+                <div className="grid two" style={{ gap: 14, alignItems: 'start' }}>
+                  <div className="stack" style={{ gap: 6 }}>
+                    <span className="eyebrow">Tier</span>
+                    <strong style={{ fontSize: '1.15rem', textTransform: 'capitalize' }}>{tierName || '—'}</strong>
+                    <span className="tiny muted">
+                      {tierSeats.doctors === null
+                        ? 'Unlimited doctors, front desk and branches'
+                        : `${tierSeats.doctors} doctors · ${tierSeats.frontdesk} front desk · ${tierSeats.branches} branch`}
+                    </span>
+                    <span className="tiny faint mono">
+                      {authority?.subscriptionId || authorityBinding?.subscription_id || '—'}
+                    </span>
+                  </div>
+                  <div className="stack" style={{ gap: 6 }}>
+                    <span className="eyebrow">Contract</span>
+                    <span className="small">
+                      {authority?.endsAt || authorityBinding?.token_exp
+                        ? `Valid until ${formatExpiry(authority?.endsAt ?? license?.endsAt)}`
+                        : 'No contract date yet'}
+                    </span>
+                    {typeof authority?.daysLeft === 'number' ? (
+                      <span className="tiny" style={{ color: authority.daysLeft <= 14 ? 'var(--warn)' : 'var(--muted)' }}>
+                        {authority.daysLeft > 0 ? `${authority.daysLeft} days left on the contract` : 'The contract has ended — the clinic is read-only.'}
+                      </span>
+                    ) : null}
+                    {authority?.tokenExp ? (
+                      <span className="tiny faint">Offline token valid until {formatExpiry(authority.tokenExp)}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="row wrap" style={{ gap: 14, alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+                  <span className="tiny muted row" style={{ gap: 6 }}>
+                    <Fingerprint size={12} />
+                    <span className="mono">{authority?.fingerprint || authorityBinding?.fingerprint || '—'}</span>
+                  </span>
+                  <span className="tiny faint">
+                    {store.authoritySync?.at || authorityBinding?.synced_at
+                      ? `Last checked ${formatExpiry(store.authoritySync?.at ?? authorityBinding?.synced_at)}`
+                      : 'Not checked on this device yet'}
+                  </span>
+                  {store.authoritySync?.error ? (
+                    <span className="tiny" style={{ color: 'var(--warn)' }}>
+                      <TriangleAlert size={11} /> {store.authoritySync.error}
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <p className="small muted" style={{ margin: 0 }}>
+                The licence key, the authority address and the public key are set as Edge Function secrets in this
+                clinic’s Supabase project. Until they are, myClinic licenses itself locally, as before.
+              </p>
+            )}
+          </div>
+        </Card>
+      ) : null}
 
       {/* ---------------------------------------------------------- plan grid */}
       <div className="grid three" style={{ gap: 14 }}>
@@ -201,10 +323,12 @@ export default function Subscription() {
                   <Button
                     variant={p.popular ? 'primary' : 'subtle'}
                     className="block"
-                    disabled={!isOwner}
+                    disabled={!isOwner || managed}
                     onClick={() => setOpen(p.id)}
                   >
-                    {cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
+                    {managed
+                      ? 'Managed by the authority'
+                      : cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
                   </Button>
                 )}
                 {cost && !current ? (

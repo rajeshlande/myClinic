@@ -7,7 +7,7 @@
   <p>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
     <a href="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml"><img src="https://github.com/rajeshlande/myClinic/actions/workflows/pages.yml/badge.svg" alt="Deploy" /></a>
-    <img src="https://img.shields.io/badge/schema-17-blue.svg" alt="schema 17" />
+    <img src="https://img.shields.io/badge/schema-18-blue.svg" alt="schema 18" />
     <img src="https://img.shields.io/badge/node-26.13.0-brightgreen.svg" alt="node 26" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
   </p>
@@ -201,8 +201,8 @@ src/
   pages/                  one file per screen
   components/             forms, layout, charts, document shells
 supabase/
-  schema.sql              the whole database: tables, policies, functions, migrations 1→17
-  schema-tests.sql        thirteen rolled-back SQL suites
+  schema.sql              the whole database: tables, policies, functions, migrations 1→18
+  schema-tests.sql        fourteen rolled-back SQL suites
 tests/                    286 unit tests across 13 suites
 docs/                     setup, security, dependency and gap analysis
 scripts/                  check-pages.mjs, security-check.mjs
@@ -233,7 +233,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql    # migrate
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql  # prove it
 ```
 
-Current schema level: **17**, exposed by `app_schema_version()`. The app warns
+Current schema level: **18**, exposed by `app_schema_version()`. The app warns
 when the database is behind it, and every upgrade path is exercised before a
 release — a fresh install and an N → N+1 upgrade, both followed by the SQL suites.
 
@@ -250,8 +250,8 @@ node scripts/security-check.mjs
 
 | Gate | Scope |
 |---|---|
-| `npm test` | **439 tests / 21 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
-| `supabase/schema-tests.sql` | **Thirteen SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion, hours, profiles, the drug directory and drug search at scale, investigations, and the audit fixes (schema 17). |
+| `npm test` | **460 tests / 22 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the licence authority (real RS256 signatures), replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
+| `supabase/schema-tests.sql` | **Thirteen SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion, hours, profiles, the drug directory and drug search at scale, investigations, the audit fixes (schema 17) and the licence authority (schema 18). |
 | CI (`.github/workflows/ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
 
 SQL is never shipped unverified: it is applied to a real PostgreSQL 17 and the

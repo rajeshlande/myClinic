@@ -3,6 +3,44 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.20.0] — 2026-11-06 · schema 18
+
+**A clinic can take its subscription from the licence authority instead of
+licensing itself.**
+
+- **Three layers, one enforcement point.** The authority
+  ([`myClinicLicenseAuthority`](https://github.com/rajeshlande/myClinicLicenseAuthority))
+  signs a 7-day RS256 capability token. The clinic's own Edge Function
+  (`supabase/functions/sync-clinic-license/`) verifies it with the SPKI public key
+  and records the verdict through `apply_authority_license()` — `service_role`
+  only, so a signed-in owner cannot write it. The browser verifies the same token
+  again, and decides nothing: it exists so the Subscription card can show a
+  *signed* tier, contract date and seat caps rather than a status string the page
+  made up. Editing JavaScript in DevTools reaches none of the layers that matter.
+- **The licence key never enters the bundle.** The browser asks the clinic's Edge
+  Function, which holds `LICENSE_KEY` and the service role key as secrets. The
+  authority's own browser-only mode embeds the key in public JS; myClinic does not
+  use that mode.
+- **Bound clinics stop licensing themselves.** `renew_subscription()`,
+  `change_plan()` and `start_trial()` raise `license:managed` (42501) once
+  `authority_subscription_id` is set, and the Subscription page shows the authority
+  card instead of the plan picker and the payment dialog. This is the last
+  tenant-writable door the schema-17 audit left open.
+- **Tiers map onto plans**: `solo → solo`, `standard|growth → growth`,
+  `chain|enterprise → chain`; an unknown tier is refused rather than guessed at.
+  Seat caps follow: 1/1/1, 5/3/1, unlimited.
+- **Offline stays deliberate.** The authority's contract date lands in
+  `current_period_end`, so a valid token keeps the clinic writing for its seven
+  days and a contract that has ended degrades to read-only through the existing
+  grace window. A clinic never loses access to its own records because a network
+  was down.
+- **New**: `apply_authority_license()` and `unbind_authority_license()` (operator
+  escape hatch, logged), the `authority_*` columns on `clinic_subscriptions`, a
+  `sync` kind in `license_events`, the `authority` block in `license_state()`,
+  `src/lib/authority.mjs` (verification, tiers, cache), `src/lib/authority-sync.mjs`
+  (phone-home with offline fallback), and `supabase/schema-tests.sql` suite L.
+  `docs/LICENCE-AUTHORITY.md` is the whole connection guide.
+
 ## [1.19.2] — 2026-11-06 · schema 17
 
 **`npm run verify` runs on Windows.**

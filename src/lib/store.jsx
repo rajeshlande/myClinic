@@ -8,6 +8,8 @@ import { nextId } from './logic.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
+import { AUTHORITY_FUNCTION, authorityConfig, syncDue } from './authority.mjs';
+import { cachedClinicLicense, syncClinicLicense } from './authority-sync.mjs';
 import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
 import { TRIAL_DAYS } from './license.mjs';
@@ -77,6 +79,13 @@ export function StoreProvider({ children, session }) {
   const [syncState, setSyncState] = useState('idle');  // idle | syncing | offline | error
   const [lastSyncedAt, setLastSyncedAt] = useState(() => readSyncMeta().lastSyncedAt ?? null);
   const [usingCache, setUsingCache] = useState(false);
+  // ---- licence authority -----------------------------------------------------
+  // `authority` is what the authority's signed token says, verified in the
+  // browser; `null` means there is no authority view to show (unbound clinic, or
+  // no token yet). It never decides whether a write is allowed — the database
+  // does — so a failure here degrades the card, not the clinic.
+  const [authority, setAuthority] = useState(null);
+  const [authoritySync, setAuthoritySync] = useState({ state: 'idle', at: null, error: '' });
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -776,6 +785,85 @@ export function StoreProvider({ children, session }) {
     return licenceRpc('set_license_status', { p_clinic: stateRef.current.clinic?.id, p_status: status });
   }, [mode, applyLicense, licenceRpc]);
 
+  /**
+   * Phone home to the licence authority.
+   *
+   * The browser asks this clinic's own Edge Function, which holds the licence
+   * key and the service_role key; it verifies the RS256 token, records the
+   * verdict in `clinic_subscriptions`, and hands the token back so we can verify
+   * it here too. Two consequences worth stating: the licence key never enters
+   * the bundle, and the screen can show a signed fact rather than a status
+   * string the page invented.
+   */
+  const syncAuthority = useCallback(async ({ silent = false } = {}) => {
+    if (mode !== 'live') return null;
+    const cfg = authorityConfig(import.meta.env);
+    const clinic = stateRef.current.clinic;
+    if (!cfg.enabled || !clinic?.id) return null;
+
+    if (!silent) setAuthoritySync((prev) => ({ ...prev, state: 'syncing', error: '' }));
+    const result = await syncClinicLicense({
+      invoke: (body) => supabase.functions.invoke(AUTHORITY_FUNCTION, { body }),
+      clinicId: clinic.id,
+      publicKeyPem: cfg.publicKeyPem,
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
+      now: new Date(),
+      expectedIssuer: cfg.issuer,
+    });
+
+    if (result.view) setAuthority(result.view);
+    setAuthoritySync({
+      state: result.ok ? 'ok' : 'error',
+      at: result.syncedAt ?? new Date().toISOString(),
+      error: result.ok ? '' : result.error,
+    });
+
+    // The verdict lives in the database, so re-read the licence rather than
+    // assembling one here: one source of truth for the status the guards use.
+    if (result.ok) {
+      const { data } = await supabase.rpc('license_state', { p_clinic: clinic.id });
+      if (data) applyLicense(data);
+    }
+    return result;
+  }, [mode, applyLicense]);
+
+  /**
+   * Boot phone-home: show the cached licence at once, then refresh it if the
+   * six-hour window has passed. Only the owner triggers the sync — it spends an
+   * authority seat slot — so every other seat simply reads what the database
+   * already holds.
+   */
+  const authorityBootedFor = useRef('');
+  useEffect(() => {
+    if (mode !== 'live' || !ready) return undefined;
+    const clinicId = state.clinic?.id;
+    if (!clinicId) return undefined;
+    const cfg = authorityConfig(import.meta.env);
+    if (!cfg.enabled) return undefined;
+    if (authorityBootedFor.current === clinicId) return undefined;
+    authorityBootedFor.current = clinicId;
+
+    let cancelled = false;
+    (async () => {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const cached = await cachedClinicLicense({
+        clinicId, publicKeyPem: cfg.publicKeyPem, origin,
+        storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
+        expectedIssuer: cfg.issuer,
+      }).catch(() => null);
+      if (cancelled) return;
+      if (cached?.view) setAuthority(cached.view);
+
+      const isOwner = (state.staff ?? []).some((s) => s.user_id === userId && s.role === 'owner');
+      if (!isOwner) return;
+      if (!syncDue({ lastSyncedAt: cached?.syncedAt })) return;
+      await syncAuthority({ silent: true }).catch(() => {});
+    })();
+
+    return () => { cancelled = true; };
+  }, [mode, ready, state.clinic, state.staff, userId, syncAuthority]);
+
   const startTrial = useCallback(async () => {
     if (mode === 'demo') {
       return applyLicense({
@@ -847,12 +935,15 @@ export function StoreProvider({ children, session }) {
     // licensing
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial,
+    // licence authority (verified RS256 token, never the source of enforcement)
+    authority, authoritySync, syncAuthority,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
     resetDemo, bootDemo, refresh, searchDrugDirectory,
     license, licenseSeats, licenseUsage, writable,
-    changePlan, renewSubscription, setLicenseStatus, startTrial]);
+    changePlan, renewSubscription, setLicenseStatus, startTrial,
+    authority, authoritySync, syncAuthority]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

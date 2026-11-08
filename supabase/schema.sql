@@ -3777,4 +3777,448 @@ begin
    where schema_version < 17;
 end $migration$;
 
+-- =============================================================================
+-- §18 · THE LICENCE AUTHORITY                        migration 18 · app v1.20.0
+--
+-- A clinic's subscription can now be owned by an external authority instead of
+-- the clinic's own database. `myClinicLicenseAuthority` issues a short-lived
+-- RS256 capability JWT (7 days) from its Supabase Edge Function; the clinic's
+-- Supabase project verifies that token and records the verdict here.
+--
+-- What changes, and why it is a schema migration rather than a client feature:
+--
+--   1. `clinic_subscriptions` remembers the authority's verdict — which
+--      subscription, which tier, which hardware/origin fingerprint, when the
+--      token expires and when we last heard from the authority.
+--
+--   2. `apply_authority_license()` is the *only* way that verdict is written.
+--      It is service_role only, so the clinic's Edge Function (which holds that
+--      key) is the one caller. A signed-in owner cannot call it, which is the
+--      whole point: the tenant stops being the authority over its own licence.
+--
+--   3. A bound clinic cannot renew, change plan or restart a trial locally.
+--      `renew_subscription()`, `change_plan()` and `start_trial()` raise
+--      `license:managed` (42501) once `authority_subscription_id` is set. This
+--      closes the last tenant-writable door left open by the schema-17 audit
+--      fixes: before, an owner could still renew itself with a made-up UPI
+--      reference; now, when an authority is bound, it cannot.
+--
+--   4. `license_state()` publishes the binding so the app can show a real
+--      authority card instead of a self-service plan picker.
+--
+-- Offline behaviour is deliberately unchanged: the authority's own expiry date
+-- lands in `current_period_end`, so the existing grace (7 days) and read-only
+-- decay apply by themselves when we stop hearing from it. A clinic that is
+-- offline with a valid period keeps working; one whose period has passed
+-- degrades exactly like a lapsed local subscription.
+--
+-- Additive and idempotent. A database already at 18 skips the block.
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 18 then
+    raise notice 'schema 18 (licence authority binding) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 18 (licence authority binding)';
+
+  -- ------------------------------------------------------- 1. the binding columns
+  execute $q$
+    alter table public.clinic_subscriptions
+      add column if not exists authority_subscription_id text,
+      add column if not exists authority_tier text,
+      add column if not exists authority_fingerprint text,
+      add column if not exists authority_origin text,
+      add column if not exists authority_token_exp timestamptz,
+      add column if not exists authority_synced_at timestamptz
+  $q$;
+
+  -- Constraints are dropped and re-added by name: `add column if not exists`
+  -- cannot carry one, and the block may be pasted twice.
+  execute $q$alter table public.clinic_subscriptions
+    drop constraint if exists clinic_subscriptions_authority_tier_check$q$;
+  execute $q$alter table public.clinic_subscriptions
+    add constraint clinic_subscriptions_authority_tier_check
+    check (authority_tier is null or authority_tier in ('solo','standard','growth','chain','enterprise'))$q$;
+
+  execute $q$alter table public.clinic_subscriptions
+    drop constraint if exists clinic_subscriptions_authority_lengths_check$q$;
+  execute $q$alter table public.clinic_subscriptions
+    add constraint clinic_subscriptions_authority_lengths_check
+    check (
+      (authority_subscription_id is null or char_length(authority_subscription_id) between 1 and 120)
+      and (authority_fingerprint is null or char_length(authority_fingerprint) between 1 and 512)
+      and (authority_origin is null or char_length(authority_origin) between 1 and 200)
+    )$q$;
+
+  execute $q$create index if not exists clinic_subscriptions_authority_idx
+    on public.clinic_subscriptions(authority_subscription_id)$q$;
+
+  -- `license_events` gains one kind. The table's own check constraint is
+  -- replaced rather than duplicated, so the log stays honest about what it holds.
+  execute $q$alter table public.license_events drop constraint if exists license_events_kind_check$q$;
+  execute $q$alter table public.license_events
+    add constraint license_events_kind_check
+    check (kind in ('renew','plan','trial','status','sync'))$q$;
+
+  -- ------------------------------------------- 2. the one door for the verdict
+  -- Called by the clinic's `sync-clinic-license` Edge Function with the
+  -- service_role key, after it has verified the authority's RS256 token.
+  execute $q$
+  create or replace function public.apply_authority_license(
+    p_clinic uuid,
+    p_subscription_id text,
+    p_tier text,
+    p_fingerprint text,
+    p_expires_at timestamptz,
+    p_token_exp timestamptz,
+    p_origin text default null
+  ) returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare
+    v_plan text;
+    v_status text;
+    v_status_before text;
+    v_plan_before text;
+  begin
+    if p_clinic is null then
+      raise exception 'a clinic is required' using errcode = '22023';
+    end if;
+    if char_length(btrim(coalesce(p_subscription_id, ''))) not between 1 and 120 then
+      raise exception 'the authority subscription id is required' using errcode = '22023';
+    end if;
+    if char_length(btrim(coalesce(p_fingerprint, ''))) not between 1 and 512 then
+      raise exception 'the authority machine fingerprint is required' using errcode = '22023';
+    end if;
+    if p_expires_at is null then
+      raise exception 'the authority expiry date is required' using errcode = '22023';
+    end if;
+
+    v_plan := case lower(btrim(coalesce(p_tier, '')))
+                when 'solo' then 'solo'
+                when 'standard' then 'growth'
+                when 'growth' then 'growth'
+                when 'chain' then 'chain'
+                when 'enterprise' then 'chain'
+                else null
+              end;
+    if v_plan is null then
+      raise exception 'unknown authority tier %', p_tier using errcode = '22023';
+    end if;
+
+    -- The authority is the judge of paid/unpaid; we only translate it. An
+    -- expired contract is read-only rather than expired, because the clinic can
+    -- still read and export its own records — same courtesy the local states get.
+    v_status := case when p_expires_at > now() then 'active' else 'read_only' end;
+
+    insert into public.clinic_subscriptions (clinic_id) values (p_clinic)
+    on conflict (clinic_id) do nothing;
+
+    select plan, status into v_plan_before, v_status_before
+      from public.clinic_subscriptions where clinic_id = p_clinic;
+
+    update public.clinic_subscriptions
+       set plan = v_plan,
+           status = v_status,
+           current_period_start = coalesce(current_period_start, now()),
+           current_period_end = p_expires_at,
+           collection_ref = left('RS256 · ' || coalesce(nullif(btrim(coalesce(p_origin, '')), ''), 'authority'), 120),
+           authority_subscription_id = btrim(p_subscription_id),
+           authority_tier = lower(btrim(p_tier)),
+           authority_fingerprint = btrim(p_fingerprint),
+           authority_origin = nullif(btrim(coalesce(p_origin, '')), ''),
+           authority_token_exp = p_token_exp,
+           authority_synced_at = now()
+     where clinic_id = p_clinic;
+
+    -- Every sync is logged, but a heartbeat that changes nothing says so in one
+    -- line instead of pretending to be a new event each six hours.
+    insert into public.license_events (clinic_id, actor, kind, plan, reference, note)
+    values (
+      p_clinic,
+      null,
+      'sync',
+      v_plan,
+      left(btrim(p_subscription_id), 120),
+      left(
+        case
+          when v_plan = v_plan_before and v_status = v_status_before
+            then format('heartbeat · %s', lower(btrim(p_tier)))
+          else format('%s → %s/%s · %s', coalesce(v_status_before,'none'), v_plan, v_status, lower(btrim(p_tier)))
+        end,
+        400)
+    );
+
+    return jsonb_build_object(
+      'clinic_id', p_clinic,
+      'plan', v_plan,
+      'status', v_status,
+      'tier', lower(btrim(p_tier)),
+      'subscription_id', btrim(p_subscription_id),
+      'fingerprint', btrim(p_fingerprint),
+      'current_period_end', p_expires_at,
+      'token_exp', p_token_exp,
+      'synced_at', now(),
+      'can_write', v_status = 'active'
+    );
+  end $fn$
+  $q$;
+
+  -- Support escape hatch: unbinding returns the clinic to local licensing. It is
+  -- not offered in the app, only to the operator, and it is logged like the rest.
+  execute $q$
+  create or replace function public.unbind_authority_license(p_clinic uuid, p_note text default '')
+  returns jsonb language plpgsql security definer set search_path = public as $fn$
+  begin
+    update public.clinic_subscriptions
+       set authority_subscription_id = null,
+           authority_tier = null,
+           authority_fingerprint = null,
+           authority_origin = null,
+           authority_token_exp = null,
+           authority_synced_at = null
+     where clinic_id = p_clinic;
+    insert into public.license_events (clinic_id, actor, kind, note)
+    values (p_clinic, null, 'status', left('authority unbound' || coalesce(' · ' || nullif(btrim(p_note), ''), ''), 400));
+    return jsonb_build_object('clinic_id', p_clinic, 'bound', false);
+  end $fn$
+  $q$;
+
+  -- ------------------------------------ 3. close the tenant doors when bound
+  execute $q$
+  create or replace function public.renew_subscription(
+    p_clinic uuid,
+    p_reference text default '',
+    p_months integer default null
+  ) returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare s public.clinic_subscriptions; v_from timestamptz; v_add interval; v_months integer;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can change the subscription' using errcode = '42501';
+    end if;
+    -- Managed by a licence authority: renewal happens in its Control Room.
+    if exists (select 1 from public.clinic_subscriptions
+                where clinic_id = p_clinic and authority_subscription_id is not null) then
+      raise exception 'license:managed' using errcode = '42501';
+    end if;
+    if char_length(btrim(coalesce(p_reference, ''))) < 4 then
+      raise exception 'a collection reference is required (UPI UTR, receipt number or bank reference)'
+        using errcode = '22023';
+    end if;
+
+    select * into s from public.clinic_subscriptions where clinic_id = p_clinic;
+    if not found then raise exception 'no subscription for this clinic' using errcode = '02000'; end if;
+
+    v_months := coalesce(p_months, case when s.interval = 'yearly' then 12 else 1 end);
+    if v_months < 1 or v_months > 12 then
+      raise exception 'months must be between 1 and 12' using errcode = '22023';
+    end if;
+
+    v_from := greatest(coalesce(s.current_period_end, now()), now());
+    v_add := make_interval(months => v_months);
+
+    update public.clinic_subscriptions
+       set status = 'active',
+           current_period_start = coalesce(current_period_start, now()),
+           current_period_end = v_from + v_add,
+           collection_ref = btrim(p_reference)
+     where clinic_id = p_clinic;
+
+    insert into public.license_events (clinic_id, actor, kind, plan, months, reference)
+    values (p_clinic, auth.uid(), 'renew', s.plan, v_months, btrim(p_reference));
+
+    return public.license_state(p_clinic);
+  end $fn$
+  $q$;
+
+  execute $q$
+  create or replace function public.change_plan(
+    p_clinic uuid,
+    p_plan text,
+    p_interval text default 'monthly',
+    p_billing jsonb default '{}'::jsonb
+  ) returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare
+    v_doctors integer;
+    v_frontdesk integer;
+    v_limit integer;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can change the subscription' using errcode = '42501';
+    end if;
+    if exists (select 1 from public.clinic_subscriptions
+                where clinic_id = p_clinic and authority_subscription_id is not null) then
+      raise exception 'license:managed' using errcode = '42501';
+    end if;
+    if p_plan not in ('solo','growth','chain') then
+      raise exception 'unknown plan %', p_plan using errcode = '22023';
+    end if;
+    if p_interval not in ('monthly','yearly') then
+      raise exception 'interval must be monthly or yearly' using errcode = '22023';
+    end if;
+
+    select count(*) filter (where role in ('owner','doctor')), count(*) filter (where role = 'frontdesk')
+      into v_doctors, v_frontdesk from public.staff where clinic_id = p_clinic and active;
+
+    v_limit := public.plan_seat_limit(p_plan, 'doctors');
+    if v_limit is not null and v_doctors > v_limit then
+      raise exception 'this clinic has % doctors; the % plan allows %', v_doctors, p_plan, v_limit
+        using errcode = '53400';
+    end if;
+    v_limit := public.plan_seat_limit(p_plan, 'frontdesk');
+    if v_limit is not null and v_frontdesk > v_limit then
+      raise exception 'this clinic has % front-desk seats; the % plan allows %', v_frontdesk, p_plan, v_limit
+        using errcode = '53400';
+    end if;
+
+    insert into public.clinic_subscriptions (clinic_id) values (p_clinic)
+    on conflict (clinic_id) do nothing;
+
+    update public.clinic_subscriptions s set
+      plan = p_plan,
+      interval = p_interval,
+      billing_name  = coalesce(nullif(p_billing->>'name',''),  s.billing_name),
+      billing_email = coalesce(nullif(p_billing->>'email',''), s.billing_email),
+      billing_phone = coalesce(nullif(p_billing->>'phone',''), s.billing_phone),
+      billing_gstin = coalesce(nullif(p_billing->>'gstin',''), s.billing_gstin),
+      collection_ref = coalesce(nullif(p_billing->>'collection_ref',''), s.collection_ref),
+      notes = coalesce(nullif(p_billing->>'notes',''), s.notes)
+    where s.clinic_id = p_clinic;
+
+    insert into public.license_events (clinic_id, actor, kind, plan, note)
+    values (p_clinic, auth.uid(), 'plan', p_plan, coalesce(p_billing->>'notes',''));
+
+    return public.license_state(p_clinic);
+  end $fn$
+  $q$;
+
+  execute $q$
+  create or replace function public.start_trial(p_clinic uuid)
+  returns jsonb language plpgsql security definer set search_path = public as $fn$
+  declare s public.clinic_subscriptions;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can start a trial' using errcode = '42501';
+    end if;
+    if exists (select 1 from public.clinic_subscriptions
+                where clinic_id = p_clinic and authority_subscription_id is not null) then
+      raise exception 'license:managed' using errcode = '42501';
+    end if;
+
+    select * into s from public.clinic_subscriptions where clinic_id = p_clinic;
+    if found and s.status = 'trial' and s.trial_ends_at > now() then
+      return public.license_state(p_clinic);   -- already on a live trial
+    end if;
+    if found and (s.current_period_end is not null or s.status in ('active','grace','read_only')) then
+      raise exception 'a trial has already been used for this clinic' using errcode = '53400';
+    end if;
+    if found and s.trial_ends_at < now() then
+      raise exception 'a trial has already been used for this clinic' using errcode = '53400';
+    end if;
+
+    insert into public.clinic_subscriptions (clinic_id, plan, status, trial_started_at, trial_ends_at)
+    values (p_clinic, 'growth', 'trial', now(), now() + interval '14 days')
+    on conflict (clinic_id) do update
+      set plan = 'growth', status = 'trial',
+          trial_started_at = coalesce(public.clinic_subscriptions.trial_started_at, now()),
+          trial_ends_at = now() + interval '14 days';
+
+    insert into public.license_events (clinic_id, actor, kind, plan, months)
+    values (p_clinic, auth.uid(), 'trial', 'growth', 0);
+
+    return public.license_state(p_clinic);
+  end $fn$
+  $q$;
+
+  -- ------------------------------------------ 4. publish the binding to the app
+  execute $q$
+  create or replace function public.license_state(p_clinic uuid)
+  returns jsonb language plpgsql volatile security definer set search_path = public as $$
+  declare
+    s public.clinic_subscriptions;
+    v_status text;
+    v_ends timestamptz;
+    v_days integer;
+    v_doctors integer;
+    v_frontdesk integer;
+  begin
+    if not public.is_clinic_staff(p_clinic) then
+      raise exception 'not a member of this clinic' using errcode = '42501';
+    end if;
+
+    select * into s from public.clinic_subscriptions where clinic_id = p_clinic;
+    if not found then
+      insert into public.clinic_subscriptions (clinic_id) values (p_clinic) returning * into s;
+    end if;
+
+    v_status := s.status;
+    v_ends := case when s.status = 'trial' then s.trial_ends_at else s.current_period_end end;
+    v_days := case when v_ends is null then null else ceil(extract(epoch from (v_ends - now())) / 86400)::int end;
+
+    if v_status = 'active' and v_ends is not null and v_ends < now() then
+      v_status := case when now() - v_ends <= interval '7 days' then 'grace' else 'read_only' end;
+    elsif v_status = 'trial' and v_ends is not null and v_ends < now() then
+      v_status := 'read_only';
+    end if;
+
+    select count(*) filter (where role in ('owner','doctor')),
+           count(*) filter (where role = 'frontdesk')
+      into v_doctors, v_frontdesk
+      from public.staff where clinic_id = p_clinic and active;
+
+    return jsonb_build_object(
+      'clinic_id', p_clinic,
+      'plan', s.plan,
+      'status', v_status,
+      'interval', s.interval,
+      'days_left', v_days,
+      'ends_at', v_ends,
+      'trial_ends_at', s.trial_ends_at,
+      'current_period_end', s.current_period_end,
+      'billing_email', s.billing_email,
+      'collection_ref', s.collection_ref,
+      'limits', jsonb_build_object(
+        'doctors', public.plan_seat_limit(s.plan, 'doctors'),
+        'frontdesk', public.plan_seat_limit(s.plan, 'frontdesk'),
+        'branches', public.plan_seat_limit(s.plan, 'branches')
+      ),
+      'usage', jsonb_build_object(
+        'doctors', coalesce(v_doctors, 0),
+        'frontdesk', coalesce(v_frontdesk, 0),
+        'branches', 1
+      ),
+      -- Bound to a licence authority: the app shows the verdict instead of a
+      -- self-service plan picker, and the three functions above refuse.
+      'authority', jsonb_build_object(
+        'bound', s.authority_subscription_id is not null,
+        'tier', s.authority_tier,
+        'subscription_id', s.authority_subscription_id,
+        'fingerprint', s.authority_fingerprint,
+        'origin', s.authority_origin,
+        'token_exp', s.authority_token_exp,
+        'synced_at', s.authority_synced_at
+      ),
+      'can_write', v_status in ('trial','active','grace')
+    );
+  end $$;
+  $q$;
+
+  execute $q$grant execute on function public.license_state(uuid) to authenticated$q$;
+
+  -- ------------------------------- 5. the verdict is written by the operator only
+  execute $q$revoke all on function public.apply_authority_license(uuid, text, text, text, timestamptz, timestamptz, text) from public, authenticated$q$;
+  execute $q$grant execute on function public.apply_authority_license(uuid, text, text, text, timestamptz, timestamptz, text) to service_role$q$;
+  execute $q$revoke all on function public.unbind_authority_license(uuid, text) from public, authenticated$q$;
+  execute $q$grant execute on function public.unbind_authority_license(uuid, text) to service_role$q$;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (18, 'license-authority', '1.20.0',
+          'clinic_subscriptions remembers an authority verdict; apply_authority_license() is the service_role-only door; a bound clinic cannot renew, change plan or restart a trial locally; license_state() publishes the binding')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 18, applied_at = now(),
+         notes = 'licence authority binding: signed RS256 verdict recorded server-side, tenant licence doors closed when bound'
+   where schema_version < 18;
+end $migration$;
+
 commit;

@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.19.2';
-export const SCHEMA_VERSION = 17;
+export const APP_VERSION = '1.20.0';
+export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.20.0', date: '2026-11-06', schema: 18,
+    highlights: [
+      'A clinic can now take its subscription from the licence authority. The authority signs a 7-day RS256 capability token; this clinic’s own Supabase Edge Function verifies it, records the verdict, and only then does the database treat the clinic as paid. The licence key never enters the bundle.',
+      'The browser verifies the same token with the same public key — not because the screen is trusted, but so it can show a signed fact: tier, contract date, seat caps and the deployment fingerprint, with a “Check the licence now” button and a six-hourly phone-home on boot.',
+      'Once bound, a clinic stops being able to license itself: renewal, plan change and a fresh trial raise `license:managed` and are removed from the screen. That closes the last tenant-writable door the audit left open.',
+      'Offline is unchanged, deliberately: a valid token keeps the clinic working for its seven days, and a contract that has ended degrades to read-only through the existing grace window rather than locking anyone out of their own records.',
+    ],
+  },
   {
     version: '1.19.2', date: '2026-11-06', schema: 17,
     highlights: [

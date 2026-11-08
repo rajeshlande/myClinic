@@ -2089,3 +2089,150 @@ begin
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE L · THE LICENCE AUTHORITY (schema 18)
+-- =============================================================================
+-- The clinic can hand its subscription over to an external authority that signs
+-- an RS256 capability token. From that moment the clinic must stop being able to
+-- license itself: renewal, plan change and a second trial all have to fail, and
+-- the only thing allowed to write the verdict is the clinic's own Edge Function
+-- (service_role), through apply_authority_license().
+begin;
+
+do $$
+declare
+  owner_a uuid := gen_random_uuid();
+  clinic_a uuid;
+  lic jsonb;
+  res jsonb;
+  n integer;
+  refused boolean;
+begin
+  insert into auth.users (id, email)
+    values (owner_a, 'authority-owner-' || owner_a || '@example.test') on conflict do nothing;
+  insert into public.clinics (name, slug, phone, address)
+    values ('Authority Test', 'authority-test', '9000000701', 'Test') returning id into clinic_a;
+  insert into public.staff (clinic_id, user_id, full_name, role)
+    values (clinic_a, owner_a, 'Owner A', 'owner');
+  insert into public.clinic_subscriptions (clinic_id, plan, interval, status, current_period_end)
+    values (clinic_a, 'solo', 'monthly', 'active', now() + interval '20 days');
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+
+  -- ===================================================== 1. local licensing, as before
+  lic := public.renew_subscription(clinic_a, 'UPI-LOCAL-1', 1);
+  if (lic->>'status') <> 'active' then raise exception 'FAIL: an unbound clinic could not renew'; end if;
+  if (lic->'authority'->>'bound')::boolean is not false then raise exception 'FAIL: an unbound clinic reported a binding'; end if;
+  raise notice 'PASS: an unbound clinic still licenses itself locally';
+
+  -- ============================================ 2. the operator records a verdict
+  reset role;
+  res := public.apply_authority_license(
+    clinic_a, 'sub_test_1', 'standard', 'web:https://clinic.example.github.io',
+    now() + interval '90 days', now() + interval '7 days', 'https://clinic.example.github.io');
+  if (res->>'plan') <> 'growth' then raise exception 'FAIL: the standard tier did not map to growth (got %)', res->>'plan'; end if;
+  if (res->>'status') <> 'active' then raise exception 'FAIL: a live contract was not recorded as active'; end if;
+
+  select count(*) into n from public.license_events where clinic_id = clinic_a and kind = 'sync';
+  if n <> 1 then raise exception 'FAIL: the sync was not logged (% rows)', n; end if;
+  raise notice 'PASS: a verified authority verdict lands as growth/active and is logged';
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  lic := public.license_state(clinic_a);
+  if (lic->'authority'->>'bound')::boolean is not true then raise exception 'FAIL: the binding is not published to the app'; end if;
+  if (lic->'authority'->>'tier') <> 'standard' then raise exception 'FAIL: the tier is not published'; end if;
+  if (lic->'authority'->>'fingerprint') <> 'web:https://clinic.example.github.io' then
+    raise exception 'FAIL: the fingerprint is not published';
+  end if;
+  raise notice 'PASS: license_state publishes the tier, the fingerprint and the sync time';
+
+  -- =========================================== 3. the tenant doors are now shut
+  begin
+    perform public.renew_subscription(clinic_a, 'UPI-FAKE-99', 12);
+    raise exception 'FAIL: a bound clinic renewed itself with a made-up reference' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    perform public.change_plan(clinic_a, 'chain', 'yearly', '{}'::jsonb);
+    raise exception 'FAIL: a bound clinic changed its own plan' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    perform public.start_trial(clinic_a);
+    raise exception 'FAIL: a bound clinic started another trial' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  raise notice 'PASS: renewal, plan change and trial are all refused once bound';
+
+  -- =================================== 4. and the tenant cannot write the verdict
+  begin
+    perform public.apply_authority_license(clinic_a, 'sub_forged', 'enterprise', 'web:x', now() + interval '10 years', now(), null);
+    raise exception 'FAIL: a signed-in owner could write its own authority verdict' using errcode = 'P0002';
+  exception when insufficient_privilege then
+    null;
+  end;
+  reset role;
+  raise notice 'PASS: apply_authority_license is not executable by the tenant';
+
+  -- ============================================= 5. every tier maps, junk is refused
+  perform public.apply_authority_license(clinic_a, 'sub_solo', 'solo', 'web:a', now() + interval '30 days', now(), 'web:a');
+  if (select plan from public.clinic_subscriptions where clinic_id = clinic_a) <> 'solo' then
+    raise exception 'FAIL: tier solo did not map to plan solo';
+  end if;
+  perform public.apply_authority_license(clinic_a, 'sub_big', 'enterprise', 'web:a', now() + interval '30 days', now(), 'web:a');
+  if (select plan from public.clinic_subscriptions where clinic_id = clinic_a) <> 'chain' then
+    raise exception 'FAIL: tier enterprise did not map to plan chain';
+  end if;
+  begin
+    perform public.apply_authority_license(clinic_a, 'sub_bad', 'platinum', 'web:a', now() + interval '30 days', now(), null);
+    raise exception 'FAIL: an unknown tier was accepted' using errcode = 'P0002';
+  exception when invalid_parameter_value then
+    null;
+  end;
+  raise notice 'PASS: tiers map onto plans, and an unknown tier is refused';
+
+  -- ======================================= 6. a lapsed contract reads read-only
+  res := public.apply_authority_license(clinic_a, 'sub_lapsed', 'growth', 'web:a', now() - interval '2 days', now(), 'web:a');
+  if (res->>'status') <> 'read_only' then
+    raise exception 'FAIL: a lapsed contract was recorded as %', res->>'status';
+  end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  lic := public.license_state(clinic_a);
+  if (lic->>'status') <> 'read_only' then raise exception 'FAIL: the clinic is not read-only after its contract lapsed'; end if;
+  if (lic->'can_write')::boolean is not false then raise exception 'FAIL: can_write survived a lapsed contract'; end if;
+  begin
+    insert into public.patients (clinic_id, code, full_name) values (clinic_a, 'PT-7A001', 'Blocked');
+    raise exception 'FAIL: a lapsed contract still allowed a clinical write' using errcode = 'P0002';
+  exception when sqlstate '53401' then
+    null;
+  end;
+  raise notice 'PASS: a lapsed contract degrades the clinic to read-only, by the existing guard';
+  reset role;
+
+  -- ======================================================= 7. unbinding is logged
+  perform public.unbind_authority_license(clinic_a, 'test');
+  if exists (select 1 from public.clinic_subscriptions
+              where clinic_id = clinic_a and authority_subscription_id is not null) then
+    raise exception 'FAIL: unbinding left the authority id behind';
+  end if;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.clinic_subscriptions set status = 'active', current_period_end = now() + interval '10 days' where clinic_id = clinic_a;
+  lic := public.renew_subscription(clinic_a, 'UPI-LOCAL-2', 1);
+  if (lic->>'status') <> 'active' then raise exception 'FAIL: an unbound clinic still could not renew'; end if;
+  reset role;
+  raise notice 'PASS: unbinding returns the clinic to local licensing';
+
+  raise notice 'ALL LICENCE AUTHORITY CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run

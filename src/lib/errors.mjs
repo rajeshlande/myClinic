@@ -91,6 +91,18 @@ export function explainError(error, { context = 'That did not save' } = {}) {
     });
   }
 
+  // Schema 18: a clinic bound to a licence authority cannot renew itself. This is
+  // not a permissions accident, so it says what to do instead of who to ask.
+  if (/license:managed/i.test(raw)) {
+    return finish({
+      code: 'license:managed',
+      title: `${context}: this clinic's licence is managed by the licence authority.`,
+      fix: 'retry',
+      raw: 'license:managed',
+      hint: 'Renewals and plan changes happen in the authority\u2019s Control Room. On the Subscription page, \u201cCheck the licence now\u201d asks the authority for a fresh signed licence.',
+    });
+  }
+
   // The two rules of schema 12 that a person can fix themselves.
   if (/staff:hours/i.test(raw)) {
     return finish({
