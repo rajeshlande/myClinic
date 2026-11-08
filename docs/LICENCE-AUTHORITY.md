@@ -60,7 +60,19 @@ VITE_LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAO
 
 Locally, the same line goes in `.env.local`. With no key present the whole
 feature is dormant: myClinic licenses itself locally exactly as it did before,
-and the Subscription page says so.
+and the Subscription page says so in a card headed **Not in this build**.
+
+This value is baked in **at build time**. Setting it after a deploy changes
+nothing, and a Pages deploy only sees it because the workflow forwards it —
+`pages.yml` passes `vars.VITE_LICENSE_PUBLIC_KEY` into `npm run build` and then
+prints one of these in the run log:
+
+| Log line | Meaning |
+| --- | --- |
+| *Licence authority configured* | the key reached the bundle; the Subscription screen can connect this clinic |
+| *No licence authority* | the variable is unset — the deploy licenses itself locally |
+| *Private key in a public variable* | **the job fails.** Everything here ships to every visitor; roll the authority's key pair |
+| *Public key did not reach the bundle* | the variable was set but the build ignored it — a real bug, not a configuration mistake |
 
 Optional, if you ever run the authority under a different `iss`:
 
@@ -110,11 +122,15 @@ What the function does, in order:
 Paste `supabase/schema.sql` again. It is additive and lands the project at schema
 **18**, which is what creates `apply_authority_license()` and the binding columns.
 
-Open **Subscription** as the owner and press **Check the licence now**. The card
-shows the tier, the contract date, the seat caps, the deployment fingerprint and
-when it was last verified. From then on the clinic phones home on boot whenever
-six hours have passed, and only the owner triggers it — every other seat reads
-what the database already holds.
+Open **Subscription** as the owner. If this build has the public key and the
+clinic is not bound yet, the **Licence authority** card offers **Connect to the
+licence authority** — that first press is what binds the clinic. Once bound, the
+same button reads **Check the licence now**, and the card shows the tier, the
+contract date, the seat caps, the deployment fingerprint and when it was last
+verified. From then on the clinic phones home on boot whenever six hours have
+passed, and only the owner triggers it — every other seat reads what the database
+already holds. A refusal is shown on the card in the words of its code, never as
+a silent no-op.
 
 ---
 
@@ -170,6 +186,23 @@ job has no user, so this only works if you also allow a
 sync (recommended, no extra secret) or extend the function to accept a
 service-role caller. The boot-time sync is enough for every case where someone
 actually uses the clinic, which is the case that matters for enforcement.
+
+---
+
+## "The button is not there"
+
+Four causes, in the order they happen. The card names which one you are in.
+
+| What the card says | Cause | Fix |
+| --- | --- | --- |
+| Nothing at all, and the page is a **demo workspace** | demo mode has no clinic, no database and no authority | sign in to a live project |
+| **Not in this build** | `VITE_LICENSE_PUBLIC_KEY` was not set when the bundle was compiled — the commonest one | set the variable, **rebuild and redeploy**; a reload cannot fix it |
+| **Not connected**, no button | you are not the clinic **Owner** | sign in as the owner — binding and syncing are owner-only by design |
+| **Not connected**, button present | the press failed | the card prints the refusal code (`origin-not-allowed`, `token-signature`, `authority-unreachable`, …) with its meaning; see below |
+
+A build compiled without the key cannot be repaired from the browser: the app is
+told whether an authority exists at build time, which is why the deploy log says
+so out loud.
 
 ---
 

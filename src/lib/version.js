@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.20.2';
+export const APP_VERSION = '1.21.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.0', date: '2026-11-06', schema: 18,
+    highlights: [
+      'The authority card could not be found because on a fresh clinic it did not exist: it was drawn only once the clinic was *already bound*, and the binding happened in a silent boot sync. A clinic that had never bound saw no card, no button, and — if that sync failed — no message either. The card now has four explicit states (not in this build · not connected · bound · demo), each naming what to do next.',
+      'The first press has a name: **Connect to the licence authority** binds the clinic, and only after that does the button read **Check the licence now**. A refusal is printed on the card in the words of its code instead of vanishing into a background promise.',
+      'The real gap for a Pages deploy: `pages.yml` never passed `VITE_LICENSE_PUBLIC_KEY` to the build, so the variable the setup guide told you to set had no effect on the bundle. It is forwarded now, with a log line that says whether the key reached the build — and the job fails outright if a **private** key is put in that public variable.',
+      '.env.example finally documents the variable, and `docs/LICENCE-AUTHORITY.md` gains a “the button is not there” table of the four causes and their fixes.',
+    ],
+  },
   {
     version: '1.20.2', date: '2026-11-06', schema: 18,
     highlights: [

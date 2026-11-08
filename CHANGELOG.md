@@ -3,6 +3,40 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.0] — 2026-11-06 · schema 18
+
+**Why the button was not there.**
+
+- **The card only existed once the clinic was already bound.** `Subscription`
+  drew the *Licence authority* card when `managed` was true, and `managed`
+  becomes true only after a successful sync — so a fresh clinic had no card, no
+  button, and no way to perform the first connection. The binding happened in a
+  boot phone-home that is silent by design: `silent: true`, `.catch(() => {})`.
+  If that failed — a missing Edge Function secret, an origin not in
+  `MYCLINIC_ORIGINS`, an unreachable authority — the screen said nothing at all.
+- **Four explicit states now**, from one pure function (`authorityPanel`, tested):
+  *demo* · *Not in this build* · *Not connected* · *Verified / Contract ended*.
+  Each names its cause and its fix; a non-owner is told the owner must act, never
+  told to edit a file they cannot reach.
+- **The first press is named.** **Connect to the licence authority** binds the
+  clinic; **Check the licence now** refreshes an existing binding. Refusals are
+  printed on the card in the words of their code (`token-signature`,
+  `origin-not-allowed`, `authority-unreachable`, …) instead of being swallowed.
+- **`pages.yml` never forwarded `VITE_LICENSE_PUBLIC_KEY`.** Step 1 of
+  `docs/LICENCE-AUTHORITY.md` told operators to set it as a repository variable;
+  the deploy workflow compiled without it, so the app was built believing no
+  authority exists. It is forwarded now (and in `ci.yml`), the run log states
+  whether the key reached the bundle, the job fails if a public key does not
+  arrive in `dist/assets/*.js`, and it fails loudly if a **private** key was put
+  in that public variable.
+- **`.env.example` documents the public key**, with the reason the licence key
+  can never sit beside it: a `VITE_` value is compiled into the bundle.
+- **`docs/LICENCE-AUTHORITY.md`** gains a *"the button is not there"* table —
+  four causes, in the order they occur, with the fix for each.
+
+If you deployed the authority and see no card: the build was almost certainly
+compiled without the key. Set the variable, **rebuild**, redeploy.
+
 ## [1.20.2] — 2026-11-06 · schema 18
 
 **A dummy key is still an alert.**

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import {
-  AUTHORITY_SEATS, authorityCacheKey, authorityConfig, authorityErrorMessage, authorityView,
+  AUTHORITY_ENV_PUBLIC_KEY, AUTHORITY_PANEL_STATES, AUTHORITY_SEATS, authorityCacheKey,
+  authorityConfig, authorityErrorMessage, authorityPanel, authorityView,
   buildFingerprint, clearAuthorityToken, decodeJwt, readAuthorityToken, seatsForTier, syncDue,
   tierToPlan, verifyCapabilityToken, writeAuthorityToken,
 } from '../src/lib/authority.mjs';
@@ -277,4 +278,96 @@ test('the cached licence is readable without the network', async () => {
   assert.equal(cached.ok, true);
   assert.equal(cached.view.plan, 'growth');
   assert.equal(cached.syncedAt, NOW.toISOString());
+});
+
+/* ------------------------------------------------------- what the screen offers
+ * v1.20.0's screen drew the authority card only once the clinic was bound, and
+ * bound it only from a silent boot sync — so a fresh install showed no card, no
+ * button and no explanation. These are the four states that replace it.
+ */
+
+test('the demo workspace never shows an authority card', () => {
+  const panel = authorityPanel({ mode: 'demo', configured: true, bound: true, isOwner: true });
+  assert.equal(panel.visible, false);
+  assert.equal(panel.state, 'demo');
+  assert.equal(panel.canCheck, false);
+});
+
+test('a build without the public key says so, and names the variable', () => {
+  const owner = authorityPanel({ mode: 'live', configured: false, bound: false, isOwner: true });
+  assert.equal(owner.visible, true, 'the card is the only place that can explain the gap');
+  assert.equal(owner.state, 'unconfigured');
+  assert.equal(owner.canCheck, false, 'a button that cannot work is worse than no button');
+  assert.equal(owner.badge, 'Not in this build');
+  assert.match(owner.reason, new RegExp(AUTHORITY_ENV_PUBLIC_KEY));
+  assert.match(owner.reason, /rebuild/i);
+
+  const viewer = authorityPanel({ mode: 'live', configured: false, bound: false, isOwner: false });
+  assert.equal(viewer.state, 'unconfigured');
+  assert.match(viewer.reason, /owner/i);
+  assert.doesNotMatch(viewer.reason, /\.env\.local/, 'a non-owner cannot act on a rebuild instruction');
+});
+
+test('an unbound clinic is offered the button that binds it', () => {
+  const owner = authorityPanel({ mode: 'live', configured: true, bound: false, isOwner: true });
+  assert.equal(owner.state, 'unbound');
+  assert.equal(owner.canCheck, true);
+  assert.equal(owner.buttonLabel, 'Connect to the licence authority');
+  assert.equal(owner.tone, 'neutral');
+  assert.match(owner.reason, /licence key/i);
+
+  const viewer = authorityPanel({ mode: 'live', configured: true, bound: false, isOwner: false });
+  assert.equal(viewer.state, 'unbound-viewer');
+  assert.equal(viewer.canCheck, false);
+  assert.equal(viewer.buttonLabel, '');
+  assert.match(viewer.reason, /owner/i);
+});
+
+test('a bound clinic offers the check the docs describe, and only to the owner', () => {
+  const owner = authorityPanel({ mode: 'live', configured: true, bound: true, isOwner: true, status: 'active' });
+  assert.equal(owner.state, 'bound');
+  assert.equal(owner.canCheck, true);
+  assert.equal(owner.buttonLabel, 'Check the licence now', 'the label the setup guide tells people to look for');
+  assert.equal(owner.badge, 'Verified');
+  assert.equal(owner.tone, 'success');
+
+  const viewer = authorityPanel({ mode: 'live', configured: true, bound: true, isOwner: false });
+  assert.equal(viewer.state, 'bound-viewer');
+  assert.equal(viewer.canCheck, false, 'every seat reads the database; only the owner phones home');
+  assert.equal(viewer.visible, true, 'a viewer still sees the signed state they are working under');
+});
+
+test('a lapsed contract reads as ended, not as an error', () => {
+  const panel = authorityPanel({ mode: 'live', configured: true, bound: true, isOwner: true, status: 'read_only' });
+  assert.equal(panel.badge, 'Contract ended');
+  assert.equal(panel.tone, 'warn');
+  assert.equal(panel.canCheck, true, 'the owner must still be able to re-check after renewing');
+});
+
+test('every state the panel can return is in the published list', () => {
+  const seen = new Set();
+  for (const mode of ['demo', 'live']) {
+    for (const configured of [true, false]) {
+      for (const bound of [true, false]) {
+        for (const isOwner of [true, false]) {
+          seen.add(authorityPanel({ mode, configured, bound, isOwner }).state);
+        }
+      }
+    }
+  }
+  for (const state of seen) assert.ok(AUTHORITY_PANEL_STATES.includes(state), `${state} must be published`);
+});
+
+test('no state both claims visibility and withholds a reason', () => {
+  for (const state of AUTHORITY_PANEL_STATES) {
+    if (state === 'demo') continue;
+    assert.ok(state.length > 0);
+  }
+  // the three states that are not bound must each explain themselves
+  for (const [configured, bound] of [[false, false], [true, false]]) {
+    for (const isOwner of [true, false]) {
+      const panel = authorityPanel({ mode: 'live', configured, bound, isOwner });
+      assert.ok(panel.reason.length > 40, `${panel.state} must explain itself`);
+    }
+  }
 });

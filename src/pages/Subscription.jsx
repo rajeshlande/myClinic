@@ -12,7 +12,7 @@ import {
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
 import { SCHEMA_VERSION } from '../lib/version.js';
-import { authorityConfig, authorityErrorMessage, seatsForTier } from '../lib/authority.mjs';
+import { authorityConfig, authorityErrorMessage, authorityPanel, seatsForTier } from '../lib/authority.mjs';
 
 const PLAN_BLURB = {
   solo: 'One doctor, one front desk. The whole clinic on a single screen.',
@@ -56,6 +56,10 @@ export default function Subscription() {
   const authorityBinding = license?.authority ?? null;
   const managed = Boolean(authority || authorityBinding?.bound);
   const authorityConfigured = authorityConfig(import.meta.env).enabled;
+  const panel = authorityPanel({
+    mode: store.mode, configured: authorityConfigured, bound: managed, isOwner,
+    status: authority?.status ?? authorityBinding?.status ?? '',
+  });
   const tierSeats = seatsForTier(authority?.tier ?? authorityBinding?.tier ?? '');
   const tierName = String(authority?.tier ?? authorityBinding?.tier ?? '').trim();
 
@@ -193,6 +197,11 @@ export default function Subscription() {
               <>
                 <Button variant="primary" icon={Sparkles} onClick={() => setOpen(plan)}>Change plan</Button>
                 <Button variant="subtle" icon={CalendarClock} onClick={() => setRenewOpen(true)}>Record a payment</Button>
+                {panel.state === 'unbound' ? (
+                  <span className="tiny muted">
+                    Not connected to a licence authority yet — connect it in the card below.
+                  </span>
+                ) : null}
               </>
             ) : (
               <span className="tiny muted">Only the clinic owner can change the subscription.</span>
@@ -208,19 +217,17 @@ export default function Subscription() {
       </Card>
 
       {/* ----------------------------------------------------- licence authority */}
-      {(managed || authorityConfigured) ? (
+      {panel.visible ? (
         <Card style={{ marginBottom: 16 }}>
           <CardHead
             title="Licence authority"
             sub={managed
               ? 'This clinic’s subscription is issued and signed by the licence authority.'
-              : 'This build can check a licence authority; this clinic is not bound to one yet.'}
+              : panel.state === 'unconfigured'
+                ? 'This deploy was built without the authority public key.'
+                : 'This build can check a licence authority; this clinic is not bound to one yet.'}
             icon={ShieldCheck}
-            action={(
-              <Badge tone={managed ? 'success' : 'neutral'} dot>
-                {managed ? (authority?.status === 'read_only' ? 'Contract ended' : 'Verified') : 'Not connected'}
-              </Badge>
-            )}
+            action={<Badge tone={panel.tone} dot>{panel.badge}</Badge>}
           />
           <div className="card-body stack" style={{ gap: 12 }}>
             {managed ? (
@@ -274,10 +281,30 @@ export default function Subscription() {
                 </div>
               </>
             ) : (
-              <p className="small muted" style={{ margin: 0 }}>
-                The licence key, the authority address and the public key are set as Edge Function secrets in this
-                clinic’s Supabase project. Until they are, myClinic licenses itself locally, as before.
-              </p>
+              <>
+                <p className="small muted" style={{ margin: 0 }}>{panel.reason}</p>
+                {panel.canCheck ? (
+                  <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
+                    <Button
+                      variant="primary"
+                      icon={RefreshCw}
+                      loading={busy || store.authoritySync?.state === 'syncing'}
+                      onClick={syncLicence}
+                    >
+                      {panel.buttonLabel}
+                    </Button>
+                    <span className="tiny muted">
+                      The licence key stays in this clinic’s Edge Function secrets — the browser never sees it.
+                    </span>
+                  </div>
+                ) : null}
+                {store.authoritySync?.state === 'error' && store.authoritySync?.error ? (
+                  <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 11 }}>
+                    <TriangleAlert size={14} />
+                    <span className="tiny">{store.authoritySync.error}</span>
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
         </Card>

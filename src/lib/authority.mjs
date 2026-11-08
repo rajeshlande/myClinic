@@ -266,6 +266,77 @@ export function syncDue({ lastSyncedAt, now = new Date(), hours = AUTHORITY_SYNC
   return now.getTime() - last.getTime() >= hours * 3_600_000;
 }
 
+/** The build-time value this screen cannot work without. Public, so it may ship. */
+export const AUTHORITY_ENV_PUBLIC_KEY = 'VITE_LICENSE_PUBLIC_KEY';
+
+/**
+ * What the Subscription screen should say about the authority — one pure function,
+ * because the screen got this wrong in a way only a real deployment shows.
+ *
+ * v1.20.0 drew the card only when the clinic was *already bound*, and bound the
+ * clinic only from a silent boot sync. So a clinic that had never bound saw no
+ * card and no button, and a boot sync that failed said nothing at all: the option
+ * the docs told people to click did not exist on a fresh install. The four states
+ * below are now explicit, and each names what to do next.
+ *
+ *   demo          the local demo workspace — no authority, no card
+ *   unconfigured  this bundle was compiled without VITE_LICENSE_PUBLIC_KEY, so
+ *                 nothing here can reach an authority whatever the clinic's
+ *                 database says; only a rebuild helps
+ *   unbound       the build can reach one and the clinic is not bound yet — the
+ *                 button does the binding
+ *   bound         the subscription is signed by the authority; the button refreshes
+ */
+export function authorityPanel({ mode = 'demo', configured = false, bound = false, isOwner = false, status = '' } = {}) {
+  if (mode !== 'live') {
+    return { visible: false, state: 'demo', canCheck: false, buttonLabel: '', badge: '', tone: 'neutral', reason: '' };
+  }
+
+  if (!configured) {
+    return {
+      visible: true,
+      state: 'unconfigured',
+      canCheck: false,
+      buttonLabel: '',
+      badge: 'Not in this build',
+      tone: 'warn',
+      reason: isOwner
+        ? `This build was compiled without ${AUTHORITY_ENV_PUBLIC_KEY}, so nothing on this screen can reach a licence authority — whatever the clinic’s database holds. Set it in .env.local, or as a repository variable of the same name for a Pages deploy, then rebuild. Only the public key belongs here; the licence key stays in the Edge Function secrets.`
+        : `This build was compiled without ${AUTHORITY_ENV_PUBLIC_KEY}, so it cannot check a licence. Ask the clinic owner to rebuild with it set.`,
+    };
+  }
+
+  if (!bound) {
+    return {
+      visible: true,
+      state: isOwner ? 'unbound' : 'unbound-viewer',
+      canCheck: isOwner,
+      buttonLabel: isOwner ? 'Connect to the licence authority' : '',
+      badge: 'Not connected',
+      tone: 'neutral',
+      reason: isOwner
+        ? 'This build can reach a licence authority and the clinic is not bound to one yet. The licence key, the authority address and the signing key live in this clinic’s Edge Function secrets; the button asks that function for a signed licence and shows what came back — or the exact reason it was refused.'
+        : 'This clinic is not bound to a licence authority yet. Only the clinic owner can connect it.',
+    };
+  }
+
+  const readOnly = status === 'read_only';
+  return {
+    visible: true,
+    state: isOwner ? 'bound' : 'bound-viewer',
+    canCheck: isOwner,
+    buttonLabel: isOwner ? 'Check the licence now' : '',
+    badge: readOnly ? 'Contract ended' : 'Verified',
+    tone: readOnly ? 'warn' : 'success',
+    reason: '',
+  };
+}
+
+/** Every state in which the clinic is not bound still needs an explanation. */
+export const AUTHORITY_PANEL_STATES = Object.freeze([
+  'demo', 'unconfigured', 'unbound', 'unbound-viewer', 'bound', 'bound-viewer',
+]);
+
 function storageOf(storage) {
   if (storage) return storage;
   try {
