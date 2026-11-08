@@ -26,10 +26,25 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
 const ISSUER = 'myclinic-license-authority';
 const TOKEN_DRIFT_SECONDS = 120; // clock tolerance when reading iat/exp
 
+/**
+ * This function's own version, sent on every response.
+ *
+ * The frontend and the function deploy independently, and the panel shows only
+ * the *build* — so a refusal could not be attributed to a version. That cost
+ * several releases: an error that only an old function can produce looked like
+ * an error in the code that was actually running. Every response now carries
+ * `x-myclinic-function`, and every refusal carries `version` in the body.
+* Bump this with the app version whenever the function changes.
+ */
+const FUNCTION_VERSION = '1.22.2';
+
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  // Without this the browser can send the request but cannot read back the two
+  // headers that say what happened — CORS hides them by default.
+  'Access-Control-Expose-Headers': 'x-myclinic-code, x-myclinic-function',
 };
 
 function json(body: Record<string, unknown>, status = 200): Response {
@@ -39,6 +54,7 @@ function json(body: Record<string, unknown>, status = 200): Response {
       ...corsHeaders,
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      'x-myclinic-function': FUNCTION_VERSION,
     },
   });
 }
@@ -63,14 +79,15 @@ function refuse(
   context: Record<string, unknown> = {},
 ): Response {
   const detail = Object.keys(context).length ? ` ${JSON.stringify(context)}` : '';
-  console.warn(`refused ${status} ${code}${detail}`);
-  return new Response(JSON.stringify({ ok: false, code, error }), {
+  console.warn(`refused ${status} ${code} (function ${FUNCTION_VERSION})${detail}`);
+  return new Response(JSON.stringify({ ok: false, code, error, version: FUNCTION_VERSION }), {
     status,
     headers: {
       ...corsHeaders,
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
       'x-myclinic-code': code,
+      'x-myclinic-function': FUNCTION_VERSION,
     },
   });
 }
@@ -464,7 +481,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   });
   if (!check.ok) {
     return refuse(check.code, `Refused: ${check.error}`, 403, {
-      clinic: clinicId, origin, authority: authorityStatus,
+      clinic: clinicId, origin, authority: authorityStatus, key: keyFormat,
     });
   }
 
@@ -495,6 +512,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // database does.
   return json({
     ok: true,
+    version: FUNCTION_VERSION,
     plan: applied?.plan ?? null,
     status: applied?.status ?? null,
     tier: applied?.tier ?? claims.tier ?? null,

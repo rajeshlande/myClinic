@@ -111,3 +111,30 @@ test('every workflow caches the Deno module cache', () => {
     assert.match(text, /path: ~\/\.cache\/deno/, `${rel} caches the wrong directory`);
   }
 });
+
+/* ------------------------------------- the function says which build it is
+ * Without this, a refusal could not be attributed to a version, and every
+ * diagnosis began by guessing whether the deployed function was older than the
+ * app — the guessing that cost the releases before this one.
+ */
+
+test('the function declares a version', () => {
+  const declared = /const FUNCTION_VERSION = '(\d+\.\d+\.\d+)';/.exec(source);
+  assert.ok(declared, 'FUNCTION_VERSION is gone — a refusal is anonymous again');
+});
+
+test('the function version matches package.json', () => {
+  const declared = /const FUNCTION_VERSION = '(\d+\.\d+\.\d+)';/.exec(source);
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.equal(declared[1], pkg.version, 'bump FUNCTION_VERSION with the app version');
+});
+
+test('every response carries the version, and the browser may read it', () => {
+  assert.match(source, /'x-myclinic-function': FUNCTION_VERSION/, 'the header is set on responses');
+  assert.match(source, /version: FUNCTION_VERSION/, 'the body carries it too');
+  assert.match(
+    source,
+    /'Access-Control-Expose-Headers': 'x-myclinic-code, x-myclinic-function'/,
+    'without Expose-Headers the browser cannot read either header back',
+  );
+});

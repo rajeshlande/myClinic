@@ -46,19 +46,23 @@ export async function refusalFromError(error) {
   let code = '';
   let message = '';
   let status = 0;
+  let version = '';
 
   if (context && typeof context === 'object') {
     status = Number(context.status) || 0;
     try {
       code = context.headers?.get?.('x-myclinic-code') || '';
+      version = context.headers?.get?.('x-myclinic-function') || '';
     } catch {
       code = '';
+      version = '';
     }
     if (typeof context.json === 'function') {
       try {
         const body = await context.json();
         code = (typeof body?.code === 'string' && body.code) || code;
         message = typeof body?.error === 'string' ? body.error : '';
+        version = (typeof body?.version === 'string' && body.version) || version;
       } catch {
         // The body was already consumed, or it is a gateway page, not our JSON.
       }
@@ -67,7 +71,27 @@ export async function refusalFromError(error) {
 
   if (!code) code = STATUS_CODES[status] ?? (status ? 'refused' : '');
   if (!code) return null;
-  return { code, message, status };
+  return { code, message, status, version };
+}
+
+/**
+ * The sentence a refusal deserves, and which function said it.
+ *
+ * The frontend and the function deploy separately, so "could not verify the
+ * signature" from a function that predates the fix that made it possible is not
+ * a bug in the build the user can see — but the screen had no way to say so, and
+ * every diagnosis started by asking which function had answered.
+ *
+ * @param {{code?: string, error?: string, functionVersion?: string}} failure
+ * @returns {string}
+ */
+export function describeAuthorityFailure({ code = '', error = '', functionVersion = '' } = {}) {
+  const said = String(error || '').trim();
+  if (functionVersion) return `${said || 'The licence function refused the request.'} (licence function v${functionVersion})`;
+  if (code === 'token-key') {
+    return `${said || 'The licence function could not verify the signature.'} (the function sent no version, so it is older than this build — deploy sync-clinic-license again)`;
+  }
+  return said;
 }
 
 /**
@@ -136,6 +160,7 @@ export async function syncClinicLicense({
       ok: false,
       code,
       error: said,
+      functionVersion: response?.data?.version || refusal?.version || '',
       view: fallback?.view ?? null,
       claims: fallback?.claims ?? null,
       syncedAt: cached?.syncedAt ?? null,
@@ -171,6 +196,7 @@ export async function syncClinicLicense({
     ok: true,
     code: 'ok',
     error: '',
+    functionVersion: typeof data.version === 'string' ? data.version : '',
     view: authorityView({ claims: verified.claims, now }),
     claims: verified.claims,
     syncedAt,

@@ -9,7 +9,7 @@ import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
 import { AUTHORITY_FUNCTION, authorityConfig, authorityErrorMessage, syncDue } from './authority.mjs';
-import { cachedClinicLicense, syncClinicLicense } from './authority-sync.mjs';
+import { cachedClinicLicense, describeAuthorityFailure, syncClinicLicense } from './authority-sync.mjs';
 import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
 import { TRIAL_DAYS } from './license.mjs';
@@ -816,7 +816,13 @@ export function StoreProvider({ children, session }) {
     setAuthoritySync({
       state: result.ok ? 'ok' : 'error',
       at: result.syncedAt ?? new Date().toISOString(),
-      error: result.ok ? '' : authorityErrorMessage(result.code, result.error),
+      error: result.ok
+        ? ''
+        : describeAuthorityFailure({
+          code: result.code,
+          error: authorityErrorMessage(result.code, result.error),
+          functionVersion: result.functionVersion,
+        }),
     });
 
     // The verdict lives in the database, so re-read the licence rather than

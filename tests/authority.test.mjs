@@ -8,7 +8,9 @@ import {
   buildFingerprint, clearAuthorityToken, decodeJwt, readAuthorityToken, seatsForTier, syncDue,
   tierToPlan, verifyCapabilityToken, writeAuthorityToken,
 } from '../src/lib/authority.mjs';
-import { cachedClinicLicense, refusalFromError, syncClinicLicense } from '../src/lib/authority-sync.mjs';
+import {
+  cachedClinicLicense, describeAuthorityFailure, refusalFromError, syncClinicLicense,
+} from '../src/lib/authority-sync.mjs';
 
 /* ---------------------------------------------------------------- a real signer
  * The verifier is only worth testing against real RS256 signatures, so this file
@@ -483,4 +485,56 @@ test('a PKCS#1 key in the build variable enables the feature, and says which for
   assert.equal(config.enabled, true, 'it used to read as "not in this build"');
   assert.equal(config.format, 'pkcs1');
   assert.equal(authorityConfig({ VITE_LICENSE_PUBLIC_KEY: SPKI_PEM }).format, 'spki');
+});
+
+/* ------------------------------------------ which function answered, and from when
+ * The frontend and the Edge Function deploy separately, and the panel shows only
+ * the app build. A refusal that only an older function can produce therefore
+ * looked like a bug in the build on screen — the same sentence, from a function
+ * three releases behind, with nothing on the card to say so.
+ */
+
+test('the function version travels out of the refusal', async () => {
+  const refusal = await refusalFromError(httpError(
+    403,
+    { ok: false, code: 'token-key', error: 'Refused: Could not verify the signature: boom.', version: '1.22.2' },
+    { 'x-myclinic-function': '1.22.2' },
+  ));
+  assert.equal(refusal.version, '1.22.2');
+});
+
+test('the x-myclinic-function header alone is enough', async () => {
+  const refusal = await refusalFromError(httpError(403, undefined, { 'x-myclinic-function': '1.22.2' }));
+  assert.equal(refusal.version, '1.22.2');
+  assert.equal(refusal.code, 'http-403', 'the code still falls back to the status');
+});
+
+test('a refusal names the function that made it', () => {
+  const said = describeAuthorityFailure({
+    code: 'token-key',
+    error: 'Refused: Could not verify the signature: unexpected ASN.1 DER tag.',
+    functionVersion: '1.22.2',
+  });
+  assert.match(said, /ASN\.1/);
+  assert.match(said, /licence function v1\.22\.2/);
+});
+
+test('token-key from an unversioned function says to deploy it again', () => {
+  // This is the state that cost several releases: a signature step failing with
+  // an ASN.1 complaint, from a function that predates the fix that made that
+  // complaint impossible.
+  const said = describeAuthorityFailure({
+    code: 'token-key', error: 'Refused: Could not verify the signature: unexpected ASN.1 DER tag.',
+  });
+  assert.match(said, /older than this build/);
+  assert.match(said, /deploy sync-clinic-license/);
+  assert.doesNotMatch(said, /licence function v/, 'there is no version to claim');
+});
+
+test('an unversioned refusal of any other kind is left alone', () => {
+  assert.equal(
+    describeAuthorityFailure({ code: 'origin-not-allowed', error: 'This origin is not allowed.' }),
+    'This origin is not allowed.',
+  );
+  assert.equal(describeAuthorityFailure({ code: 'not-owner' }), '');
 });

@@ -3,6 +3,42 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.22.2] — 2026-11-02 · schema 18
+
+**Every refusal now names the function that made it.**
+
+- **The failure that prompted this.** The card said
+
+  ```
+  Refused: Could not verify the signature: ASN.1 error: unexpected ASN.1 DER tag:
+  expected SEQUENCE, got INTEGER at DER byte 2.
+  ```
+
+  while the panel footer said `v1.22.1`. Both were true and they were about
+  different things: that sentence is produced by `sync-clinic-license`, in the
+  `token-key` branch, and the app build had nothing to do with it. The deployed
+  function was older than the fix. Nothing on screen could have said so.
+
+- **`x-myclinic-function`** on every response, and `version` in every body —
+  refusal or success. `Access-Control-Expose-Headers` lists both
+  `x-myclinic-code` and `x-myclinic-function`, because CORS hides response
+  headers from the browser by default: the request succeeded, the reason was
+  unreadable.
+
+- **The card names it**: `… (licence function v1.22.2)`. A `token-key` refusal
+  from a function too old to send a version reads *“the function sent no version,
+  so it is older than this build — deploy sync-clinic-license again”*. That
+  sentence replaces an afternoon of guessing.
+
+- **The refusal log** carries the key format the function was holding
+  (`{key: 'pkcs1'}` or `spki`), so a format complaint can be confirmed from the
+  function log alone.
+
+- **Tested from both ends**: the app-side mapping in `tests/authority.test.mjs`,
+  and the function's own source in `tests/function-imports.test.mjs`, which fails
+  if `FUNCTION_VERSION` drifts from `package.json` or if the headers stop being
+  set.
+
 ## [1.22.1] — 2026-11-02 · schema 18
 
 **A host is not a module.**

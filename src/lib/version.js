@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.22.1';
+export const APP_VERSION = '1.22.2';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.22.2', date: '2026-11-02', schema: 18,
+    highlights: [
+      'A refusal could not be attributed to a version. The frontend and the licence Edge Function deploy separately, and the panel shows only the app build — so “Could not verify the signature: unexpected ASN.1 DER tag” from a function several releases behind looked like a bug in the build on screen.',
+      'Every response from `sync-clinic-license` now carries `x-myclinic-function`, and every refusal names its version on the card: *(licence function v1.22.2)*. A `token-key` refusal from a function too old to say so reads *“the function sent no version, so it is older than this build — deploy sync-clinic-license again”*.',
+      'The refusal log line adds the key format it was holding (`pkcs1` or `spki`), and `Access-Control-Expose-Headers` now lists both headers — without it the browser could send the request but never read back what happened.',
+    ],
+  },
   {
     version: '1.22.1', date: '2026-11-02', schema: 18,
     highlights: [
