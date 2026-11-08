@@ -36,7 +36,7 @@ const TOKEN_DRIFT_SECONDS = 120; // clock tolerance when reading iat/exp
  * `x-myclinic-function`, and every refusal carries `version` in the body.
 * Bump this with the app version whenever the function changes.
  */
-const FUNCTION_VERSION = '1.22.3';
+const FUNCTION_VERSION = '1.22.4';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -117,7 +117,16 @@ function normalisePem(raw: string): { pem: string; format?: 'spki' | 'pkcs1'; de
   // wrong one complains about DER tags: a PKCS#1 key read as SPKI begins
   // SEQUENCE { INTEGER … }, so the parser wants a SEQUENCE and finds a modulus.
   if (/BEGIN RSA PUBLIC KEY/.test(value)) {
-    return /END RSA PUBLIC KEY/.test(value) ? { pem: value, format: 'pkcs1' } : { pem: '', defect: 'truncated' };
+    if (/END RSA PUBLIC KEY/.test(value)) return { pem: value, format: 'pkcs1' };
+    if (/END PUBLIC KEY/.test(value)) {
+      // Some key exporters put the PKCS#1 BEGIN label around an SPKI body.
+      // The matching generic END label identifies the intended SPKI envelope.
+      return {
+        pem: value.replace('-----BEGIN RSA PUBLIC KEY-----', '-----BEGIN PUBLIC KEY-----'),
+        format: 'spki',
+      };
+    }
+    return { pem: '', defect: 'truncated' };
   }
   if (/BEGIN PUBLIC KEY/.test(value)) {
     return /END PUBLIC KEY/.test(value) ? { pem: value, format: 'spki' } : { pem: '', defect: 'truncated' };

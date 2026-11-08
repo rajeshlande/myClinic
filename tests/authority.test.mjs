@@ -487,6 +487,16 @@ test('a PKCS#1 key in the build variable enables the feature, and says which for
   assert.equal(authorityConfig({ VITE_LICENSE_PUBLIC_KEY: SPKI_PEM }).format, 'spki');
 });
 
+test('an SPKI key with an RSA BEGIN label is still verified as SPKI', async () => {
+  const mismatched = SPKI_PEM.replace('BEGIN PUBLIC KEY', 'BEGIN RSA PUBLIC KEY');
+  const format = publicKeyFormat(mismatched);
+  assert.equal(format, 'spki');
+  const result = await verifyCapabilityToken(mintJwt(), mismatched, format, {
+    nowSeconds, expectedFingerprint: FINGERPRINT, expectedLicenseKey: LICENSE_KEY,
+  });
+  assert.equal(result.valid, true, result.reason);
+});
+
 /* ------------------------------------------ which function answered, and from when
  * The frontend and the Edge Function deploy separately, and the panel shows only
  * the app build. A refusal that only an older function can produce therefore

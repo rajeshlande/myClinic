@@ -112,7 +112,9 @@ const CACHE_PREFIX = 'myclinic.authority.v1.';
 export function publicKeyFormat(pem) {
   const text = String(pem ?? '');
   if (/PRIVATE KEY/.test(text)) return '';
-  if (/BEGIN RSA PUBLIC KEY/.test(text)) return 'pkcs1';
+  if (/BEGIN RSA PUBLIC KEY/.test(text)) {
+    return /END PUBLIC KEY/.test(text) && !/END RSA PUBLIC KEY/.test(text) ? 'spki' : 'pkcs1';
+  }
   if (/BEGIN PUBLIC KEY/.test(text)) return 'spki';
   return '';
 }

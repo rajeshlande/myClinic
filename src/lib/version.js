@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.22.3';
+export const APP_VERSION = '1.22.4';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.22.4', date: '2026-11-08', schema: 18,
+    highlights: [
+      'The licence function now repairs a known public-key label mismatch: `BEGIN RSA PUBLIC KEY` paired with `END PUBLIC KEY` is normalized to an SPKI public key before verification.',
+      'Private-key PEMs are still rejected before normalization. The clinic secret must contain the authority public key, never its private signing key.',
+      'Deploy the updated sync-clinic-license function (v1.22.4) to apply the compatibility fix. No database schema change is required.',
+    ],
+  },
   {
     version: '1.22.3', date: '2026-11-08', schema: 18,
     highlights: [

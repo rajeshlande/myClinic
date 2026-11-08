@@ -23,6 +23,14 @@ test('the value wrapped in a .env line is understood, not rejected', () => {
   }
 });
 
+test('a SPKI key with the RSA BEGIN label is normalized from its END label', () => {
+  const mismatched = RSA_PEM.replace('BEGIN PUBLIC KEY', 'BEGIN RSA PUBLIC KEY');
+  const result = inspectPublicKey(mismatched);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.format, 'spki');
+  assert.equal(result.pem.trim(), RSA_PEM.trim());
+});
+
 test('the copy-paste mistakes are named, one by one', () => {
   const priv = rsaPrivate.export({ type: 'pkcs8', format: 'pem' });
   const cases = [

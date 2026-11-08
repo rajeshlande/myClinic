@@ -48,9 +48,14 @@ export function normalisePem(raw) {
   // (`BEGIN RSA PUBLIC KEY`). Both verify; the app and the Edge Function wrap the
   // second one into the first, because WebCrypto has no 'pkcs1' format.
   if (/BEGIN RSA PUBLIC KEY/.test(value)) {
-    return /END RSA PUBLIC KEY/.test(value)
-      ? { pem: value, format: 'pkcs1' }
-      : { pem: '', defect: 'truncated' };
+    if (/END RSA PUBLIC KEY/.test(value)) return { pem: value, format: 'pkcs1' };
+    if (/END PUBLIC KEY/.test(value)) {
+      return {
+        pem: value.replace('-----BEGIN RSA PUBLIC KEY-----', '-----BEGIN PUBLIC KEY-----'),
+        format: 'spki',
+      };
+    }
+    return { pem: '', defect: 'truncated' };
   }
   if (/BEGIN PUBLIC KEY/.test(value)) {
     return /END PUBLIC KEY/.test(value) ? { pem: value, format: 'spki' } : { pem: '', defect: 'truncated' };

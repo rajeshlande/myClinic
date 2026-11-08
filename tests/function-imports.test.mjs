@@ -129,6 +129,18 @@ test('the function version matches package.json', () => {
   assert.equal(declared[1], pkg.version, 'bump FUNCTION_VERSION with the app version');
 });
 
+test('a mismatched public PEM envelope is normalized as SPKI', () => {
+  assert.match(source, /if \(\/END RSA PUBLIC KEY\/\.test\(value\)\) return \{ pem: value, format: 'pkcs1' \};/);
+  assert.match(
+    source,
+    /if \(\/END PUBLIC KEY\/\.test\(value\)\) \{[\s\S]*?value\.replace\('-----BEGIN RSA PUBLIC KEY-----', '-----BEGIN PUBLIC KEY-----'\)[\s\S]*?format: 'spki'/,
+  );
+  assert.ok(
+    source.indexOf("if (/PRIVATE KEY/.test(value))") < source.indexOf("if (/BEGIN RSA PUBLIC KEY/.test(value))"),
+    'private key material must be rejected before public-envelope normalization',
+  );
+});
+
 test('every response carries the version, and the browser may read it', () => {
   assert.match(source, /'x-myclinic-function': FUNCTION_VERSION/, 'the header is set on responses');
   assert.match(source, /version: FUNCTION_VERSION/, 'the body carries it too');

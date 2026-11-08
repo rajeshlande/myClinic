@@ -61,7 +61,9 @@ npm run check:key -- keys/license_public_spki.pem     # in the authority repo
 The key may be in either envelope — `-----BEGIN PUBLIC KEY-----` (SPKI) or
 `-----BEGIN RSA PUBLIC KEY-----` (PKCS#1). Both verify; since 1.22.0 the app and the
 Edge Function convert the second before handing it to the platform's crypto, which
-has no PKCS#1 format to name. `check:key` tells you which one you have:
+has no PKCS#1 format to name. v1.22.4 also recognizes an SPKI key whose BEGIN line
+was incorrectly labeled `RSA PUBLIC KEY` when its END line is `PUBLIC KEY`.
+`check:key` tells you which one you have:
 
 ```text
 ✓ usable RSA-2048 public key (PKCS1 PEM)

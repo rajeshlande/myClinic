@@ -3,6 +3,16 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.22.4] — 2026-11-08 · schema 18
+
+**Accept the public key's mismatched PEM labels.**
+
+- The clinic Edge Function now normalizes a key beginning with
+  `BEGIN RSA PUBLIC KEY` and ending with `END PUBLIC KEY` to an SPKI public
+  envelope before verifying it.
+- Private key material is still rejected before this normalization.
+- Deploy `sync-clinic-license` v1.22.4 to apply the fix. No schema change.
+
 ## [1.22.3] — 2026-11-08 · schema 18
 
 **Make the private-key refusal actionable.**
