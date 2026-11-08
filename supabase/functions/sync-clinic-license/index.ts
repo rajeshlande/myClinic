@@ -36,7 +36,7 @@ const TOKEN_DRIFT_SECONDS = 120; // clock tolerance when reading iat/exp
  * `x-myclinic-function`, and every refusal carries `version` in the body.
 * Bump this with the app version whenever the function changes.
  */
-const FUNCTION_VERSION = '1.22.2';
+const FUNCTION_VERSION = '1.22.3';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',

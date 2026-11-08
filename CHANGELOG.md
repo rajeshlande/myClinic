@@ -3,6 +3,18 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.22.3] — 2026-11-08 · schema 18
+
+**Make the private-key refusal actionable.**
+
+- The licence authority setup guide now explains `key-private` and how to
+  correct the clinic Edge Function secret without exposing or using the
+  authority's private signing key.
+- If a private signing key was put in a clinic secret or otherwise exposed,
+  rotate the signing pair at the authority, update the clinic secret to the
+  public half, update the matching public build variable, and rebuild.
+- Synchronized the app and function version to `1.22.3`. No schema change.
+
 ## [1.22.2] — 2026-11-02 · schema 18
 
 **Every refusal now names the function that made it.**

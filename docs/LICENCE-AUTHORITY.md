@@ -293,7 +293,7 @@ Four causes, in the order they happen. The card names which one you are in.
 | Nothing at all, and the page is a **demo workspace** | demo mode has no clinic, no database and no authority | sign in to a live project |
 | **Not in this build** | `VITE_LICENSE_PUBLIC_KEY` was not set when the bundle was compiled — the commonest one | set the variable, **rebuild and redeploy**; a reload cannot fix it |
 | **Not connected**, no button | you are not the clinic **Owner** | sign in as the owner — binding and syncing are owner-only by design |
-| **Not connected**, button present | the press failed | the card prints the refusal code (`origin-not-allowed`, `token-signature`, `authority-unreachable`, …) with its meaning; see below |
+| **Not connected**, button present | the press failed | the card prints the refusal code (`key-private`, `origin-not-allowed`, `token-signature`, `authority-unreachable`, …) with its meaning; see below |
 
 A build compiled without the key cannot be repaired from the browser: the app is
 told whether an authority exists at build time, which is why the deploy log says
@@ -415,7 +415,9 @@ curl -i -X POST "https://<CLINIC_PROJECT_REF>.supabase.co/functions/v1/sync-clin
 | `authority-refused` | the authority said no: revoked key, suspended or expired subscription, seat cap | check the Control Room; the message carries the authority's own sentence |
 | `authority-unreachable` | network or the authority is down | the clinic keeps working on its last valid licence |
 | `token-signature` / `token-issuer` | the token was not signed by the authority's key | the public keys on both sides disagree — compare them with `npm run check:key -- a.pem b.pem` |
-| `token-key` | `LICENSE_PUBLIC_KEY` could not be used to verify anything — the key itself, not the token | run `npm run check:key` on what you pasted; since 1.21.6 the function refuses earlier with `key-malformed` or `key-private` and says what is wrong. An *ASN.1 DER tag* error means a PKCS#1 key was read as SPKI — fixed in 1.22.0, so update the function |
+| `key-private` | the clinic's Edge Function secret `LICENSE_PUBLIC_KEY` contains a private PEM | **Do not use the private key in the clinic project.** Treat it as exposed outside the authority: rotate the authority's signing pair using its key-rotation procedure, then set the new public half as the clinic's `LICENSE_PUBLIC_KEY` secret and the app's `VITE_LICENSE_PUBLIC_KEY` build variable. Rebuild the app; the function secret takes effect on its next invocation. |
+| `key-malformed` | `LICENSE_PUBLIC_KEY` is empty, truncated, not a public PEM, or cannot be imported as RSA | run `npm run check:key` on the public PEM and set the complete value, including its matching `BEGIN`/`END` lines |
+| `token-key` | an older function could not use `LICENSE_PUBLIC_KEY` to verify anything — the key itself, not the token | update the function; current versions reject configuration problems before contacting the authority. An *ASN.1 DER tag* error means a PKCS#1 key was read as SPKI — fixed in 1.22.0 |
 | `token-fingerprint` | the token was issued for a different deployment address | re-issue in the Control Room, or fix `MYCLINIC_ORIGINS` |
 | `token-expired` | the 7-day window closed while offline | open the app with a connection |
 | `license:managed` | a local renewal was attempted while bound | renewals happen in the Control Room |

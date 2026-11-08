@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.22.2';
+export const APP_VERSION = '1.22.3';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.22.3', date: '2026-11-08', schema: 18,
+    highlights: [
+      'The licence authority setup guide now explains the `key-private` refusal and the required correction: the clinic Edge Function receives only the authority public key, never its private signing key.',
+      'If a private signing key was placed in a clinic secret or otherwise exposed, rotate the authority signing pair, update the clinic Edge Function secret and the matching public build variable, then rebuild the app.',
+      'The app and licence function both report version 1.22.3; no database schema change is required.',
+    ],
+  },
   {
     version: '1.22.2', date: '2026-11-02', schema: 18,
     highlights: [
