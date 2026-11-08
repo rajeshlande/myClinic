@@ -103,6 +103,18 @@ npx supabase functions deploy sync-clinic-license --project-ref <CLINIC_PROJECT_
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are injected by
 the platform; you never set them.
 
+`MYCLINIC_ORIGINS` must list **every** address you open the app from, comma
+separated — the deployed one *and* the local dev servers, or the same clinic works
+on Pages and returns 403 on your own machine:
+
+```bash
+MYCLINIC_ORIGINS="https://clinic.github.io,http://localhost:5173,http://localhost:4173"
+```
+
+`5173` is `npm run dev`, `4173` is `npm run preview`. Change them after the fact
+with `npx supabase secrets set MYCLINIC_ORIGINS="…" --project-ref <CLINIC_PROJECT_REF>`;
+no redeploy is needed.
+
 What the function does, in order:
 
 1. rejects anything that is not a signed-in **owner** of the clinic being synced
@@ -291,6 +303,12 @@ npx supabase secrets set MYCLINIC_ORIGINS="https://clinic.github.io/myClinic" --
 Add every address you actually open the app from — the Pages URL, a custom domain,
 and `http://localhost:5173` while developing. Comma-separated, no spaces needed.
 A fresh `secrets set` takes effect on the next invocation; no redeploy.
+
+**If the screen says *"Edge Function returned a non-2xx status code"*** and
+nothing else, the app is older than 1.21.5 or the function is older than 1.21.2:
+that sentence is supabase-js's, and it replaces whatever the function wrote. Both
+halves are fixed now — the function logs its code (1.21.2) and the app reads the
+code out of the response body and header (1.21.5). Redeploy both.
 
 **Prove which gate it is**, with the public anon key and no user session:
 

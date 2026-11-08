@@ -76,6 +76,13 @@ export const AUTHORITY_ERRORS = Object.freeze({
   'bad-json': 'The licence authority request was malformed.',
   'bad-clinic': 'The clinic id was not recognised.',
   'bad-origin': 'The deployment address was not recognised.',
+  // A refusal whose body we could not read — a function deployed before it
+  // explained itself, or a gateway page instead of our JSON.
+  'http-401': 'The licence function did not accept this session. Sign in again, then retry.',
+  'http-403': 'The licence function refused the request (HTTP 403) without saying why, which means it is an older deployment than this build — redeploy it. If it still refuses, this deployment origin is not on MYCLINIC_ORIGINS.',
+  'http-404': 'The licence function is not deployed in this project. Deploy sync-clinic-license.',
+  'http-500': 'The licence function failed on the server; its log has the reason.',
+  refused: 'The licence function refused the request.',
   network: 'The licence could not be synced just now.',
 });
 

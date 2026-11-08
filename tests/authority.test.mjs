@@ -7,7 +7,7 @@ import {
   buildFingerprint, clearAuthorityToken, decodeJwt, readAuthorityToken, seatsForTier, syncDue,
   tierToPlan, verifyCapabilityToken, writeAuthorityToken,
 } from '../src/lib/authority.mjs';
-import { cachedClinicLicense, syncClinicLicense } from '../src/lib/authority-sync.mjs';
+import { cachedClinicLicense, refusalFromError, syncClinicLicense } from '../src/lib/authority-sync.mjs';
 
 /* ---------------------------------------------------------------- a real signer
  * The verifier is only worth testing against real RS256 signatures, so this file
@@ -370,4 +370,71 @@ test('no state both claims visibility and withholds a reason', () => {
       assert.ok(panel.reason.length > 40, `${panel.state} must explain itself`);
     }
   }
+});
+
+/* ------------------------------------- what the screen says when the function says no
+ * supabase-js keeps only the status: `error.message` is "Edge Function returned a
+ * non-2xx status code" whatever the function wrote. Every refusal the licence
+ * function makes became that one sentence on screen, which is how a stale
+ * deployment (403, origin not on the list) looked identical to a wrong password.
+ */
+
+const httpError = (status, body, headers = {}) => ({
+  message: 'Edge Function returned a non-2xx status code',
+  context: new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...headers },
+  }),
+});
+
+test('a refusal body is read, not discarded', async () => {
+  const refusal = await refusalFromError(httpError(403, {
+    ok: false, code: 'origin-not-allowed', error: "This origin is not on the clinic's allowlist.",
+  }));
+  assert.equal(refusal.code, 'origin-not-allowed');
+  assert.match(refusal.message, /allowlist/);
+  assert.equal(refusal.status, 403);
+});
+
+test('the x-myclinic-code header survives a body that cannot be read', async () => {
+  const refusal = await refusalFromError(httpError(403, undefined, { 'x-myclinic-code': 'not-owner' }));
+  assert.equal(refusal.code, 'not-owner');
+  assert.equal(refusal.message, '', 'no body, no message — the caller falls back');
+});
+
+test('an old deployment still gets an actionable sentence', async () => {
+  // The deployment that prompted this: a function older than the app, so the
+  // 403 carries no code and no message at all.
+  const refusal = await refusalFromError(httpError(403, undefined));
+  assert.equal(refusal.code, 'http-403');
+  assert.equal(refusal.status, 403);
+  assert.match(authorityErrorMessage(refusal.code), /redeploy/i);
+  assert.match(authorityErrorMessage(refusal.code), /MYCLINIC_ORIGINS/);
+});
+
+test('a network failure is not dressed up as a refusal', async () => {
+  assert.equal(await refusalFromError(new TypeError('Failed to fetch')), null);
+  assert.equal(await refusalFromError(undefined), null);
+  assert.equal(await refusalFromError({ message: 'boom' }), null, 'no context, no status, no code');
+});
+
+test('sync reports the refusal code, and keeps the cached licence', async () => {
+  const storage = memoryStorage();
+  // A clinic that was bound yesterday: a valid token sits in the cache.
+  writeAuthorityToken('clinic-a', mintJwt(), { storage, syncedAt: NOW.toISOString() });
+
+  const result = await syncClinicLicense({
+    invoke: async () => ({ data: null, error: httpError(403, undefined) }),
+    clinicId: 'clinic-a',
+    publicKeyPem: PUBLIC_PEM,
+    origin: ORIGIN,
+    storage,
+    now: NOW,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'http-403', 'the status becomes a code the app can map');
+  assert.match(result.error, /HTTP 403/, 'and the message keeps the status it saw');
+  assert.equal(result.fromCache, true, 'a refusal must not throw away a still-valid licence');
+  assert.ok(result.view, 'the clinic keeps working on what it already has');
 });

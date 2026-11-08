@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.4';
+export const APP_VERSION = '1.21.5';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.5', date: '2026-11-06', schema: 18,
+    highlights: [
+      'Every refusal from the licence function reached the screen as the same seven words — “Edge Function returned a non-2xx status code” — because supabase-js keeps the status and throws the body away. The app now reads the `{code, error}` body and the `x-myclinic-code` header, so a wrong origin, a non-owner and an authority refusal each arrive as themselves, and the card shows the sentence rather than the plumbing.',
+      'When even the body is unreadable — a function deployed before it explained itself — the status is mapped to a sentence that names the likely cause: a 403 with no reason means the deployment is older than the app, so redeploy it.',
+      'A refusal no longer touches the licence the clinic already holds: a valid cached token still keeps the clinic writing, which is the offline promise and was untested on this path.',
+      '`docs/LICENCE-AUTHORITY.md` now puts the local dev origins in the `MYCLINIC_ORIGINS` example — `http://localhost:5173` and `:4173` — because a clinic that works on Pages returns 403 on your own machine until they are listed.',
+    ],
+  },
   {
     version: '1.21.4', date: '2026-11-06', schema: 18,
     highlights: [

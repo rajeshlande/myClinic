@@ -8,7 +8,7 @@ import { nextId } from './logic.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
-import { AUTHORITY_FUNCTION, authorityConfig, syncDue } from './authority.mjs';
+import { AUTHORITY_FUNCTION, authorityConfig, authorityErrorMessage, syncDue } from './authority.mjs';
 import { cachedClinicLicense, syncClinicLicense } from './authority-sync.mjs';
 import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
@@ -816,7 +816,7 @@ export function StoreProvider({ children, session }) {
     setAuthoritySync({
       state: result.ok ? 'ok' : 'error',
       at: result.syncedAt ?? new Date().toISOString(),
-      error: result.ok ? '' : result.error,
+      error: result.ok ? '' : authorityErrorMessage(result.code, result.error),
     });
 
     // The verdict lives in the database, so re-read the licence rather than

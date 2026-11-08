@@ -21,6 +21,56 @@ import {
 } from './authority.mjs';
 
 /**
+ * What a failed `functions.invoke` actually said.
+ *
+ * supabase-js throws the body away and keeps the status: `error.message` is
+ * "Edge Function returned a non-2xx status code" whatever the function wrote, so
+ * a screen wired to that shows the same sentence for *origin not allowed*, *not
+ * the owner* and *the authority said no*. The function puts its reason in the
+ * JSON body and in an `x-myclinic-code` header; this reads both, and when neither
+ * is there the status alone is mapped to a sentence that names the likely cause.
+ *
+ * @returns {Promise<{code: string, message: string, status: number}|null>}
+ */
+const STATUS_CODES = {
+  401: 'http-401',
+  403: 'http-403',
+  404: 'http-404',
+  500: 'http-500',
+  503: 'not-configured',
+};
+
+export async function refusalFromError(error) {
+  if (!error || typeof error !== 'object') return null;
+  const context = error.context;
+  let code = '';
+  let message = '';
+  let status = 0;
+
+  if (context && typeof context === 'object') {
+    status = Number(context.status) || 0;
+    try {
+      code = context.headers?.get?.('x-myclinic-code') || '';
+    } catch {
+      code = '';
+    }
+    if (typeof context.json === 'function') {
+      try {
+        const body = await context.json();
+        code = (typeof body?.code === 'string' && body.code) || code;
+        message = typeof body?.error === 'string' ? body.error : '';
+      } catch {
+        // The body was already consumed, or it is a gateway page, not our JSON.
+      }
+    }
+  }
+
+  if (!code) code = STATUS_CODES[status] ?? (status ? 'refused' : '');
+  if (!code) return null;
+  return { code, message, status };
+}
+
+/**
  * Ask the clinic's Edge Function to phone the authority, then verify what comes
  * back with our own eyes before caching it.
  *
@@ -75,14 +125,17 @@ export async function syncClinicLicense({
     // the cached token. A cached token that is still valid keeps the clinic open
     // for its remaining life; an expired one shows read-only.
     const fallback = await cachedView();
-    const contextual = response?.error?.context?.code;
-    const code = response?.data?.code
-      || (typeof contextual === 'string' && contextual ? contextual : '')
-      || 'network';
+    const refusal = await refusalFromError(response?.error);
+    const code = response?.data?.code || refusal?.code || 'network';
+    const said = response?.data?.error
+      || refusal?.message
+      || (refusal?.status ? `${failure?.message ?? 'The licence function refused the request.'} (HTTP ${refusal.status})` : '')
+      || failure?.message
+      || 'The licence could not be synced.';
     return {
       ok: false,
       code,
-      error: response?.data?.error ?? failure?.message ?? 'The licence could not be synced.',
+      error: said,
       view: fallback?.view ?? null,
       claims: fallback?.claims ?? null,
       syncedAt: cached?.syncedAt ?? null,

@@ -3,6 +3,29 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.5] — 2026-11-06 · schema 18
+
+**"Edge Function returned a non-2xx status code" is not an answer.**
+
+- **Where the sentence came from.** `supabase.functions.invoke` keeps the HTTP
+  status and discards the response body; `error.message` is that one string for
+  every non-2xx. The licence function had been writing `{code, error}` all along —
+  the app simply never read it, so *origin not allowed*, *not the owner* and *the
+  authority refused* were indistinguishable on screen.
+- **The app now reads the refusal**: `refusalFromError()` takes the code from the
+  JSON body, falls back to the `x-myclinic-code` header, and maps a bare status to
+  a sentence that names the likely cause. A 403 with no reason is almost always a
+  **stale deployment** — the function in the project is older than the app — and
+  the message now says so.
+- **New mapped codes**: `http-401`, `http-403`, `http-404`, `http-500`, `refused`,
+  so the card and the toast show something actionable even when nothing else
+  survives.
+- **A refusal never discards a valid licence.** The cached token still keeps the
+  clinic writing while the authority is unhappy — now covered by a test.
+- **`MYCLINIC_ORIGINS` documents the dev origins.** `http://localhost:5173` and
+  `http://localhost:4173` have to be on the list, or the clinic that works on Pages
+  returns 403 on your machine.
+
 ## [1.21.4] — 2026-11-06 · schema 18
 
 **A keyless deploy now says which kind of keyless it is.**
