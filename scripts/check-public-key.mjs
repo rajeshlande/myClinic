@@ -44,9 +44,18 @@ export function normalisePem(raw) {
   value = value.replace(/^[A-Z0-9_]+\s*=\s*/, '');
   value = value.replace(/^["'`]+|["'`]+$/g, '').trim();
   value = value.replace(/\\n/g, '\n');
-  if (!/BEGIN PUBLIC KEY/.test(value)) return { pem: '', defect: 'not-a-public-key' };
-  if (!/END PUBLIC KEY/.test(value)) return { pem: '', defect: 'truncated' };
-  return { pem: value };
+  // Two legitimate envelopes: SPKI (`BEGIN PUBLIC KEY`) and PKCS#1
+  // (`BEGIN RSA PUBLIC KEY`). Both verify; the app and the Edge Function wrap the
+  // second one into the first, because WebCrypto has no 'pkcs1' format.
+  if (/BEGIN RSA PUBLIC KEY/.test(value)) {
+    return /END RSA PUBLIC KEY/.test(value)
+      ? { pem: value, format: 'pkcs1' }
+      : { pem: '', defect: 'truncated' };
+  }
+  if (/BEGIN PUBLIC KEY/.test(value)) {
+    return /END PUBLIC KEY/.test(value) ? { pem: value, format: 'spki' } : { pem: '', defect: 'truncated' };
+  }
+  return { pem: '', defect: 'not-a-public-key' };
 }
 
 /**
@@ -54,9 +63,9 @@ export function normalisePem(raw) {
  *   bits: number, type: string, pem: string}}
  */
 export function inspectPublicKey(raw) {
-  const { pem, defect } = normalisePem(raw);
+  const { pem, format = 'spki', defect } = normalisePem(raw);
   if (defect) {
-    return { ok: false, defect, reason: WHY[defect], fingerprint: '', bits: 0, type: '', pem: '' };
+    return { ok: false, defect, reason: WHY[defect], fingerprint: '', bits: 0, type: '', format: '', pem: '' };
   }
 
   let key;
@@ -67,12 +76,12 @@ export function inspectPublicKey(raw) {
       ok: false,
       defect: 'unusable',
       reason: `${WHY.unusable} (${error instanceof Error ? error.message : 'unknown error'})`,
-      fingerprint: '', bits: 0, type: '', pem: '',
+      fingerprint: '', bits: 0, type: '', format: '', pem: '',
     };
   }
 
   if (key.asymmetricKeyType !== 'rsa') {
-    return { ok: false, defect: 'not-rsa', reason: `${WHY['not-rsa']} (${key.asymmetricKeyType})`, fingerprint: '', bits: 0, type: key.asymmetricKeyType ?? '', pem: '' };
+    return { ok: false, defect: 'not-rsa', reason: `${WHY['not-rsa']} (${key.asymmetricKeyType})`, fingerprint: '', bits: 0, type: key.asymmetricKeyType ?? '', format: '', pem: '' };
   }
 
   const der = key.export({ type: 'spki', format: 'der' });
@@ -84,6 +93,7 @@ export function inspectPublicKey(raw) {
     fingerprint,
     bits: key.asymmetricKeyDetails?.modulusLength ?? 0,
     type: 'rsa',
+    format,
     pem,
   };
 }
@@ -107,7 +117,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`✓ usable RSA-${one.bits || '?'} public key`);
+  console.log(`✓ usable RSA-${one.bits || '?'} public key (${one.format.toUpperCase()} PEM)`);
   console.log(`  fingerprint  ${shortFingerprint(one.fingerprint)}`);
 
   if (!second) {

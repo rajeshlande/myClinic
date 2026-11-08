@@ -3,6 +3,33 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.22.0] — 2026-11-06 · schema 18
+
+**Two envelopes, one key.**
+
+- **The failure that prompted this.** `Refused: Could not verify the signature:
+  ASN.1 error: unexpected ASN.1 DER tag: expected SEQUENCE, got INTEGER at DER
+  byte 2.` That is a **PKCS#1** public key (`-----BEGIN RSA PUBLIC KEY-----`) being
+  read as **SPKI**: the parser wants `SEQUENCE { SEQUENCE, BIT STRING }` and finds
+  `SEQUENCE { INTEGER modulus, INTEGER exponent }` instead. Nothing in the message
+  says *format*, so it reads like a broken key.
+- **Both formats now verify**, in all three places that check a signature:
+  - `src/lib/authority.mjs` — `publicKeyFormat()` names the envelope;
+  - `supabase/functions/sync-clinic-license` — same detection, and the config gate
+    logs `{format: 'pkcs1'}` so the function log is unambiguous;
+  - `scripts/check-public-key.mjs` — prints `usable RSA-2048 public key (PKCS1 PEM)`.
+- **Why a wrapper rather than a format name.** WebCrypto has no `pkcs1` import
+  format: it is not in the specification, and Deno rejects it outright — *"the
+  provided value 'pkcs1' is not a valid enum value of type KeyFormat"*. So
+  `pkcs1ToSpki()` prepends the `rsaEncryption` AlgorithmIdentifier and the BIT
+  STRING header, producing the same DER that Node's `export({type:'spki'})` does —
+  asserted byte for byte in the tests.
+- **A private key is still refused**, in either envelope, with `key-private`.
+- **A PKCS#1 key in `VITE_LICENSE_PUBLIC_KEY` no longer reads as "Not in this
+  build"**: `authorityConfig().enabled` accepts both formats.
+- Four tests: format detection, the byte-exact wrapper, verification of one real
+  RS256 token with both envelopes, and the build-variable path.
+
 ## [1.21.9] — 2026-11-06 · schema 18
 
 **"Inbucket" is a file-naming problem, not an email problem.**

@@ -58,6 +58,16 @@ npm run check:key -- keys/license_public_spki.pem     # in the authority repo
 #   fingerprint  sha256:JiSoRP6Kkp79TRoMyPXsuA
 ```
 
+The key may be in either envelope — `-----BEGIN PUBLIC KEY-----` (SPKI) or
+`-----BEGIN RSA PUBLIC KEY-----` (PKCS#1). Both verify; since 1.22.0 the app and the
+Edge Function convert the second before handing it to the platform's crypto, which
+has no PKCS#1 format to name. `check:key` tells you which one you have:
+
+```text
+✓ usable RSA-2048 public key (PKCS1 PEM)
+  fingerprint  sha256:f5r_Q4NHSEHiJ0amxOIatv
+```
+
 Then the same command against whatever you set in the clinic project tells you
 whether the two are the same key:
 
@@ -405,7 +415,7 @@ curl -i -X POST "https://<CLINIC_PROJECT_REF>.supabase.co/functions/v1/sync-clin
 | `authority-refused` | the authority said no: revoked key, suspended or expired subscription, seat cap | check the Control Room; the message carries the authority's own sentence |
 | `authority-unreachable` | network or the authority is down | the clinic keeps working on its last valid licence |
 | `token-signature` / `token-issuer` | the token was not signed by the authority's key | the public keys on both sides disagree — compare them with `npm run check:key -- a.pem b.pem` |
-| `token-key` | `LICENSE_PUBLIC_KEY` could not be used to verify anything — the key itself, not the token | run `npm run check:key` on what you pasted; since 1.21.6 the function refuses earlier with `key-malformed` or `key-private` and says what is wrong |
+| `token-key` | `LICENSE_PUBLIC_KEY` could not be used to verify anything — the key itself, not the token | run `npm run check:key` on what you pasted; since 1.21.6 the function refuses earlier with `key-malformed` or `key-private` and says what is wrong. An *ASN.1 DER tag* error means a PKCS#1 key was read as SPKI — fixed in 1.22.0, so update the function |
 | `token-fingerprint` | the token was issued for a different deployment address | re-issue in the Control Room, or fix `MYCLINIC_ORIGINS` |
 | `token-expired` | the 7-day window closed while offline | open the app with a connection |
 | `license:managed` | a local renewal was attempted while bound | renewals happen in the Control Room |

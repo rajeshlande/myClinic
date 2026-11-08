@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.9';
+export const APP_VERSION = '1.22.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.22.0', date: '2026-11-06', schema: 18,
+    highlights: [
+      'A licence public key arrives in one of two envelopes, and only one of them was accepted: `BEGIN PUBLIC KEY` (SPKI) worked, `BEGIN RSA PUBLIC KEY` (PKCS#1) failed with “ASN.1 DER tag: expected SEQUENCE, got INTEGER at DER byte 2” — a message about DER that never mentions the key format. Both work now, in the browser, in the Edge Function and in `npm run check:key`.',
+      'WebCrypto has no `pkcs1` import format at all — it is not in the spec, and Deno rejects the string outright — so a PKCS#1 key is wrapped into SPKI before importing. The wrapper reproduces the SPKI export byte for byte, and a test asserts exactly that.',
+      'The format is now named everywhere it matters: `publicKeyFormat()`, the config gate’s log line, `npm run check:key` (‘usable RSA-2048 public key (PKCS1 PEM)’), and the secret being a private key is still refused rather than converted.',
+    ],
+  },
   {
     version: '1.21.9', date: '2026-11-06', schema: 18,
     highlights: [

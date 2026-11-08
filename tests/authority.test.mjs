@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import {
   AUTHORITY_ENV_PUBLIC_KEY, AUTHORITY_PANEL_STATES, AUTHORITY_SEATS, authorityCacheKey,
-  authorityConfig, authorityErrorMessage, authorityPanel, authorityView,
+  authorityConfig, authorityErrorMessage, authorityPanel, authorityView, pkcs1ToSpki,
+  publicKeyFormat,
   buildFingerprint, clearAuthorityToken, decodeJwt, readAuthorityToken, seatsForTier, syncDue,
   tierToPlan, verifyCapabilityToken, writeAuthorityToken,
 } from '../src/lib/authority.mjs';
@@ -437,4 +438,49 @@ test('sync reports the refusal code, and keeps the cached licence', async () => 
   assert.match(result.error, /HTTP 403/, 'and the message keeps the status it saw');
   assert.equal(result.fromCache, true, 'a refusal must not throw away a still-valid licence');
   assert.ok(result.view, 'the clinic keeps working on what it already has');
+});
+
+/* --------------------------------------------- the two envelopes RS256 keys arrive in
+ * A clinic's secret held `-----BEGIN RSA PUBLIC KEY-----`, and verification failed
+ * with "ASN.1 DER tag: expected SEQUENCE, got INTEGER at DER byte 2": a PKCS#1 key
+ * read as SPKI. WebCrypto has no 'pkcs1' format at all — Deno rejects the string
+ * outright — so the key is wrapped into SPKI before it is imported.
+ */
+
+const PKCS1_PEM = publicKey.export({ type: 'pkcs1', format: 'pem' }).toString();
+const SPKI_PEM = PUBLIC_PEM;
+
+test('both envelopes are recognised, and a private key never is', () => {
+  assert.equal(publicKeyFormat(SPKI_PEM), 'spki');
+  assert.equal(publicKeyFormat(PKCS1_PEM), 'pkcs1');
+  assert.equal(publicKeyFormat(privateKey.export({ type: 'pkcs8', format: 'pem' })), '');
+  assert.equal(publicKeyFormat(privateKey.export({ type: 'pkcs1', format: 'pem' })), '', 'PKCS#1 private too');
+  assert.equal(publicKeyFormat('scratch'), '');
+});
+
+test('the PKCS#1 wrapper reproduces the SPKI export byte for byte', () => {
+  const der = Buffer.from(PKCS1_PEM.replace(/-----(BEGIN|END) RSA PUBLIC KEY-----/g, '').replace(/\s+/g, ''), 'base64');
+  const wrapped = Buffer.from(pkcs1ToSpki(new Uint8Array(der))).toString('base64');
+  const expected = SPKI_PEM.replace(/-----(BEGIN|END) PUBLIC KEY-----/g, '').replace(/\s+/g, '');
+  assert.equal(wrapped, expected, 'this is the whole fix: the same bytes, differently enveloped');
+});
+
+test('a token signed by the authority verifies with either envelope of its public key', async () => {
+  const token = mintJwt();
+  const spki = await verifyCapabilityToken(token, SPKI_PEM, {
+    nowSeconds, expectedFingerprint: FINGERPRINT, expectedLicenseKey: LICENSE_KEY,
+  });
+  const pkcs1 = await verifyCapabilityToken(token, PKCS1_PEM, {
+    nowSeconds, expectedFingerprint: FINGERPRINT, expectedLicenseKey: LICENSE_KEY,
+  });
+  assert.equal(spki.valid, true, spki.reason);
+  assert.equal(pkcs1.valid, true, pkcs1.reason);
+  assert.deepEqual(pkcs1.claims, spki.claims);
+});
+
+test('a PKCS#1 key in the build variable enables the feature, and says which format', () => {
+  const config = authorityConfig({ VITE_LICENSE_PUBLIC_KEY: PKCS1_PEM });
+  assert.equal(config.enabled, true, 'it used to read as "not in this build"');
+  assert.equal(config.format, 'pkcs1');
+  assert.equal(authorityConfig({ VITE_LICENSE_PUBLIC_KEY: SPKI_PEM }).format, 'spki');
 });

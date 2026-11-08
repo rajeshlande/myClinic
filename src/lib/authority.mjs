@@ -96,11 +96,34 @@ const CACHE_PREFIX = 'myclinic.authority.v1.';
  * function rather than the authority directly: a key published in a static
  * bundle is a key anyone can read.
  */
+/**
+ * Which envelope a public key is in.
+ *
+ * RS256 keys travel in two shapes and both are legitimate:
+ *
+ *   -----BEGIN PUBLIC KEY-----      SPKI  — WebCrypto's `spki`
+ *   -----BEGIN RSA PUBLIC KEY-----  PKCS#1 — WebCrypto's `pkcs1`
+ *
+ * WebCrypto needs the format named, and the wrong name produces an ASN.1 error
+ * about DER tags rather than anything a person can act on: a PKCS#1 key read as
+ * SPKI starts `SEQUENCE { INTEGER … }`, so the parser asks for a SEQUENCE and finds
+ * the modulus. Accept both, and say which one arrived.
+ */
+export function publicKeyFormat(pem) {
+  const text = String(pem ?? '');
+  if (/PRIVATE KEY/.test(text)) return '';
+  if (/BEGIN RSA PUBLIC KEY/.test(text)) return 'pkcs1';
+  if (/BEGIN PUBLIC KEY/.test(text)) return 'spki';
+  return '';
+}
+
 export function authorityConfig(env = {}) {
   const publicKeyPem = String(env.VITE_LICENSE_PUBLIC_KEY ?? '').trim();
   const issuer = String(env.VITE_LICENSE_ISSUER ?? '').trim() || AUTHORITY_ISSUER;
+  const format = publicKeyFormat(publicKeyPem);
   return {
-    enabled: publicKeyPem.includes('BEGIN PUBLIC KEY'),
+    enabled: Boolean(format),
+    format,
     publicKeyPem,
     issuer,
     functionName: AUTHORITY_FUNCTION,
@@ -127,7 +150,20 @@ function base64UrlToBytes(input) {
   return bytes;
 }
 
-function pemToArrayBuffer(pem) {
+/** DER length prefix: short form under 0x80, else 0x80|nbytes followed by the bytes. */
+function derLength(length) {
+  if (length < 0x80) return [length];
+  const bytes = [];
+  let value = length;
+  while (value > 0) {
+    bytes.unshift(value & 0xff);
+    value >>= 8;
+  }
+  return [0x80 | bytes.length, ...bytes];
+}
+
+/** The DER bytes inside a PEM, whatever the label says. */
+function pemBodyToBytes(pem) {
   const body = String(pem)
     .replace(/\\n/g, '\n')
     .replace(/-----(?:BEGIN|END) [A-Z0-9 ]+-----/g, '')
@@ -136,7 +172,34 @@ function pemToArrayBuffer(pem) {
   const binary = atob(body);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
+  return bytes;
+}
+
+/**
+ * PKCS#1 `RSAPublicKey` → SPKI.
+ *
+ * `-----BEGIN RSA PUBLIC KEY-----` is a bare `SEQUENCE { modulus, exponent }`; SPKI
+ * wraps the same bytes with the `rsaEncryption` algorithm identifier. WebCrypto has
+ * no `pkcs1` import format — not in the spec, and Deno's runtime rejects it outright
+ * (`'pkcs1' is not a valid enum value of type KeyFormat`), so handing a PKCS#1 key to
+ * `importKey` produces an ASN.1 error about DER tags and nothing else.
+ *
+ *   SPKI = SEQUENCE {
+ *            SEQUENCE { OID 1.2.840.113549.1.1.1, NULL },
+ *            BIT STRING { 0x00 unused-bits, <the PKCS#1 bytes> }
+ *          }
+ */
+export function pkcs1ToSpki(pkcs1) {
+  const der = pkcs1 instanceof Uint8Array ? pkcs1 : new Uint8Array(pkcs1);
+  const algorithm = [0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00];
+  const bitString = [0x03, ...derLength(der.length + 1), 0x00, ...der];
+  const content = [...algorithm, ...bitString];
+  return new Uint8Array([0x30, ...derLength(content.length), ...content]);
+}
+
+function pemToArrayBuffer(pem, format = 'spki') {
+  const bytes = pemBodyToBytes(pem);
+  return format === 'pkcs1' ? pkcs1ToSpki(bytes).buffer : bytes.buffer;
 }
 
 /** Split a JWT without trusting it. Returns nulls rather than throwing. */
@@ -186,9 +249,10 @@ export async function verifyCapabilityToken(
 
   let verified = false;
   try {
+    const keyFormat = publicKeyFormat(publicKeyPem) || 'spki';
     const key = await subtle.importKey(
       'spki',
-      pemToArrayBuffer(publicKeyPem),
+      pemToArrayBuffer(publicKeyPem, keyFormat),
       { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
       false,
       ['verify'],
