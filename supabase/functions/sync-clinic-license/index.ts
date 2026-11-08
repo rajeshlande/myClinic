@@ -21,7 +21,8 @@
 //
 // Deploy:  npx supabase functions deploy sync-clinic-license --project-ref <clinic-ref>
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.119.0';
+import { createClient } from 'https://esm.sh';
+
 
 const ISSUER = 'myclinic-license-authority';
 const TOKEN_DRIFT_SECONDS = 120; // clock tolerance when reading iat/exp
