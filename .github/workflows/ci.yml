@@ -50,6 +50,16 @@ jobs:
       - name: Build from a repository sub-path
         run: VITE_BASE=/myClinic/ npm run build && VITE_BASE=/myClinic/ npm run check:pages
 
+      - name: Type-check the licence Edge Function
+        # Deno, not tsc: the function is deployed from source, and `deno check`
+        # is the only compiler that knows Deno.serve, Deno.env and the esm.sh
+        # import. It caught a BufferSource typing bug that Deploy had happily
+        # shipped because Deploy does not type-check.
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/sync-clinic-license/index.ts
+
       - name: Contributing standards (CONTRIBUTING.md)
         run: npm run check:contributing
 

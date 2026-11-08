@@ -3,6 +3,36 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.2] — 2026-11-06 · schema 18
+
+**A 403 that explains itself.**
+
+- **Why the log line was useless.** The platform records the status and nothing
+  else — `POST | 403`, `logs: []` — because the function returned a body but
+  never logged it. Every refusal now writes one line with its code and the
+  context that decided it, and repeats the code in an `x-myclinic-code` header:
+
+  ```text
+  refused 403 origin-not-allowed {"origin":"https://clinic.github.io","allow":["https://clinic.example"]}
+  ```
+
+  The licence key, the token and every Supabase key stay out of it.
+- **`not-configured` now names the missing secrets** instead of listing all three,
+  and `not-signed-in` records whether the token was absent or merely userless.
+- **Which 403.** Three gates return it, and only `origin-not-allowed` can fire
+  before sign-in — which is exactly what `auth_user: null` looks like in the
+  platform log. The origin is `scheme://host[:port]`: a Pages site at
+  `https://clinic.github.io/myClinic/` sends `https://clinic.github.io`, **without
+  the repository path**, and a trailing slash is stripped for you. Reproduced
+  locally against the same function: a wrong origin returns `403
+  origin-not-allowed`, the same request with the origin allowed returns `401
+  not-signed-in`, so the two causes are distinguishable in one curl.
+- **`docs/LICENCE-AUTHORITY.md`** gains the 403 table, the exact `secrets set`
+  invocation, and the curl that tells "wrong origin" from "no session".
+- **The Edge Function is type-checked in CI** (`deno check`, via
+  `denoland/setup-deno`). It found a real `BufferSource` typing error that Deploy
+  had shipped, because Deploy does not type-check. Fixed in the same commit.
+
 ## [1.21.1] — 2026-11-06 · schema 18
 
 **Yes, the warning is accurate. No, it is not about this file.**

@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.1';
+export const APP_VERSION = '1.21.2';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.2', date: '2026-11-06', schema: 18,
+    highlights: [
+      'A `POST | 403` in the Edge Function log used to be a shrug: the platform records the status and nothing else, because the function never logged its own refusals. Every refusal now writes one line — code, status and the context that decided it (the origin and the allowlist, the clinic id, the names of any missing secret) — and repeats the code in an `x-myclinic-code` response header.',
+      'The 403 has three gates and only one of them can fire before sign-in, so `auth_user: null` in the platform log points at it: `origin-not-allowed`. The origin is `scheme://host[:port]` — a Pages site at `/myClinic/` sends `https://clinic.github.io`, without the repository path. `docs/LICENCE-AUTHORITY.md` now carries that table, the `secrets set` that fixes it, and a two-line curl that tells the two causes apart.',
+      'The licence Edge Function is type-checked in CI (`deno check`). It immediately found a `BufferSource` typing error Deploy had shipped, because Deploy does not type-check — that is fixed too.',
+    ],
+  },
   {
     version: '1.21.1', date: '2026-11-06', schema: 18,
     highlights: [

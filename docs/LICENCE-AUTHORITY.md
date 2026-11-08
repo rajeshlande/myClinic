@@ -208,6 +208,59 @@ so out loud.
 
 ## When it refuses
 
+Every refusal carries a `code`, in the JSON body **and** in an `x-myclinic-code`
+response header, and the Edge Function writes one line to its log:
+
+```text
+refused 403 origin-not-allowed {"origin":"https://clinic.github.io","allow":["https://clinic.example"]}
+```
+
+If you are reading this because the log shows a bare `POST | 403` with an empty
+`logs` array: that is the old build, before the function logged its own refusals.
+
+### A 403, specifically
+
+Three gates return 403. Only one of them can fire before sign-in, which makes the
+triage short:
+
+| 403 code | Gate | Usual cause |
+| --- | --- | --- |
+| `origin-not-allowed` | origin vs `MYCLINIC_ORIGINS` — **checked before auth**, so it fires even for a request that carries no user token | the allowlist does not contain the browser's origin |
+| `not-member` | the signed-in user has no active seat in this clinic | wrong account, or the clinic id is another clinic's |
+| `not-owner` | the seat exists but is not `owner` | a doctor or front-desk account pressed the button |
+
+`auth_user: null` in the platform log fits the first row: the request never got
+as far as being attributed to a user, because the origin gate runs first.
+
+**The origin is `scheme://host[:port]` and nothing else.** A Pages site served
+from `https://clinic.github.io/myClinic/` sends `window.location.origin` =
+`https://clinic.github.io` — no repository path, no trailing slash:
+
+```bash
+# right
+npx supabase secrets set MYCLINIC_ORIGINS="https://clinic.github.io" --project-ref <CLINIC_PROJECT_REF>
+# wrong: the repository path is not part of an origin
+npx supabase secrets set MYCLINIC_ORIGINS="https://clinic.github.io/myClinic" --project-ref <CLINIC_PROJECT_REF>
+```
+
+Add every address you actually open the app from — the Pages URL, a custom domain,
+and `http://localhost:5173` while developing. Comma-separated, no spaces needed.
+A fresh `secrets set` takes effect on the next invocation; no redeploy.
+
+**Prove which gate it is**, with the public anon key and no user session:
+
+```bash
+curl -i -X POST "https://<CLINIC_PROJECT_REF>.supabase.co/functions/v1/sync-clinic-license" \
+  -H "apikey: <ANON_KEY>" -H "Authorization: Bearer <ANON_KEY>" \
+  -H 'Content-Type: application/json' \
+  -d '{"clinic_id":"<clinics.id>","origin":"https://clinic.github.io"}'
+```
+
+| Answer | Meaning |
+| --- | --- |
+| `403 origin-not-allowed` | the allowlist does not contain that origin — the `allow` list in the log line shows what it does contain |
+| `401 not-signed-in` | the origin is **correct**; the failure is the session, so sign in again and retry from the app |
+
 | Code | What it means | What to do |
 | --- | --- | --- |
 | `not-configured` | the clinic's Edge Function has no authority secrets | run the `secrets set` step |

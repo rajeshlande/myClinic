@@ -43,9 +43,36 @@ function json(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-/** A refusal the caller can act on, with a stable code the app can map. */
-function refuse(code: string, error: string, status = 400): Response {
-  return json({ ok: false, code, error }, status);
+/**
+ * A refusal the caller can act on, with a stable code the app can map.
+ *
+ * The platform's function log records the *status* and nothing else — a bare
+ * `POST | 403` with an empty logs array, which is a shrug rather than a
+ * diagnosis. So every refusal names itself here too, once, in a single line:
+ * the code, the status, and the context that decides it (origin, allowlist,
+ * missing secret names, clinic id). Never the licence key, the token or any
+ * Supabase key.
+ *
+ * The same code also travels as a response header, so a browser's Network tab
+ * shows why without opening the body.
+ */
+function refuse(
+  code: string,
+  error: string,
+  status = 400,
+  context: Record<string, unknown> = {},
+): Response {
+  const detail = Object.keys(context).length ? ` ${JSON.stringify(context)}` : '';
+  console.warn(`refused ${status} ${code}${detail}`);
+  return new Response(JSON.stringify({ ok: false, code, error }), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'x-myclinic-code': code,
+    },
+  });
 }
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
@@ -60,10 +87,14 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function base64urlToBytes(input: string): Uint8Array {
+function base64urlToBytes(input: string): Uint8Array<ArrayBuffer> {
   const padded = input.replace(/-/g, '+').replace(/_/g, '/');
   const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
-  const bytes = new Uint8Array(binary.length);
+  // Backed by a real ArrayBuffer, not the shared-or-resizable union: this value
+  // is handed to crypto.subtle.verify() as a BufferSource, which will not accept
+  // a Uint8Array over ArrayBufferLike. `deno check` fails on that, so it is typed
+  // here rather than cast away at the call site.
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
@@ -182,10 +213,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const publicKeyPem = Deno.env.get('LICENSE_PUBLIC_KEY')?.trim();
 
   if (!verifyUrl || !licenseKey || !publicKeyPem) {
+    const missing = [
+      ['AUTHORITY_VERIFY_URL', verifyUrl],
+      ['LICENSE_KEY', licenseKey],
+      ['LICENSE_PUBLIC_KEY', publicKeyPem],
+    ].filter(([, value]) => !value).map(([name]) => name);
     return refuse(
       'not-configured',
       'This clinic is not connected to a licence authority: set AUTHORITY_VERIFY_URL, LICENSE_KEY and LICENSE_PUBLIC_KEY as Edge Function secrets.',
       503,
+      { missing },
     );
   }
 
@@ -213,13 +250,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .map((value) => value.trim().toLowerCase().replace(/\/+$/, ''))
     .filter(Boolean);
   if (allowList.length > 0 && !allowList.includes(origin)) {
-    return refuse('origin-not-allowed', 'This origin is not on the clinic\'s allowlist.', 403);
+    // The commonest 403, and the one a log line cannot describe: the browser
+    // sends `window.location.origin` — scheme, host and port only, never the
+    // repository path a Pages site is served from.
+    return refuse('origin-not-allowed', 'This origin is not on the clinic\'s allowlist.', 403, {
+      origin, allow: allowList,
+    });
   }
 
   // ------------------------------------------------------------ who is asking
   const authorization = req.headers.get('Authorization') ?? '';
   if (!authorization.toLowerCase().startsWith('bearer ')) {
-    return refuse('not-signed-in', 'Sign in to myClinic first.', 401);
+    return refuse('not-signed-in', 'Sign in to myClinic first.', 401, { clinic: clinicId });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -238,7 +280,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const { data: userData, error: userError } = await asCaller.auth.getUser();
   if (userError || !userData?.user) {
-    return refuse('not-signed-in', 'Sign in to myClinic first.', 401);
+    // An expired session arrives here: the browser sent *something*, but not a
+    // user. The app should refresh and retry rather than show a dead end.
+    return refuse('not-signed-in', 'Sign in to myClinic first.', 401, {
+      clinic: clinicId, reason: userError?.message ?? 'no user for this token',
+    });
   }
 
   const { data: seat, error: seatError } = await asCaller
@@ -249,10 +295,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .eq('active', true)
     .maybeSingle();
 
-  if (seatError) return refuse('lookup', 'Could not read your seat in this clinic.', 500);
-  if (!seat) return refuse('not-member', 'You are not a member of this clinic.', 403);
+  if (seatError) {
+    return refuse('lookup', 'Could not read your seat in this clinic.', 500, {
+      clinic: clinicId, reason: seatError.message,
+    });
+  }
+  if (!seat) {
+    return refuse('not-member', 'You are not a member of this clinic.', 403, {
+      clinic: clinicId, user: userData.user.id,
+    });
+  }
   if (seat.role !== 'owner') {
-    return refuse('not-owner', 'Only the clinic owner can sync the licence.', 403);
+    return refuse('not-owner', 'Only the clinic owner can sync the licence.', 403, {
+      clinic: clinicId, user: userData.user.id, role: seat.role,
+    });
   }
 
   // ------------------------------------------------------------- phone home
@@ -292,7 +348,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     expectedFingerprint: fingerprint,
     expectedLicenseKey: licenseKey,
   });
-  if (!check.ok) return refuse(check.code, `Refused: ${check.error}`, 403);
+  if (!check.ok) {
+    return refuse(check.code, `Refused: ${check.error}`, 403, {
+      clinic: clinicId, origin, authority: authorityStatus,
+    });
+  }
 
   const claims = check.claims;
 
