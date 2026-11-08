@@ -25,7 +25,18 @@ the bundle and shipped to the browser. A `service_role` or `sb_secret_…` key i
 `VITE_` variable is a full-database compromise; `src/lib/supabase.js` and
 `src/lib/health.mjs` refuse to start with one, and the Setup screen says so in plain
 words. The check script fails the build if a credential-shaped string reaches a
-tracked file.
+tracked file — **test fixtures included**. A fixture is written from fragments
+joined at run time, never as one literal:
+
+```js
+const fake = (...parts) => parts.join('');        // ✓ no scannable string exists
+findSecrets('f.js', fake('AIza', 'SyA…35chars'))  // ✗ never the whole thing
+```
+
+A secret scanner cannot tell a fixture from a leak, and it has no allowlist for
+`tests/`. A "publicly leaked secret" alert on a dummy key costs the same trust as
+a real one, notifies the provider, and is indistinguishable from a genuine
+incident in the audit trail.
 
 **Push protection.** Enable **Secret scanning** and **Push Protection** in the fork's
 Settings → Code security. A push containing a known credential shape is blocked before

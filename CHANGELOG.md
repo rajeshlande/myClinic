@@ -3,6 +3,30 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.20.2] — 2026-11-06 · schema 18
+
+**A dummy key is still an alert.**
+
+- **The alert was real, the secret was not.** GitHub raised *publicly leaked
+  secret* on `tests/contributing.test.mjs:27`: a Google-API-key-shaped fixture,
+  written to prove the credential scanner detects that shape. Nothing to rotate —
+  the string was invented for the test and was never a credential — but a scanner
+  cannot tell the difference, so the alert was indistinguishable from a real leak
+  in the audit trail, and the provider was notified.
+- **The seven fixtures are now assembled from fragments** at run time
+  (`fake('AIza', 'SyA…')`), so no contiguous credential-shaped string exists
+  anywhere in the tracked tree. Proved by scanning all 143 tracked files with the
+  project's own patterns: zero hits, `tests/` included.
+- **Why our own check was green.** `SECRET_SCAN_SKIP` exempted `tests/` —
+  "fixtures use obvious dummy values". They did not. That exemption is gone: test
+  files are scanned like any other, and putting one literal back turns
+  `npm run check:contributing` red (`tests/contributing.test.mjs:39 Google API
+  key`), naming the line without echoing the value. A new test asserts the
+  exemption stays gone.
+- **`CONTRIBUTING.md` now shows the fragment idiom** and says why: a dummy key
+  alerts exactly like a real one, notifies the provider, and trains everyone to
+  ignore the next alert.
+
 ## [1.20.1] — 2026-11-06 · schema 18
 
 **`supabase/schema.sql` says what it is.**

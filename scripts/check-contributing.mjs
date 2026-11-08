@@ -42,10 +42,16 @@ export const ALLOWED_DEV_DEPENDENCIES = ['@vitejs/plugin-react', 'vite'];
 export const SECRET_SCAN_SKIP = [
   'package-lock.json',          // integrity hashes, not credentials
   'src/lib/demo-data.js',       // fictional patients and a demo clinic
-  'tests/',                     // fixtures use obvious dummy values
   'supabase/schema-tests.sql',  // fixture UUIDs
   '.claude/skills/security-audit/', // vendored upstream, MIT, no credentials
 ];
+
+// `tests/` used to be on that list, "fixtures use obvious dummy values". They did
+// not: seven credential-shaped literals sat in tests/contributing.test.mjs, and
+// GitHub's secret scanning raised a publicly-leaked-secret alert on one of them
+// because it cannot tell a fixture from a leak. A scanner has no skip list, so
+// neither do we — test fixtures are assembled from fragments instead, and this
+// check fails if that discipline lapses.
 
 /**
  * Secret shapes worth failing a build over. Each is anchored to something a real

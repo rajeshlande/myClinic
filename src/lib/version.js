@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.20.1';
+export const APP_VERSION = '1.20.2';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.20.2', date: '2026-11-06', schema: 18,
+    highlights: [
+      'A “publicly leaked secret” alert on tests/contributing.test.mjs:27 was a Google-API-key-shaped fixture, not a credential — but a scanner cannot know that, so the seven credential shapes in that file are now assembled from fragments at run time and no scannable string exists in the repository at all.',
+      'The reason our own check stayed green is worth fixing too: `tests/` was on the scan’s skip list (“fixtures use obvious dummy values”). It is not skipped any more. `npm run check:contributing` now scans test files like any other and fails on a credential-shaped literal in a fixture — verified by putting one back.',
+      'CONTRIBUTING.md says how to write a fixture that does not cost you an alert, and why: a dummy key alerts exactly like a real one, notifies the provider, and is indistinguishable from a real incident in the audit trail.',
+    ],
+  },
   {
     version: '1.20.1', date: '2026-11-06', schema: 18,
     highlights: [

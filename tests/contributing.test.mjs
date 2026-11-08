@@ -1,14 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALLOWED_DEPENDENCIES, findSecrets, envFileTracked, unbalancedListeners, unsafeHtml,
-  namingProblems, parseFrontmatter, versionAgreement, runChecks, formatReport,
+  ALLOWED_DEPENDENCIES, SECRET_SCAN_SKIP, findSecrets, envFileTracked, isScannable,
+  unbalancedListeners, unsafeHtml, namingProblems, parseFrontmatter, versionAgreement,
+  runChecks, formatReport,
 } from '../scripts/check-contributing.mjs';
 
 /* --------------------------------------------------- §1 secrets at the boundary */
 
+/*
+ * Every credential-shaped string in this file is assembled from pieces at run
+ * time. Written out whole, each one is a fetchable string in a public repository,
+ * and a secret scanner — GitHub's, or anyone's — cannot tell a fixture from a
+ * leak: it raises the same alert, notifies the provider, and teaches everyone to
+ * ignore the next alert. So the shapes live here only once they have been joined,
+ * and `SECRET_SCAN_SKIP` no longer excludes tests/ — if this discipline lapses,
+ * `npm run check:contributing` fails before a scanner ever sees it.
+ */
+const fake = (...parts) => parts.join('');
+
 test('a credential shape is found, and the line is named but never echoed', () => {
-  const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJlLWhlcmU';
+  const jwt = ['eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', 'eyJyb2xlIjoiYW5vbiJ9', 'c2lnbmF0dXJlLWhlcmU'].join('.');
   const found = findSecrets('src/lib/x.js', `const key = '${jwt}';\nconst other = 1;\n`);
   assert.equal(found.length, 1);
   assert.equal(found[0].id, 'jwt');
@@ -19,12 +31,12 @@ test('a credential shape is found, and the line is named but never echoed', () =
 
 test('the shapes that matter are caught: private keys, tokens, service keys', () => {
   const cases = [
-    ['-----BEGIN RSA PRIVATE KEY-----', 'private-key'],
-    ['const k = "sb_secret_abcdefghijklmnopqrst"', 'supabase-secret'],
-    ['AKIAIOSFODNN7EXAMPLE', 'aws'],
-    ['ghp_aB3dE5gH7jK9mN1pQ2sT4vW6yZ8bC0dE1fG3', 'github-token'],
-    ['xoxb-1234567890abcdef', 'slack'],
-    ['AIzaSyA1234567890abcdefghijklmnopqrstuv', 'google-api'],
+    [fake('-----BEGIN RSA', ' PRIVATE KEY-----'), 'private-key'],
+    [fake('const k = "sb', '_secret_', 'abcdefghijklmnopqrst"'), 'supabase-secret'],
+    [fake('AKIA', 'IOSFODNN7EXAMPLE'), 'aws'],
+    [fake('ghp', '_aB3dE5gH7jK9mN1pQ2sT4vW6yZ8bC0dE1fG3'), 'github-token'],
+    [fake('xoxb', '-1234567890abcdef'), 'slack'],
+    [fake('AIza', 'SyA1234567890abcdefghijklmnopqrstuv'), 'google-api'],
   ];
   for (const [line, id] of cases) {
     assert.equal(findSecrets('f.js', line)[0]?.id, id, `${id} should be detected`);
@@ -37,6 +49,17 @@ test('prose about secrets is not a secret', () => {
   assert.deepEqual(findSecrets('src/lib/supabase.js', "! /service_role|sb_secret/i.test(key)"), []);
   assert.deepEqual(findSecrets('CONTRIBUTING.md', 'Never put a service_role key in a VITE_ variable.'), []);
   assert.deepEqual(findSecrets('a.js', 'const password = "hunter2";'), [], 'a generic password literal is a test fixture, not a credential shape');
+});
+
+test('tests are scanned like any other file, so fixtures cannot hide a shape', () => {
+  // The GitHub alert that prompted this: a Google-key-shaped fixture in this very
+  // file. `tests/` was exempt from our own scan, which is why it was green while
+  // a scanner with no allowlist told the world otherwise.
+  assert.ok(!SECRET_SCAN_SKIP.includes('tests/'), 'tests/ must not be exempt');
+  assert.equal(isScannable('tests/contributing.test.mjs'), true);
+  assert.deepEqual(findSecrets('tests/x.test.mjs', fake('AIza', 'SyA1234567890abcdefghijklmnopqrstuv')), [
+    { file: 'tests/x.test.mjs', line: 1, id: 'google-api', label: 'Google API key' },
+  ]);
 });
 
 test('a tracked .env is a failure; .env.example is not', () => {
