@@ -46,6 +46,26 @@ not use it.
 
 The public key is safe in both places — it can only *verify*, never sign.
 
+**Paste the value, not the line.** The authority's key generator prints it as
+`LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n…"`. A secret needs the part
+inside the quotes, and since 1.21.6 the function strips the wrapper for you. What
+it cannot rescue is the private half, a truncated PEM or a non-RSA key; check what
+you have before deploying it:
+
+```bash
+npm run check:key -- keys/license_public_spki.pem     # in the authority repo
+# ✓ usable RSA-2048 public key
+#   fingerprint  sha256:JiSoRP6Kkp79TRoMyPXsuA
+```
+
+Then the same command against whatever you set in the clinic project tells you
+whether the two are the same key:
+
+```bash
+npm run check:key -- path/to/one.pem path/to/the-other.pem
+# ✓ same key
+```
+
 ---
 
 ## Step 1 — let the browser verify tokens
@@ -331,7 +351,8 @@ curl -i -X POST "https://<CLINIC_PROJECT_REF>.supabase.co/functions/v1/sync-clin
 | `origin-not-allowed` | the deployment origin is not on `MYCLINIC_ORIGINS` | add it, or fix the Pages URL |
 | `authority-refused` | the authority said no: revoked key, suspended or expired subscription, seat cap | check the Control Room; the message carries the authority's own sentence |
 | `authority-unreachable` | network or the authority is down | the clinic keeps working on its last valid licence |
-| `token-signature` / `token-issuer` | the token was not signed by the authority's key | the public keys on both sides disagree — re-copy `LICENSE_PUBLIC_KEY` |
+| `token-signature` / `token-issuer` | the token was not signed by the authority's key | the public keys on both sides disagree — compare them with `npm run check:key -- a.pem b.pem` |
+| `token-key` | `LICENSE_PUBLIC_KEY` could not be used to verify anything — the key itself, not the token | run `npm run check:key` on what you pasted; since 1.21.6 the function refuses earlier with `key-malformed` or `key-private` and says what is wrong |
 | `token-fingerprint` | the token was issued for a different deployment address | re-issue in the Control Room, or fix `MYCLINIC_ORIGINS` |
 | `token-expired` | the 7-day window closed while offline | open the app with a connection |
 | `license:managed` | a local renewal was attempted while bound | renewals happen in the Control Room |

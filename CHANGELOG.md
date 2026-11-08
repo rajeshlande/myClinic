@@ -3,6 +3,31 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.6] — 2026-11-06 · schema 18
+
+**`token-key` was never about the token.**
+
+- **What the log said and what it meant.** `refused 403 token-key {"authority":200}`
+  — the authority answered, the request was authorised, and then the *key* could
+  not be used to verify anything. The secret held the authority key-generator's
+  whole output line (`LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n…"`), and
+  the function tried to decode the quotes and the literal `\n` as base64.
+- **The key is now judged where it is read.** `normalisePem()` strips the `.env`
+  wrapper — name, quotes, escaped newlines — so the common paste simply works. A
+  genuine defect is refused at the config gate with its own code and sentence:
+  `key-private` (*that is a private key, paste the public half*), `key-malformed`
+  (no header, truncated, not RSA, or a body that will not parse), each naming the
+  crypto error behind it.
+- **`token-key` becomes rare and talkative**: it now means the signature bytes
+  could not be processed, it logs the reason, and it no longer covers a
+  misconfigured secret.
+- **`npm run check:key`** validates a PEM before you deploy it, prints a stable
+  `sha256:` fingerprint, refuses to echo a private key, and compares two keys to
+  answer "are the Edge secret and the build variable the same one?" — which is the
+  question behind every `token-signature`.
+- **`docs/LICENCE-AUTHORITY.md`** gains the `token-key` row and the
+  paste-the-value-not-the-line rule.
+
 ## [1.21.5] — 2026-11-06 · schema 18
 
 **"Edge Function returned a non-2xx status code" is not an answer.**

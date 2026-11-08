@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.5';
+export const APP_VERSION = '1.21.6';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.6', date: '2026-11-06', schema: 18,
+    highlights: [
+      '`token-key` in the licence log was not about the token: the authority answered (200), the caller was allowed, and then the *public key* could not verify anything — because the Edge secret held the key generator’s whole `.env` line, quotes and `\\n` included. `normalisePem()` now strips the wrapper, so the ordinary paste works.',
+      'A key that really is wrong is refused at the config gate, in its own words: `key-private` (*that is a private key — paste the public half*), or `key-malformed` with the actual crypto error — no header, truncated, not RSA, or an unparseable body. `token-key` now means only what it says.',
+      '`npm run check:key` checks a PEM before you deploy it, prints a stable fingerprint, refuses to echo a private key, and compares two keys — the question behind every `token-signature`.',
+    ],
+  },
   {
     version: '1.21.5', date: '2026-11-06', schema: 18,
     highlights: [
