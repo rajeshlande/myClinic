@@ -191,6 +191,39 @@ A schema change also updates `supabase/schema-tests.sql`.
 
 ## Setup
 
+### Windows, and the native addon that will not delete
+
+`npm ci` deletes `node_modules` before it reinstalls, and one file in it — the
+rolldown native addon, `@rolldown/binding-win32-x64-msvc/…node` — is held open by
+any running node process: a `npm run dev` in another terminal, a `npm run preview`
+you forgot about, a VS Code window with the folder open. Windows will not unlink a
+loaded `.node` file, so the install dies with
+
+```text
+npm error code EPERM
+npm error syscall unlink
+npm error path …\@rolldown\binding-win32-x64-msvc\rolldown-binding.win32-x64-msvc.node
+```
+
+and leaves `node_modules` half-deleted. In order of least disruption:
+
+```bash
+npm install            # updates in place; does not sweep node_modules, so nothing is locked out
+```
+
+If a full reinstall is genuinely wanted:
+
+```bash
+taskkill //F //IM node.exe     # Git Bash; close the dev server first, restart it after
+rm -rf node_modules
+npm ci
+```
+
+This is a Windows file-locking rule, not a repository problem, and it never
+affects CI or the deploy — both install on Linux. The scripts in `scripts/` reach
+`npm`/`npx`/`deno` through `scripts/lib/platform.mjs`, because Node cannot
+`execFile` a `.cmd` shim on Windows at all.
+
 ```bash
 nvm use            # Node 26 LTS (see .nvmrc); npm 12.2.1 via packageManager
 npm ci

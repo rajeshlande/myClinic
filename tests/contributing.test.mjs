@@ -7,6 +7,7 @@ import {
   unbalancedListeners, unsafeHtml, namingProblems, parseFrontmatter, versionAgreement,
   runChecks, formatReport,
 } from '../scripts/check-contributing.mjs';
+import { shellOptions } from '../scripts/lib/platform.mjs';
 
 /* --------------------------------------------------- §1 secrets at the boundary */
 
@@ -221,4 +222,17 @@ test('an UPDATE that touches every row must say why on the line above', () => {
 test('the real schema file passes its own rule', () => {
   const sql = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
   assert.deepEqual(destructiveSqlProblems(sql), []);
+});
+
+/* ------------------------------------------------ §7 running on the machine we ship to
+ * npm, npx and deno are `.cmd` shims on Windows, and Node refuses to execFile a
+ * `.cmd`. The first version of `npm run deploy:function` therefore died with
+ * ENOENT before the type-checker started, and reported "the function does not
+ * type-check" — a false accusation about code that had never been read.
+ */
+
+test('a shell is used on Windows only, where the commands are .cmd shims', () => {
+  assert.deepEqual(shellOptions('win32'), { shell: true });
+  assert.deepEqual(shellOptions('linux'), { shell: false });
+  assert.deepEqual(shellOptions('darwin'), { shell: false });
 });

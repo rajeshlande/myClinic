@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.7';
+export const APP_VERSION = '1.21.8';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.8', date: '2026-11-06', schema: 18,
+    highlights: [
+      '`npm run deploy:function` said “the function does not type-check” on Windows without printing a line of type-check output — because the type-check had never started. Node cannot execFile a `.cmd` shim, and `npx` is one on Windows: the spawn failed with ENOENT and the wrapper blamed the code. `scripts/lib/platform.mjs` now supplies the shell that Windows needs, and the wrapper prints what the child actually said.',
+      'The same fault sat in `check:contributing`: `npm audit` could not be spawned on Windows, so the rule reported “audit failed” for a check that never ran. Fixed the same way.',
+      '`--skip-check` deploys without the type-check for when `npx deno@2` is slow or the network is not playing; CI runs it on every push to main regardless.',
+      'CONTRIBUTING.md documents the Windows `EPERM … rolldown-binding…node` that has now interrupted four releases: `npm install` avoids it entirely, because it does not sweep node_modules.',
+    ],
+  },
   {
     version: '1.21.7', date: '2026-11-06', schema: 18,
     highlights: [

@@ -3,6 +3,28 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.8] — 2026-11-06 · schema 18
+
+**"The function does not type-check" — it was never checked.**
+
+- **What happened.** `npm run deploy:function` on Windows printed
+  `$ npx --yes deno@2 check …`, then immediately *"the function does not
+  type-check"*, with no output from `deno` at all. Node cannot `execFile()` a
+  `.cmd` shim — and `npx` is one on Windows — so the spawn failed with `ENOENT`
+  before the child existed, and the wrapper's bare `catch` turned that into an
+  accusation about code that had never been read.
+- **`scripts/lib/platform.mjs`** supplies the `shell` Windows needs, and only on
+  Windows. The wrapper now runs children with `spawnSync`, prints their output, and
+  on failure reports the exit status *and* the last lines the child printed.
+- **The same fault was in `check:contributing`**: `npm audit` could not be spawned
+  on Windows either, so the `npm-audit` rule failed for a check that never ran.
+  Fixed the same way; the rule is now honest on every platform.
+- **`--skip-check`** deploys without the type-check, for when `npx deno@2` is slow
+  or the network is unhelpful. Every push to `main` type-checks in CI anyway.
+- **`CONTRIBUTING.md`** documents the Windows `EPERM … rolldown-binding…node` that
+  has interrupted four releases: `npm install` sidesteps it entirely, because it
+  updates in place instead of sweeping `node_modules`.
+
 ## [1.21.7] — 2026-11-06 · schema 18
 
 **The deploy never reached the function.**

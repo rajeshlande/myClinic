@@ -133,6 +133,17 @@ npx supabase@3 functions deploy sync-clinic-license --remote=<CLINIC_PROJECT_REF
 also matters for `supabase db push`, which in 3.x targets the **local** database
 unless it is given.
 
+If the wrapper stops at the type-check, it now shows what `deno check` actually
+said. Two commands do the same work by hand, and neither needs `node_modules`:
+
+```bash
+npx --yes deno@2 check supabase/functions/sync-clinic-license/index.ts
+npx supabase@3 functions deploy sync-clinic-license --remote=<CLINIC_PROJECT_REF>
+```
+
+`npm run deploy:function -- <ref> --skip-check` deploys without the type-check;
+every push to `main` runs it in CI regardless.
+
 **If the deploy exits before it bundles anything**, the message is not about the
 function:
 

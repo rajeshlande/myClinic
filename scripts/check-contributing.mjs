@@ -15,6 +15,7 @@
  * Exit code is 1 when any check fails (or, with --strict, warns).
  */
 import { execFileSync } from 'node:child_process';
+import { shellOptions } from './lib/platform.mjs';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
 
@@ -325,7 +326,11 @@ export function runChecks({ cwd = process.cwd(), online = false, only = null } =
 
     if (online) {
       try {
-        execFileSync('npm', ['audit', '--audit-level=high', '--omit=dev'], { cwd, stdio: 'pipe' });
+        // `npm` is npm.cmd on Windows: without a shell the spawn fails outright and
+        // this rule reported "audit failed" for a check that never ran.
+        execFileSync('npm', ['audit', '--audit-level=high', '--omit=dev'], {
+          cwd, stdio: 'pipe', ...shellOptions(),
+        });
         add('npm-audit', PASS, 'npm audit (production, high+)', 'no high or critical advisories');
       } catch (error) {
         const out = String(error.stdout ?? '') + String(error.stderr ?? '');
