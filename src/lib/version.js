@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.8';
+export const APP_VERSION = '1.21.9';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.9', date: '2026-11-06', schema: 18,
+    highlights: [
+      'The deploy still died on `[inbucket]` with a config.toml nobody could point at: the wrapper only looked in `supabase/config.toml`, while the CLI reads whatever it finds first. It now walks upward from the working directory, names the file and the line, and reports how many paths it checked when it finds nothing.',
+      '`SUPABASE_CLI=2.122.1` is a working escape hatch again: the wrapper used to pass `--remote`, which 2.x does not understand at all. The flag now follows the CLI version — `--remote=<ref>` for 3.x, `--project-ref <ref>` for 2.x.',
+      'When the CLI fails and its own words mention `[inbucket]`, the wrapper translates: those words are about local email, never about the licence function, and here is the file to delete.',
+    ],
+  },
   {
     version: '1.21.8', date: '2026-11-06', schema: 18,
     highlights: [

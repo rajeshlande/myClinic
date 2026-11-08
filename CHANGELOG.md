@@ -3,6 +3,25 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.9] — 2026-11-06 · schema 18
+
+**"Inbucket" is a file-naming problem, not an email problem.**
+
+- **The wrapper looked in one place.** It checked `supabase/config.toml`; the CLI
+  loads `config.toml` from wherever it finds it first. `findLegacyConfig()` now walks
+  upward from the working directory, checks both names at every level, matches any
+  `[inbucket]` or child table, and returns the file **and the line numbers** — or the
+  list of paths it looked at, when the file is somewhere else entirely.
+- **`SUPABASE_CLI=2.122.1` works now.** The wrapper passed `--remote`, a flag 2.x
+  does not understand; `deployArgs()` follows the version it is given, so the
+  escape hatch for a legacy config is real: `--project-ref <ref>` on 2.x,
+  `--remote=<ref>` on 3.x.
+- **The CLI's own error is translated.** When its output mentions `[inbucket]`, the
+  wrapper says what that means — local email, not the licence function — and either
+  names the file or tells you it could not find one.
+- Five tests cover the search and the flag: legacy section, child table, modern
+  section, nothing found, and both CLI generations.
+
 ## [1.21.8] — 2026-11-06 · schema 18
 
 **"The function does not type-check" — it was never checked.**

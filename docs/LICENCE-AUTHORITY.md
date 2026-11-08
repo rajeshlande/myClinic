@@ -145,7 +145,7 @@ npx supabase@3 functions deploy sync-clinic-license --remote=<CLINIC_PROJECT_REF
 every push to `main` runs it in CI regardless.
 
 **If the deploy exits before it bundles anything**, the message is not about the
-function:
+function — and the file it is about may not be where you think:
 
 ```text
 [inbucket] in supabase/config.toml is no longer supported. Use [local_smtp] instead.
@@ -158,8 +158,14 @@ applied by pasting `schema.sql`, not by `supabase start`. If an old CLI left one
 your working tree, delete it (it is untracked):
 
 ```bash
-rm supabase/config.toml
+grep -rn "inbucket" --include=*.toml .      # where is it, actually
+rm supabase/config.toml                     # or: rm <the path that grep named>
 ```
+
+`npm run deploy:function` walks upward from the working directory looking for
+`config.toml` and `supabase/config.toml`, and names the file and line it objects to.
+If it finds nothing and the CLI still complains, it says how many paths it checked —
+which means the file is outside this tree.
 
 Or pin the CLI you deploy with, which is the other half of the same decision:
 
