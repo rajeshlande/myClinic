@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.3';
+export const APP_VERSION = '1.21.4';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.4', date: '2026-11-06', schema: 18,
+    highlights: [
+      'A keyless deploy was silent about *why*: the log said “No licence authority” whether the variable was absent, empty, or filed under a different name. It now prints what the build could see — `VITE_LICENSE_PUBLIC_KEY is present: 450 bytes, starts “-----BEGIN PUBLIC KEY-----”, PEM header: 1` or `… is EMPTY as far as this build job can see` — and fails outright if the variable exists under the prose spelling `VITE_LICENCE_PUBLIC_KEY` with a C, because that looks exactly like no variable at all.',
+      'The checks that only ran on pull requests now run on `main` too: `check:contributing` (28 rules) and `deno check` on the licence Edge Function. `ci.yml` skips `main` by design, so a direct push — which is how this project actually ships — was never gated by either.',
+      '`docs/LICENCE-AUTHORITY.md` gains the spelling and empty-value entries in its “the variable is set and it still says Not in this build” checklist.',
+    ],
+  },
   {
     version: '1.21.3', date: '2026-11-06', schema: 18,
     highlights: [

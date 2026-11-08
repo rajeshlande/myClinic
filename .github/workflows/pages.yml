@@ -44,6 +44,17 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      - name: Contributing standards (CONTRIBUTING.md)
+        # ci.yml runs this on pull requests and on branches; main is covered *here*,
+        # so without this step a direct push to main was never checked at all.
+        run: npm run check:contributing
+
+      - name: Type-check the licence Edge Function
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/sync-clinic-license/index.ts
+
       - name: Build
         # Relative asset paths mean this works at /, /<repo>/ and custom domains
         # without changes. Set the VITE_BASE repo variable only to force absolute URLs.
@@ -71,6 +82,11 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_BASE: ${{ vars.VITE_BASE }}
           VITE_LICENSE_PUBLIC_KEY: ${{ vars.VITE_LICENSE_PUBLIC_KEY }}
+          # The same name with a C, because "licence" is the spelling used in the
+          # prose and "license" is the one in the code. A variable that exists
+          # under the wrong spelling is indistinguishable from no variable at all
+          # unless something looks for it.
+          VITE_LICENCE_PUBLIC_KEY: ${{ vars.VITE_LICENCE_PUBLIC_KEY }}
         run: |
           set -uo pipefail
 
@@ -102,6 +118,19 @@ jobs:
           # Licence authority: say plainly whether this deploy can check one, and
           # refuse the one mistake that cannot be undone — a private key in a
           # variable that is compiled into a public bundle.
+          # What the build could see, before any judgement: presence, size and shape.
+          # The key is public; the value is still never printed.
+          if [ -n "${VITE_LICENSE_PUBLIC_KEY:-}" ]; then
+            echo "VITE_LICENSE_PUBLIC_KEY is present: ${#VITE_LICENSE_PUBLIC_KEY} bytes, starts '$(printf '%s' "${VITE_LICENSE_PUBLIC_KEY}" | head -c 27)', PEM header: $(grep -c 'BEGIN PUBLIC KEY' <<< "${VITE_LICENSE_PUBLIC_KEY}")"
+          else
+            echo "VITE_LICENSE_PUBLIC_KEY is EMPTY as far as this build job can see."
+          fi
+
+          if [ -z "${VITE_LICENSE_PUBLIC_KEY:-}" ] && [ -n "${VITE_LICENCE_PUBLIC_KEY:-}" ]; then
+            echo "::error title=Variable name is misspelled::VITE_LICENCE_PUBLIC_KEY is set (with a C) but the app and the workflow read VITE_LICENSE_PUBLIC_KEY (with an S). Rename the variable; nothing else needs to change."
+            status=1
+          fi
+
           if [ -z "${VITE_LICENSE_PUBLIC_KEY:-}" ]; then
             echo "::notice title=No licence authority::VITE_LICENSE_PUBLIC_KEY reached this build empty, so this deploy licenses itself locally and the Subscription screen says 'Not in this build'. Check three things: (1) it is on the Variables tab, not the Secrets tab -- vars.* reads Variables only; (2) it is repository-wide, not scoped to the github-pages environment -- this build job declares no environment, so an environment variable is invisible to it; (3) adding or changing a variable does NOT start a run, so re-run this workflow afterwards. Then look for 'Licence authority configured' in this step's log."
           elif grep -q 'PRIVATE KEY' <<< "${VITE_LICENSE_PUBLIC_KEY}"; then

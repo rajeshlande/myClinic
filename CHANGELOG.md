@@ -3,6 +3,26 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.4] — 2026-11-06 · schema 18
+
+**A keyless deploy now says which kind of keyless it is.**
+
+- **The log prints what it saw**, before it judges:
+  `VITE_LICENSE_PUBLIC_KEY is present: 450 bytes, starts '---…PUBLIC KEY-----',
+  PEM header: 1` or `VITE_LICENSE_PUBLIC_KEY is EMPTY as far as this build job can
+  see`. The value is never printed — it is public, but a log is not the place.
+- **The prose spelling is a trap, so it is now a hard failure.** These docs say
+  *licence*; the variable says `LICENSE`. If `VITE_LICENCE_PUBLIC_KEY` is set and the
+  real one is not, the deploy fails with *Variable name is misspelled* instead of
+  quietly shipping a keyless bundle — a variable under the wrong name is
+  indistinguishable from no variable at all.
+- **`main` is now gated like a pull request.** `ci.yml` deliberately skips `main`
+  (“main is covered by pages.yml”), but `pages.yml` was not running
+  `check:contributing` or `deno check` — so a direct push, which is how this project
+  ships, ran neither. Both now run in the deploy workflow.
+- `docs/LICENCE-AUTHORITY.md` gains the spelling and empty-value checklist entries,
+  and shows the two log lines to look for.
+
 ## [1.21.3] — 2026-11-06 · schema 18
 
 **Which build am I looking at?**

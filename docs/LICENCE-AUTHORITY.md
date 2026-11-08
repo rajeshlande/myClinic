@@ -206,8 +206,17 @@ so out loud.
 
 ### The variable is set and the card still says *Not in this build*
 
-Work down this list — each line is a real way for a repository variable to exist
-and still not reach the bundle:
+The deploy log is built to answer this rather than to make you guess. Look for the
+*Report Supabase build configuration* step; it prints one of:
+
+```text
+VITE_LICENSE_PUBLIC_KEY is present: 450 bytes, starts '-----BEGIN PUBLIC KEY-----', PEM header: 1
+VITE_LICENSE_PUBLIC_KEY is EMPTY as far as this build job can see.
+```
+
+then the verdict — *Licence authority configured*, *No licence authority*, or a
+failing `::error` naming the problem. Work down this list; each line is a real way
+for a repository variable to exist and still not reach the bundle:
 
 1. **Did a build run after you added it?** Adding or editing a variable starts
    nothing. Re-run the Pages workflow (Actions → Pages → *Re-run all jobs*) or push
@@ -224,11 +233,18 @@ and still not reach the bundle:
    Variables* with no environment selected.
 4. **The right repository.** A variable on the authority repo does nothing for the
    clinic app, and vice versa.
-5. **The shape of the value.** It must be the whole PEM, `-----BEGIN PUBLIC KEY-----`
+5. **The spelling.** `VITE_LICENSE_PUBLIC_KEY` — an **S**, not `VITE_LICENCE_…`
+   with a C. The prose in these docs says "licence"; the variable does not. The
+   deploy log now fails outright if it finds the misspelled one and not the real
+   one, because otherwise a variable under the wrong name looks exactly like no
+   variable at all.
+6. **The value is not empty.** A variable created but never pasted into is an empty
+   string, which GitHub reports the same way as absent.
+7. **The shape of the value.** It must be the whole PEM, `-----BEGIN PUBLIC KEY-----`
    included. If it is not, the deploy fails the job with *Public key not recognised*
    rather than deploying silently — so a green run means the value was well-formed
    or empty.
-6. **A stray `.env.local` in CI.** If the build also reads a committed or generated
+8. **A stray `.env.local` in CI.** If the build also reads a committed or generated
    `.env` file, it can override the variable. `vite` gives `import.meta.env` the
    process environment precedence, so this is rare — but delete the file if the
    guard says *did not reach the bundle*.
