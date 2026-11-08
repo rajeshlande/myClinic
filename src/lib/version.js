@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.21.0';
+export const APP_VERSION = '1.21.1';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.21.1', date: '2026-11-06', schema: 18,
+    highlights: [
+      'The Supabase SQL editor warns that `schema.sql` “includes destructive operations” and “runs an UPDATE without a WHERE clause”. Both are true of SQL in general and neither is a finding about this file: the drops are 51 policies, 20 constraints, 16 triggers, 2 indexes and 1 function, every one with `if exists` and every one re-created immediately after. There are zero `delete`, zero `truncate` and zero drops of tables or columns.',
+      '`docs/SCHEMA-APPLY-SAFETY.md` is the inventory, including the single `UPDATE` without a `WHERE` — schema 12 clamping `clinics.follow_up_days` into 3–45 before adding the CHECK — and the measured proof that re-applying the whole file to a schema-18 database with live rows changes not one row.',
+      'A 28th check keeps the warning from ever becoming true: `delete from`, `truncate`, `drop table|column|schema|type`, or an `update` with no `where`, fails the build unless the update explains itself in a comment. Verified by removing the comment and by injecting a `delete from`.',
+    ],
+  },
   {
     version: '1.21.0', date: '2026-11-06', schema: 18,
     highlights: [

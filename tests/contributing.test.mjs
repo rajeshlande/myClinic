@@ -1,7 +1,9 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import {
   ALLOWED_DEPENDENCIES, SECRET_SCAN_SKIP, findSecrets, envFileTracked, isScannable,
+  destructiveSqlProblems,
   unbalancedListeners, unsafeHtml, namingProblems, parseFrontmatter, versionAgreement,
   runChecks, formatReport,
 } from '../scripts/check-contributing.mjs';
@@ -168,4 +170,55 @@ test('the safe-list is the documented one', () => {
   assert.ok(ALLOWED_DEPENDENCIES.includes('@supabase/supabase-js'));
   assert.ok(!ALLOWED_DEPENDENCIES.some((n) => /analytics|sentry|segment|mixpanel|gtag/i.test(n)),
     'no analytics or telemetry package may enter the list by accident');
+});
+
+/* ------------------------------------------- §6 the schema file operators paste
+ * `supabase/schema.sql` is pasted whole into a SQL editor that warns about
+ * "destructive operations" and UPDATE-without-WHERE. The warnings are keyword
+ * heuristics this file trips on purpose; the rule below bans the shapes that
+ * would actually destroy a clinic's records.
+ */
+
+test('the idempotent drop-and-recreate idiom is not flagged', () => {
+  const sql = [
+    'drop trigger if exists clinics_touch on public.clinics;',
+    'drop policy if exists clinics_read on public.clinics;',
+    'alter table public.clinics drop constraint if exists clinics_follow_up_days_check;',
+    'drop index if exists public.medicines_brand_trgm;',
+    'drop function if exists public.public_book(text, uuid);',
+  ].join('\n');
+  assert.deepEqual(destructiveSqlProblems(sql), [], 'these are how a re-run stays safe');
+});
+
+test('deleting data is a failure, wherever it appears', () => {
+  assert.equal(destructiveSqlProblems('delete from public.patients;')[0].id, 'delete');
+  assert.equal(destructiveSqlProblems('  DELETE FROM public.invoices WHERE 1=1;')[0].id, 'delete');
+  assert.equal(destructiveSqlProblems('truncate public.consultations;')[0].id, 'truncate');
+  assert.equal(destructiveSqlProblems('drop table public.patients;')[0].id, 'drop-object');
+  assert.equal(destructiveSqlProblems('alter table public.clinics drop column notes;')[0].id, 'drop-object');
+  assert.equal(destructiveSqlProblems('drop schema public cascade;')[0].id, 'drop-object');
+});
+
+test('an UPDATE that touches every row must say why on the line above', () => {
+  const bare = destructiveSqlProblems('update public.clinics set follow_up_days = 15;');
+  assert.equal(bare.length, 1);
+  assert.equal(bare[0].id, 'update-all-rows');
+
+  const explained = destructiveSqlProblems([
+    '-- unconditional-update: clamp every clinic into the new range before the CHECK',
+    'update public.clinics set follow_up_days = least(45, greatest(3, follow_up_days));',
+  ].join('\n'));
+  assert.deepEqual(explained, []);
+
+  const scoped = destructiveSqlProblems([
+    'update public.clinics',
+    '   set slug = $1',
+    ' where id = $2;',
+  ].join('\n'));
+  assert.deepEqual(scoped, [], 'a WHERE on the next line still counts');
+});
+
+test('the real schema file passes its own rule', () => {
+  const sql = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
+  assert.deepEqual(destructiveSqlProblems(sql), []);
 });

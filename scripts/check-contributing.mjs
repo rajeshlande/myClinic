@@ -108,6 +108,58 @@ export function findSecrets(file, text) {
   return hits;
 }
 
+/**
+ * `supabase/schema.sql` is pasted whole into the Supabase SQL editor by real
+ * operators, and the editor warns before it runs: "destructive operations" and
+ * "UPDATE without a WHERE clause". Both warnings are keyword heuristics, and this
+ * file trips them by design — it re-creates 51 policies, 16 triggers and 20
+ * constraints with `drop … if exists`, which is how a re-run stays idempotent.
+ *
+ * The warnings are still worth taking seriously, because a genuine `delete from`
+ * or `drop table` in this file would wipe a clinic's patients the first time
+ * somebody pasted it. So the shapes that *would* destroy data are banned here,
+ * and any `update` without a `where` must say why on the line above:
+ *
+ *     -- unconditional-update: <what it touches, and why every row is intended>
+ *
+ * docs/SCHEMA-APPLY-SAFETY.md explains what the editor's two warnings mean and
+ * what the file does and does not do.
+ */
+export const DESTRUCTIVE_SQL = [
+  { id: 'delete', re: /\bdelete\s+from\b/i, label: 'DELETE' },
+  { id: 'truncate', re: /\btruncate\b/i, label: 'TRUNCATE' },
+  { id: 'drop-object', re: /\bdrop\s+(?:table|schema|database|type|column)\b/i, label: 'DROP of a table, schema, type or column' },
+];
+
+/** Statements that would destroy data, and `update`s that touch every row unasked. */
+export function destructiveSqlProblems(text = '') {
+  const problems = [];
+  const lines = String(text).split('\n');
+
+  lines.forEach((line, i) => {
+    for (const { id, label, re } of DESTRUCTIVE_SQL) {
+      if (re.test(line)) problems.push({ line: i + 1, id, why: label });
+    }
+  });
+
+  lines.forEach((line, i) => {
+    if (!/^\s*update\s/i.test(line)) return;
+    let j = i;
+    let statement = '';
+    while (j < lines.length) {
+      statement += `${lines[j]}\n`;
+      if (lines[j].includes(';')) break;
+      j += 1;
+    }
+    if (/\bwhere\b/i.test(statement)) return;
+    const context = lines.slice(Math.max(0, i - 4), i).join('\n');
+    if (/--\s*unconditional-update:\s*\S/.test(context)) return;
+    problems.push({ line: i + 1, id: 'update-all-rows', why: 'UPDATE with no WHERE and no `-- unconditional-update:` reason' });
+  });
+
+  return problems;
+}
+
 /** A tracked file that should have been in .gitignore. */
 export function envFileTracked(files) {
   return files.filter((f) => /(^|\/)\.env($|\.)/.test(f) && !f.endsWith('.env.example'));
@@ -368,6 +420,13 @@ export function runChecks({ cwd = process.cwd(), online = false, only = null } =
     });
     const aligned = versions.fromPackage === versions.appVersion
       && versions.changelogHead === versions.fromPackage;
+    const schemaProblems = destructiveSqlProblems(at('supabase/schema.sql') ?? '');
+    add('schema-apply-safety', schemaProblems.length ? FAIL : PASS,
+      'schema.sql deletes nothing and drops no tables, columns or schemas',
+      schemaProblems.length
+        ? schemaProblems.slice(0, 3).map((p) => `line ${p.line}: ${p.why}`).join(' · ')
+        : 'no DELETE, TRUNCATE or object DROP; every UPDATE is row-scoped or says why');
+
     add('version', aligned ? PASS : FAIL,
       'package.json, APP_VERSION and CHANGELOG agree',
       `${versions.fromPackage} / ${versions.appVersion} / ${versions.changelogHead ?? '—'} · schema ${versions.schemaVersion}`);

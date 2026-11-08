@@ -2413,6 +2413,9 @@ begin
   -- Follow-up validity: 0–180 becomes 3–45. Clamp first, constrain second, so the
   -- ALTER cannot fail on a row that is already there.
   alter table public.clinics drop constraint if exists clinics_follow_up_days_check;
+  -- unconditional-update: clamp every clinic's follow-up window into 3-45 before
+  -- the CHECK below is added, so the ALTER cannot fail on an existing row. Touches
+  -- one integer setting per clinic and never removes or rewrites any other column.
   update public.clinics set follow_up_days = least(45, greatest(3, follow_up_days));
   alter table public.clinics add constraint clinics_follow_up_days_check
     check (follow_up_days between 3 and 45);

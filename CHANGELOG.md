@@ -3,6 +3,36 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.21.1] — 2026-11-06 · schema 18
+
+**Yes, the warning is accurate. No, it is not about this file.**
+
+- **What the editor flagged.** `schema.sql` trips two keyword heuristics:
+  *destructive operations* and *UPDATE without a WHERE*. The file re-creates 51
+  policies, 16 triggers, 20 constraints, 2 indexes and 1 function on every run —
+  each with `drop … if exists` and each immediately re-created, which is what
+  makes a second paste idempotent rather than a duplicate.
+- **What it does not contain:** `delete from` — 0. `truncate` — 0. `drop table`,
+  `drop column`, `drop schema`, `drop type` — 0.
+- **The one `UPDATE` without a `WHERE`** is schema 12 clamping
+  `clinics.follow_up_days` into 3–45 *before* it adds the `CHECK`, so the
+  constraint cannot be rejected by a clinic already on 60 days. One integer per
+  clinic, no other column touched. It is also unreachable on an applied database:
+  every migration returns early once its registry row exists.
+- **Measured, not asserted.** Re-applying the entire file to a schema-18 database
+  holding two clinics, two patients, a consultation and an invoice:
+  *tables whose contents changed: 0 rows*. Same schema version, same registry,
+  same `follow_up_days`. Transcript in `docs/SCHEMA-APPLY-SAFETY.md`.
+- **`docs/SCHEMA-APPLY-SAFETY.md`** is the inventory to read before pasting —
+  counts, the annotated `UPDATE`, what to be careful about (run the whole file, a
+  backup before constraint-adding migrations, the three verification queries).
+- **A 28th contributing check** bans the shapes that *would* destroy records:
+  `delete from`, `truncate`, `drop table|column|schema|type`, and any `update`
+  without a `where` that has not declared itself with
+  `-- unconditional-update: <reason>`. Proved both ways — removing the comment
+  turns it red at line 2416; injecting a `delete from public.patients` turns it red
+  at line 192.
+
 ## [1.21.0] — 2026-11-06 · schema 18
 
 **Why the button was not there.**
