@@ -92,7 +92,7 @@ export const CENTRAL_SEAL_FIELDS = Object.freeze([
  */
 export const CENTRAL_UNSEALED_FIELDS = Object.freeze(['started_at', 'match_mode', 'server_time']);
 
-/** Refusal codes the central project can answer with. */
+/** Refusal codes the central project can answer with — plus the two this build can add. */
 export const CENTRAL_CODES = Object.freeze({
   ACTIVE: 'active',
   SUBSCRIPTION_PAUSED: 'paused',
@@ -100,7 +100,73 @@ export const CENTRAL_CODES = Object.freeze({
   SUBSCRIPTION_NOT_FOUND: 'unlicensed',
   SEAT_LIMIT_REACHED: 'seat_limit',
   ORIGIN_MISMATCH: 'origin_mismatch',
+  RATE_LIMITED: 'rate_limited',
+  INVALID_EMAIL: 'invalid_email',
+  INVALID_ORIGIN: 'invalid_origin',
+  MISSING_IDENTITY: 'missing_identity',
+  // Never from Central: this build could not make an HTTP request at all.
+  FETCH_UNAVAILABLE: 'fetch_unavailable',
 });
+
+/**
+ * One sentence per refusal code, for the card.
+ *
+ * The code itself is always printed verbatim next to this — the sentence explains
+ * it, it does not replace it, so a support call can quote either.
+ */
+export const CENTRAL_CODE_NOTES = Object.freeze({
+  SUBSCRIPTION_NOT_FOUND: 'No row on Central carries this email **and** this origin. Pin the exact pair the card names.',
+  ORIGIN_MISMATCH: 'The row exists for this email, but its pinned URL is not the origin this build sends.',
+  SEAT_LIMIT_REACHED: 'Every machine the plan allows is in use; release a seat on Central.',
+  SUBSCRIPTION_PAUSED: 'Central has paused this clinic. The plan resumes only when Central says so.',
+  SUBSCRIPTION_EXPIRED: 'Central says the term has ended. Renew on Central.',
+  RATE_LIMITED: 'Too many calls from this IP. Wait a minute; the client re-syncs every half hour on its own.',
+  INVALID_EMAIL: 'Central refused the email as malformed — check the owner address it was pinned from.',
+  INVALID_ORIGIN: 'Central refused the origin as malformed. Send scheme + host only, e.g. https://clinic.github.io.',
+  MISSING_IDENTITY: 'Central requires an email and an origin; one of them arrived empty.',
+  FETCH_UNAVAILABLE: 'This build cannot make HTTP requests at all — a fault in the build, not a network outage.',
+});
+
+/** The note for a code, or `''` when there is nothing useful to add. */
+export function centralCodeNote(code) {
+  return CENTRAL_CODE_NOTES[String(code ?? '').trim().toUpperCase()] ?? '';
+}
+
+/** What a missing `fetch` says. Shared so the probe and the sync cannot drift. */
+export const CENTRAL_FETCH_UNAVAILABLE = 'FETCH_UNAVAILABLE';
+
+const FETCH_UNAVAILABLE_REASON = 'This build cannot make HTTP requests: no fetch implementation is available, so Central was never contacted. That is a fault in the build, not a network outage and not a decision about this clinic.';
+
+/**
+ * Was this thrown by the network, or by us?
+ *
+ * `fetch` rejects with a `TypeError` when the request never completed (offline,
+ * DNS, CORS), and with a DOMException named `AbortError` when our own 8 s timeout
+ * fired. Everything else — including the `no fetch` error this module used to
+ * throw — is a fault in the build, and must not be reported as an outage.
+ */
+export function isTransportFailure(error) {
+  const name = String(error?.name ?? '');
+  if (name === 'AbortError' || name === 'TimeoutError') return true;
+  if (error instanceof TypeError) return true;
+  return /network|failed to fetch|load failed|timed? ?out|offline|econn/i.test(String(error?.message ?? ''));
+}
+
+/**
+ * The HTTP function to call, with the platform's `fetch` as the default.
+ *
+ * `fetchImpl` exists so tests can drive this decision tree with no network. The
+ * first shipped version of this module *required* it, and no caller in the app
+ * passed one: every production call threw `no fetch` before opening a socket, and
+ * the surrounding catch relabelled that build fault as a network outage. A test
+ * that always injects a fake cannot see that, which is why the regression tests
+ * for this now go through `globalThis.fetch`.
+ */
+function resolveFetch(fetchImpl) {
+  if (typeof fetchImpl === 'function') return fetchImpl;
+  if (typeof globalThis.fetch === 'function') return (url, init) => globalThis.fetch(url, init);
+  return null;
+}
 
 /** One sentence the card shows under the dates. */
 export const CENTRAL_GRACE_NOTE = 'Without a connection, the sealed licence keeps the clinic writable until its contract and grace dates pass — never beyond them.';
@@ -370,9 +436,14 @@ export function centralStateFromResult(result, now = new Date()) {
  */
 export async function probeCentralReadiness(config, { fetchImpl, timeoutMs = CENTRAL_TIMEOUT_MS } = {}) {
   const cfg = config ?? {};
-  const empty = { ok: false, syncReady: false, schemaVersion: null, httpStatus: null, error: '' };
+  const empty = { ok: false, syncReady: false, schemaVersion: null, httpStatus: null, code: '', error: '' };
   if (!cfg.enabled || !cfg.url || !cfg.anonKey) {
-    return { ...empty, error: cfg.error || 'Central Auto-Sync is not configured in this build, so there is nothing to test.' };
+    return { ...empty, code: 'NOT_CONFIGURED', error: cfg.error || 'Central Auto-Sync is not configured in this build, so there is nothing to test.' };
+  }
+
+  const doFetch = resolveFetch(fetchImpl);
+  if (!doFetch) {
+    return { ...empty, code: CENTRAL_FETCH_UNAVAILABLE, error: FETCH_UNAVAILABLE_REASON };
   }
 
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -381,8 +452,7 @@ export async function probeCentralReadiness(config, { fetchImpl, timeoutMs = CEN
   let response = null;
   let transportError = null;
   try {
-    if (typeof fetchImpl !== 'function') throw new Error('no fetch');
-    response = await fetchImpl(`${cfg.url}/rest/v1/rpc/${CENTRAL_RPC}`, {
+    response = await doFetch(`${cfg.url}/rest/v1/rpc/${CENTRAL_RPC}`, {
       method: 'POST',
       headers: centralHeaders(cfg),
       body: JSON.stringify(CENTRAL_PROBE_BODY),
@@ -397,7 +467,14 @@ export async function probeCentralReadiness(config, { fetchImpl, timeoutMs = CEN
   }
 
   if (!response) {
-    return { ...empty, error: `Could not reach the central project (${transportError?.message ?? 'network error'}).` };
+    if (!isTransportFailure(transportError)) {
+      return {
+        ...empty,
+        code: 'CLIENT_ERROR',
+        error: `The request failed before it was sent (${transportError?.message ?? 'unknown error'}). That is a fault in this build, not a network outage.`,
+      };
+    }
+    return { ...empty, code: 'UNREACHABLE', error: `Could not reach the central project (${transportError?.message ?? 'network error'}).` };
   }
 
   let body = null;
@@ -410,7 +487,7 @@ export async function probeCentralReadiness(config, { fetchImpl, timeoutMs = CEN
 
   if (response.ok === false) {
     const said = body?.message ?? body?.error ?? '';
-    return { ...empty, httpStatus, error: `The central project answered ${httpStatus}${said ? `: ${said}` : '.'}` };
+    return { ...empty, httpStatus, code: `HTTP_${httpStatus}`, error: `The central project answered ${httpStatus}${said ? `: ${said}` : '.'}` };
   }
 
   const syncReady = body?.sync_ready === true || body?.ok === true;
@@ -706,14 +783,24 @@ export async function syncCentralSubscription({
     p_device_id: deviceId,
   };
 
+  // Resolved before the socket, not inside the try: a build with no HTTP client
+  // at all is a fault, not an outage, and must never be relabelled as one.
+  const doFetch = resolveFetch(fetchImpl);
+  if (!doFetch) {
+    return refusal({
+      code: CENTRAL_FETCH_UNAVAILABLE,
+      status: 'unlicensed',
+      reason: FETCH_UNAVAILABLE_REASON,
+    });
+  }
+
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), CENTRAL_TIMEOUT_MS) : null;
 
   let response = null;
   let transportError = null;
   try {
-    if (typeof fetchImpl !== 'function') throw new Error('no fetch');
-    response = await fetchImpl(url, {
+    response = await doFetch(url, {
       method: 'POST',
       headers: centralHeaders(cfg),
       body: JSON.stringify(body),
@@ -725,6 +812,16 @@ export async function syncCentralSubscription({
     transportError = error;
   } finally {
     if (timer) clearTimeout(timer);
+  }
+
+  // Only a real rejection from the network may reach the offline branch. Anything
+  // else thrown here is this build's fault, and says so with its own code.
+  if (!response && transportError && !isTransportFailure(transportError)) {
+    return refusal({
+      code: 'CLIENT_ERROR',
+      status: 'unlicensed',
+      reason: `The request to Central failed before it was sent (${transportError.message ?? 'unknown error'}). That is a fault in this build, not a network outage.`,
+    });
   }
 
   /**

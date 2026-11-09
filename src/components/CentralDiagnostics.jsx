@@ -3,7 +3,7 @@ import { Globe2, RefreshCw, ShieldQuestion, TriangleAlert, WifiOff } from 'lucid
 import { useStore } from '../lib/store.jsx';
 import { Badge, Button, Card, CardHead, useToast } from './ui.jsx';
 import { formatExpiry } from '../lib/license.mjs';
-import { centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
+import { centralCodeNote, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
 
 /**
  * Central Auto-Sync, as the operator needs to see it.
@@ -188,6 +188,9 @@ export default function CentralDiagnostics() {
                 {verdict.reason ? (
                   <span className="tiny" style={{ overflowWrap: 'anywhere' }}>{verdict.reason}</span>
                 ) : null}
+                {centralCodeNote(verdict.code) ? (
+                  <span className="tiny faint" style={{ overflowWrap: 'anywhere' }}>{centralCodeNote(verdict.code)}</span>
+                ) : null}
                 {verdict.offline && verdict.expiresAt ? (
                   <span className="tiny faint">
                     Sealed lease in force until {formatExpiry(verdict.expiresAt)}
@@ -240,27 +243,36 @@ export default function CentralDiagnostics() {
           {syncNote ? <span className="tiny" style={{ overflowWrap: 'anywhere' }}>{syncNote}</span> : null}
         </div>
 
-        {probe ? (
-          <div
-            className="row"
-            style={{
-              gap: 8,
-              padding: '10px 12px',
-              borderRadius: 11,
-              alignItems: 'flex-start',
-              background: probe.ok ? 'var(--success-bg, var(--surface-2))' : 'var(--warn-bg)',
-              color: probe.ok ? 'var(--success)' : 'var(--warn)',
-            }}
-          >
-            <ShieldQuestion size={14} style={{ marginTop: 2, flex: 'none' }} />
-            <span className="tiny" style={{ overflowWrap: 'anywhere' }}>
-              <strong>Readiness probe{probe.at ? ` · ${new Date(probe.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}: </strong>
-              {probe.ok
-                ? `the central project answered, the RPC exists and reports schema v${probe.schemaVersion ?? '?'}. This proves reachability — not that this clinic is licensed.`
-                : (probe.error || 'the probe did not succeed.')}
-            </span>
-          </div>
-        ) : null}
+        {probe ? (() => {
+          // A build that cannot open a socket is not an outage: it gets the danger
+          // tone and its own words, so the two can never be confused again.
+          const buildFault = probe.code === 'FETCH_UNAVAILABLE' || probe.code === 'CLIENT_ERROR';
+          return (
+            <div
+              className="row"
+              style={{
+                gap: 8,
+                padding: '10px 12px',
+                borderRadius: 11,
+                alignItems: 'flex-start',
+                background: probe.ok ? 'var(--success-bg, var(--surface-2))' : buildFault ? 'var(--danger-bg)' : 'var(--warn-bg)',
+                color: probe.ok ? 'var(--success)' : buildFault ? 'var(--danger)' : 'var(--warn)',
+              }}
+            >
+              <ShieldQuestion size={14} style={{ marginTop: 2, flex: 'none' }} />
+              <span className="tiny" style={{ overflowWrap: 'anywhere' }}>
+                <strong>
+                  Readiness probe{probe.code ? ` · ${probe.code}` : ''}
+                  {probe.at ? ` · ${new Date(probe.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}:{' '}
+                </strong>
+                {probe.ok
+                  ? `the central project answered, the RPC exists and reports schema v${probe.schemaVersion ?? '?'}. This proves reachability — not that this clinic is licensed.`
+                  : (probe.error || 'the probe did not succeed.')}
+                {centralCodeNote(probe.code) ? ` ${centralCodeNote(probe.code)}` : ''}
+              </span>
+            </div>
+          );
+        })() : null}
 
         {configured ? (
           <span className="tiny faint">

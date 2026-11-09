@@ -3,6 +3,63 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.25.1] — 2026-11-09 · schema 18
+
+**The client never called Central. One missing dependency injection.**
+
+- **What was wrong.** `syncCentralSubscription()` took `fetch` as an injected
+  dependency so tests could run without a network — and no caller in the app ever
+  passed one. `src/lib/central-sync.mjs` threw `no fetch` before opening a socket,
+  the `catch` around it relabelled that build fault as "could not be reached", and
+  the client fell into the offline branch. The central project has therefore
+  received **zero** requests since the feature shipped: no `activated_machines`
+  row, no `last_heartbeat`, nothing to show but *Awaiting Connect*. The published
+  bundle, the key, the origin and CORS were all correct the whole time.
+
+  Proof, against a scratch copy of the 1.25.0 module with `globalThis.fetch`
+  stubbed: `code: offline`, `offline: true`, reason *"Central Auto-Sync could not
+  be reached…"*, and **0 HTTP requests made**. Against the fixed module, the same
+  call: `code: ACTIVE`, **1 request**. Both runs are in the release notes below.
+
+- **The fix.** Both `syncCentralSubscription()` and `probeCentralReadiness()` now
+  resolve their fetch as: the injected `fetchImpl` if given, else
+  `globalThis.fetch`, else nothing. Every other injected dependency (`storage`,
+  `now`) is untouched, as are the 8 s `AbortController` timeout, `mode:'cors'`,
+  `credentials:'omit'` and `centralHeaders()` — `apikey` only, `Authorization:
+  Bearer` only for a legacy `eyJ…` anon key, never a session JWT. No second
+  Supabase client, no sealed-lease change: `CENTRAL_SEAL_FIELDS` and the v2 seal
+  are exactly as they were.
+
+- **A build fault can no longer masquerade as an outage.** No fetch anywhere →
+  code `FETCH_UNAVAILABLE` and *"This build cannot make HTTP requests…"*, shown on
+  the diagnostic card in red with its own sentence. Anything else thrown from the
+  call → `CLIENT_ERROR`. The offline / `OFFLINE_GRACE` branch is now reachable
+  only for a real transport failure: a `TypeError` from `fetch`, our own abort, or
+  a 5xx. A build fault never reads the sealed lease and never says "could not be
+  reached".
+
+- **The card renders refusals verbatim.** Central's `code` and `reason` are
+  printed as they arrive, `match_mode` when present, plus one explanatory sentence
+  per code — `SUBSCRIPTION_NOT_FOUND`, `ORIGIN_MISMATCH`, `SEAT_LIMIT_REACHED`,
+  `SUBSCRIPTION_PAUSED`, `SUBSCRIPTION_EXPIRED`, `RATE_LIMITED`, `INVALID_EMAIL`,
+  `INVALID_ORIGIN`, `MISSING_IDENTITY`, `FETCH_UNAVAILABLE` — and the existing
+  sentence about which pair (owner email + origin) Central compares against its
+  pinned row.
+
+- **Six regression tests, written the way the browser runs.** The old suite always
+  injected a fake fetch, which is exactly why it could not see that the app
+  injected none. The new ones go through `globalThis.fetch` and assert: one POST to
+  `${url}/rest/v1/rpc/sync_clinic_subscription` with the central `apikey` and the
+  `{p_email, p_origin, p_device_id}` body, a sealed cache entry and a mirror row on
+  an allowed answer; the same for the probe with the health-check body and
+  `schemaVersion`; `FETCH_UNAVAILABLE` (never `offline`, never `OFFLINE_GRACE`)
+  when no fetch exists anywhere — including with a valid sealed lease on disk; and
+  that a real `TypeError` and a real abort still reach the outage branch while a
+  generic error becomes `CLIENT_ERROR`.
+
+- 514 tests, 28/28 contribution rules, build, Pages check and `test:security`
+  clean. No schema change, no new secret, no new dependency.
+
 ## [1.25.0] — 2026-11-09 · schema 18
 
 **Central Auto-Sync is now observable from the client.** Every clinic showed

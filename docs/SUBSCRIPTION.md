@@ -160,3 +160,27 @@ the point.
 
 The probe sends `{p_email:'', p_origin:'', p_device_id:'healthcheck'}`; it cannot
 create a machine, move a heartbeat or spend a seat.
+
+## The fetch default (1.25.1)
+
+`syncCentralSubscription()` and `probeCentralReadiness()` accept an injected
+`fetchImpl` so tests can drive every branch with no network. Until 1.25.1 that
+injection point was the **only** way in: no caller in the app passed one, so every
+browser threw `no fetch` before opening a socket and the surrounding catch
+reported it as "could not be reached". The central project received nothing at
+all, which is the real reason a clinic could sit on *Awaiting Connect* while its
+configuration, key and CORS were all correct.
+
+Both functions now default to the platform's `fetch`; the injection point stays
+for tests. Three outcomes are kept strictly apart:
+
+| Outcome | Code | When |
+|---|---|---|
+| Build cannot make HTTP requests | `FETCH_UNAVAILABLE` | no `fetchImpl` and no `globalThis.fetch` — a fault in the build, shown in red |
+| Nothing else thrown from the call | `CLIENT_ERROR` | the request failed before it was sent, for a reason that is not the network |
+| The network failed | `OFFLINE_GRACE` / `offline` | `fetch` rejected with a `TypeError`, our own 8 s abort fired, or Central answered 5xx |
+
+Only the third may read the sealed lease, and only the third may say "could not be
+reached". The regression tests use `globalThis.fetch` rather than an injected
+fake, because a test that always injects one cannot notice that the app injects
+none.

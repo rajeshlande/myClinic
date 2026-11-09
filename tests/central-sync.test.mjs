@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   CENTRAL_CACHE_PREFIX, CENTRAL_CODES, CENTRAL_DEVICE_KEY, CENTRAL_ENV_KEY, CENTRAL_ENV_URL,
   CENTRAL_GRACE_NOTE, CENTRAL_MANAGED_MESSAGE, CENTRAL_PROBE_BODY, CENTRAL_RPC, CENTRAL_SEAL_FIELDS,
-  CENTRAL_UNSEALED_FIELDS, centralHostLabel, centralMatchLabel, centralStateFromResult, CENTRAL_TIER_TO_PLAN,
+  CENTRAL_UNSEALED_FIELDS, centralCodeNote, centralHostLabel, centralMatchLabel, centralStateFromResult,
+  CENTRAL_TIER_TO_PLAN, isTransportFailure,
   blockedCentralKey, centralCacheKey, maskEmail, probeCentralReadiness, readCentralDeviceId,
   resolveCentralIdentity,
   centralHeaders, centralStatusLabel, centralSubscriptionRow, centralSyncConfig, clearCachedCentralSubscription,
@@ -695,4 +696,149 @@ test('a modern publishable key travels as apikey only, and never as an identity'
   );
   assert.equal('authorization' in seen.headers, false, 'no bearer header for a publishable key');
   assert.equal(JSON.stringify(seen.headers).includes('Bearer'), false);
+});
+
+/* ------------------------------------- the platform fetch (the v1.25.0 regression) */
+
+/*
+ * The first shipped version of this module took `fetchImpl` as a dependency and
+ * never got one: every browser threw `no fetch` before opening a socket, and the
+ * catch around it reported that build fault as a network outage. A test that
+ * always injects a fake cannot see that — so these tests do the opposite and go
+ * through `globalThis.fetch`, exactly as the browser does.
+ */
+
+/** Run `fn` with `globalThis.fetch` replaced, restoring it whatever happens. */
+async function withGlobalFetch(replacement, fn) {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'fetch');
+  const previous = globalThis.fetch;
+  if (replacement === undefined) delete globalThis.fetch;
+  else globalThis.fetch = replacement;
+  try {
+    return await fn();
+  } finally {
+    if (had) globalThis.fetch = previous;
+    else delete globalThis.fetch;
+  }
+}
+
+test('with no fetchImpl, the sync uses the platform fetch — one POST, correct headers and body', async () => {
+  const calls = [];
+  const storage = fakeStorage();
+
+  const result = await withGlobalFetch(async (url, init) => {
+    calls.push({ url, init });
+    return reply(activeAnswer({ started_at: '2026-11-01T00:00:00.000Z' }));
+  }, () => syncCentralSubscription({
+    config: config(), clinicId: 'clinic-1', email, origin, storage,
+    now: new Date('2026-11-02T09:00:00.000Z'),
+    // deliberately no fetchImpl
+  }));
+
+  assert.equal(calls.length, 1, 'exactly one request');
+  assert.equal(calls[0].url, 'https://central.example.supabase.co/rest/v1/rpc/sync_clinic_subscription');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.mode, 'cors');
+  assert.equal(calls[0].init.credentials, 'omit');
+  assert.equal(calls[0].init.headers.apikey, 'publishable-fixture-key');
+  assert.equal(calls[0].init.headers.authorization, 'Bearer publishable-fixture-key', 'legacy eyJ key, never a session JWT');
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    p_email: 'owner@clinic.example', p_origin: 'https://clinic.example.github.io', p_device_id: getOrCreateCentralDeviceId(storage),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.allowed, true);
+  assert.ok(result.subscriptionRow, 'a local mirror row comes back');
+  assert.equal(result.subscriptionRow.current_period_start, '2026-11-01T00:00:00.000Z');
+
+  const cached = JSON.parse(storage.getItem(centralCacheKey('clinic-1')));
+  assert.match(cached.seal, /^[a-f0-9]{64}$/, 'and a sealed cache entry is written');
+  assert.equal(cached.lease.tier, 'growth');
+});
+
+test('with no fetchImpl, the probe uses the platform fetch — one POST, health-check body, schema parsed', async () => {
+  const calls = [];
+  const probe = await withGlobalFetch(async (url, init) => {
+    calls.push({ url, init });
+    return reply({ ok: true, sync_ready: true, schema_version: 2, server_time: '2026-11-09T10:51:45.000Z' });
+  }, () => probeCentralReadiness(config()));
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://central.example.supabase.co/rest/v1/rpc/sync_clinic_subscription');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { p_email: '', p_origin: '', p_device_id: 'healthcheck' });
+  assert.equal(calls[0].init.credentials, 'omit');
+  assert.equal(probe.ok, true);
+  assert.equal(probe.schemaVersion, 2);
+  assert.equal(probe.httpStatus, 200);
+});
+
+test('a build with no fetch at all says so — never "offline", never a grace lease', async () => {
+  await withGlobalFetch(undefined, async () => {
+    const result = await syncCentralSubscription({
+      config: config(), clinicId: 'clinic-1', email, origin, storage: fakeStorage(),
+      now: new Date('2026-11-02T09:00:00.000Z'),
+    });
+    assert.equal(result.code, 'FETCH_UNAVAILABLE');
+    assert.equal(result.offline, false, 'a build fault is not an outage');
+    assert.equal(result.allowed, false);
+    assert.match(result.reason, /cannot make HTTP requests/);
+    assert.doesNotMatch(result.reason, /could not be reached/i);
+    const state = centralStateFromResult(result);
+    assert.equal(state.verdict.code, 'FETCH_UNAVAILABLE');
+    assert.notEqual(state.state, 'offline');
+
+    const probe = await probeCentralReadiness(config());
+    assert.equal(probe.code, 'FETCH_UNAVAILABLE');
+    assert.equal(probe.ok, false);
+    assert.match(probe.error, /cannot make HTTP requests/);
+  });
+});
+
+test('a build with no fetch never falls back to the sealed lease', async () => {
+  const storage = fakeStorage();
+  const now = new Date('2026-11-02T09:00:00.000Z');
+  await primeCache({ storage, now });                       // a good, sealed lease exists
+
+  await withGlobalFetch(undefined, async () => {
+    const result = await syncCentralSubscription({ config: config(), clinicId: 'clinic-1', email, origin, storage, now });
+    assert.equal(result.code, 'FETCH_UNAVAILABLE');
+    assert.equal(result.fromCache, false, 'the outage branch is the only one that may read the lease');
+    assert.equal(storage.getItem(centralCacheKey('clinic-1')) !== null, true, 'and the lease is not deleted either');
+  });
+});
+
+test('a real transport failure still reaches the offline branch, and only that does', async () => {
+  const storage = fakeStorage();
+  const now = new Date('2026-11-02T09:00:00.000Z');
+  await primeCache({ storage, now });
+
+  // fetch rejects with the TypeError the browser uses for a dead network
+  const offline = await withGlobalFetch(async () => { throw new TypeError('Failed to fetch'); },
+    () => syncCentralSubscription({ config: config(), clinicId: 'clinic-1', email, origin, storage, now }));
+  assert.equal(offline.code, 'OFFLINE_GRACE');
+  assert.equal(offline.offline, true);
+  assert.equal(offline.allowed, true, 'the sealed lease answers');
+
+  // our own 8 s timeout is a transport failure too
+  const aborted = await withGlobalFetch(async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; },
+    () => syncCentralSubscription({ config: config(), clinicId: 'clinic-1', email, origin, storage, now }));
+  assert.equal(aborted.code, 'OFFLINE_GRACE');
+
+  // an error that is not a transport failure is this build's fault, with its own code
+  const broken = await withGlobalFetch(async () => { throw new Error('no fetch'); },
+    () => syncCentralSubscription({ config: config(), clinicId: 'clinic-1', email, origin, storage, now }));
+  assert.equal(broken.code, 'CLIENT_ERROR');
+  assert.equal(broken.offline, false);
+  assert.equal(isTransportFailure(new TypeError('Failed to fetch')), true);
+  assert.equal(isTransportFailure(Object.assign(new Error('x'), { name: 'AbortError' })), true);
+  assert.equal(isTransportFailure(new Error('no fetch')), false);
+});
+
+test('every refusal code the card renders has a sentence, and the code survives verbatim', () => {
+  for (const code of ['SUBSCRIPTION_NOT_FOUND', 'ORIGIN_MISMATCH', 'SEAT_LIMIT_REACHED', 'SUBSCRIPTION_PAUSED', 'SUBSCRIPTION_EXPIRED', 'RATE_LIMITED', 'INVALID_EMAIL', 'INVALID_ORIGIN', 'MISSING_IDENTITY', 'FETCH_UNAVAILABLE']) {
+    assert.ok(centralCodeNote(code), `${code} needs a note`);
+    assert.equal(centralCodeNote(code.toLowerCase()), centralCodeNote(code), 'lookup is case-insensitive');
+  }
+  assert.equal(centralCodeNote('SOMETHING_ELSE'), '');
+  assert.equal(centralCodeNote(''), '');
 });

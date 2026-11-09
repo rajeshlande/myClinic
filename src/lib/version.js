@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.25.0';
+export const APP_VERSION = '1.25.1';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.25.1', date: '2026-11-09', schema: 18,
+    highlights: [
+      '**The client never actually called Central.** The central subscription call takes `fetch` as an injected dependency so tests can run without a network — and no caller in the app ever passed one. Every browser threw `no fetch` before opening a socket, the catch around it reported that as “could not be reached”, and the central project has therefore received **zero** requests since the feature shipped. Both `syncCentralSubscription()` and `probeCentralReadiness()` now default to the platform’s own `fetch`; the injection point stays, for tests.',
+      'A build that genuinely has no HTTP client now says exactly that: code `FETCH_UNAVAILABLE`, the sentence “this build cannot make HTTP requests”, and a red panel on the diagnostic card — never “offline”, never a grace lease. The outage branch is reachable only for a real transport failure (a `TypeError` from `fetch`, our own 8 s abort, a 5xx), and anything else thrown there reports itself as `CLIENT_ERROR`.',
+      'Every refusal code the card can show now carries one explanatory sentence — `SUBSCRIPTION_NOT_FOUND`, `ORIGIN_MISMATCH`, `SEAT_LIMIT_REACHED`, `SUBSCRIPTION_PAUSED`, `SUBSCRIPTION_EXPIRED`, `RATE_LIMITED`, `INVALID_EMAIL`, `INVALID_ORIGIN`, `MISSING_IDENTITY`, `FETCH_UNAVAILABLE` — with Central’s own code and reason printed verbatim above it.',
+      'Six regression tests go through `globalThis.fetch` instead of an injected fake, because a test that always injects one cannot see a missing one: one POST with the right URL, headers and body, a sealed cache entry on an allowed answer, the same for the probe, `FETCH_UNAVAILABLE` when no fetch exists anywhere, and the outage branch still working for a real `TypeError`. 514 tests.',
+    ],
+  },
   {
     version: '1.25.0', date: '2026-11-09', schema: 18,
     highlights: [
