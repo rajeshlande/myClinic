@@ -3,6 +3,61 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.25.2] — 2026-11-09 · schema 18
+
+**The Cloudflare deploy never started.** The build was green; the deploy command
+was not.
+
+```
+19:26:09  [plugin myclinic:scoped-obfuscation] obfuscated: license.mjs, central-sync.mjs
+19:26:09  Success: Build command completed
+19:26:09  Executing user deploy command: npx wrangler deploy
+19:26:21  ✘ [ERROR] Error parsing file: /opt/buildhome/repo/vite.config.js
+19:26:21  Failed: error occurred while running deploy command
+```
+
+- **What was wrong.** Nothing in `vite.config.js` — it is valid ESM and `vite
+  build` consumes it happily. With no wrangler configuration present, `wrangler
+  deploy` cannot tell what it is deploying, so it falls back to *framework
+  detection*: it bundles `vite.config.js` with esbuild to read it. That follows
+  the config's `javascript-obfuscator` import into Vite's own rolldown graph,
+  which dynamically reaches for two optional peers this project deliberately does
+  not install (`esbuild`, `@vitejs/devtools/config`). The resolution failure is
+  reported as **"Error parsing file"** — which reads like a syntax error in a
+  file that is fine, and sends you looking in the wrong place.
+
+  Reproduced locally with the same wrangler 4.158.0 against this repo: the same
+  message, and `esbuild --bundle vite.config.js` names the two unresolved peers.
+
+- **The fix.** `wrangler.jsonc` at the repository root declares
+  `assets.directory: "./dist"` and **no `main`**, so there is no Worker script to
+  detect and nothing to bundle. Verified with `wrangler deploy --dry-run`:
+  `✨ Read 31 files from the assets directory /home/user/myclinic/dist`,
+  `Total Upload: 0.32 KiB` — assets only. `not_found_handling` is deliberately
+  `none`: hash routing means the server is only ever asked for `/` and real
+  files, and an SPA fallback would answer `200` + `index.html` for a missing
+  hashed chunk, turning a broken deploy into a white screen.
+
+- **Cache policy travels with the files.** `public/_headers` ships in the build,
+  so Workers, Pages and Netlify alike serve `index.html` and `sw.js` with
+  `no-cache, must-revalidate` and `/assets/*` as
+  `public, max-age=31536000, immutable`. A CDN-cached `sw.js` pins the whole
+  clinic to an old bundle for the TTL — the deploy reports success and the app
+  behaves stale, which is the worst failure shape there is.
+
+- **Tests.** Three cases in `tests/deploy-config.test.mjs` read the deploy config
+  from disk: `assets.directory` is `./dist`, no `main`, `not_found_handling` is
+  `none`, and `_headers` keeps the worker and the shell uncached. Detection
+  cannot come back by accident. **517 tests.**
+
+- **Deploying elsewhere changes the origin** — and `p_origin` is part of the
+  licence check. If this build is served from `https://<name>.<subdomain>.workers.dev`
+  or a custom domain rather than `https://rajeshlande.github.io`, the Central
+  subscription rows must carry that new origin **before** clients open it, and
+  the new origin must be added to Supabase → Authentication → URL Configuration
+  (Site URL + Redirect URLs), or confirmation and reset links bounce. A refusal
+  deletes the sealed lease in the same call; there is no grace on a refusal.
+
 ## [1.25.1] — 2026-11-09 · schema 18
 
 **The client never called Central. One missing dependency injection.**

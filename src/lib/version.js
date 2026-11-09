@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.25.1';
+export const APP_VERSION = '1.25.2';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.25.2', date: '2026-11-09', schema: 18,
+    highlights: [
+      '**The Cloudflare deploy never started.** `npm run build` succeeded, obfuscation and all, and then the deploy step died with `Error parsing file: /opt/buildhome/repo/vite.config.js`. With no wrangler config, `wrangler deploy` cannot tell what it is deploying, so it tries to *detect* the framework by bundling `vite.config.js` with esbuild — which follows Vite 8\'s rolldown graph into two optional peers this project deliberately does not install (`esbuild`, `@vitejs/devtools/config`) and reports the resolution failure as a parse error in a file that is perfectly valid. `wrangler.jsonc` now names the asset directory explicitly: static files only, no Worker script, nothing to detect.',
+      'A `_headers` file ships in `public/`, so whichever static host you use (Workers, Pages, Netlify) serves `index.html` and `sw.js` with `no-cache` and hashed `assets/*` as `immutable`. A CDN-cached service worker pins the whole clinic to an old bundle for the cache lifetime — the deploy looks successful and the app behaves stale.',
+      'Three tests read the deploy config from disk, so detection cannot come back by accident: `assets.directory` is `./dist`, there is no `main`, `not_found_handling` stays `none` (hash routing needs no SPA fallback, and one would answer 200 for a missing chunk), and `_headers` keeps the worker and the shell uncached. 517 tests.',
+    ],
+  },
   {
     version: '1.25.1', date: '2026-11-09', schema: 18,
     highlights: [

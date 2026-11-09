@@ -1,0 +1,27 @@
+/**
+ * Cloudflare Workers Builds — static-assets-only deployment.
+ *
+ * This file exists for one reason: without it, `wrangler deploy` cannot tell
+ * what it is deploying, so it tries to *detect* the framework by bundling
+ * `vite.config.js` with esbuild. Vite 8 is rolldown-based and reaches for two
+ * optional peers that this project deliberately does not install (esbuild,
+ * @vitejs/devtools/config), so that detection dies with
+ *
+ *     Error parsing file: /opt/buildhome/repo/vite.config.js
+ *
+ * `assets.directory` removes the guess: there is no Worker script here at all,
+ * only the files `vite build` emitted. Nothing about the app changes.
+ *
+ * `not_found_handling` is intentionally "none": the app uses hash routing
+ * (/#/patients), so the server is only ever asked for "/" and real files. A
+ * single-page-application fallback would answer 200 + index.html for a missing
+ * hashed chunk, which hides a broken deploy behind a white screen.
+ */
+{
+  "name": "myclinic",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "none"
+  }
+}

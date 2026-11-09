@@ -171,6 +171,27 @@ The Pages workflow prints, in the Actions log:
 `main` (or run the workflow manually). The workflow prints a notice saying whether the
 Supabase keys reached the build — read it before sharing the URL.
 
+### Deploying somewhere else (Cloudflare, Netlify, Vercel, S3, a VPS)
+
+The app is a static, hash-routed SPA: `vite build` emits `dist/`, every route is
+`/#/…`, asset URLs are relative, and `VITE_*` is inlined at build time. Any HTTPS
+static host works; there is no server code and no SPA rewrite to configure.
+
+**Cloudflare Workers Builds** needs the repository's `wrangler.jsonc`, which declares
+`assets.directory: "./dist"` and no `main`. Without it `wrangler deploy` cannot tell
+what it is deploying, tries to detect the framework by bundling `vite.config.js` with
+esbuild, and fails with `Error parsing file: …/vite.config.js` — a build fault that
+reads like a syntax error. `public/_headers` travels with the build so `index.html`
+and `sw.js` are served `no-cache` and `/assets/*` as `immutable` on every host.
+
+**Allow for one thing before you switch hosts:** `p_origin` is
+`window.location.origin`, and it is half of the licence match. A new host is a new
+origin, so add a Central subscription row for it (keeping the old one alive through
+the overlap) and add it to **Authentication → URL Configuration** (Site URL and
+Redirect URLs), or signup-confirmation and password-reset links bounce to the old
+host. A refusal deletes the sealed lease immediately; only a genuine transport
+failure gets the grace window.
+
 ## 7. Verify from inside the app
 
 Visit `https://rajeshlande.github.io/myClinic/#/setup` and press **Run test** in the
