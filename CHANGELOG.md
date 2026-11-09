@@ -3,6 +3,69 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.25.0] — 2026-11-09 · schema 18
+
+**Central Auto-Sync is now observable from the client.** Every clinic showed
+*Awaiting Connect* on the central dashboard, and nothing in myClinic said why.
+
+- **Why Central could not say.** `public.sync_clinic_subscription()` inserts an
+  `activated_machines` row only on the fully allowed path; every refusal
+  (`SUBSCRIPTION_NOT_FOUND`, `ORIGIN_MISMATCH`, `RATE_LIMITED`,
+  `SEAT_LIMIT_REACHED`, `SUBSCRIPTION_INACTIVE`) returns before it, and no attempt
+  log exists. "The client never called", "the client called and was refused" and
+  "this build has no central project" are the same picture there. The central
+  project is unchanged; the client now reports itself.
+
+- **What was ruled out, on the deployed site** (all checks re-runnable):
+  `https://rajeshlande.github.io/myClinic/assets/index-*.js` contains **both**
+  environment values — `VITE_CENTRAL_SUPABASE_URL = https://inaqzvzfongngahxptzw.supabase.co`
+  and a central `eyJ…` anon key whose `ref` claim is the same project — so
+  `centralSyncConfig()` is `enabled: true` and the Variables *did* reach the
+  build. The zero-side-effect probe against that project answers
+  `{"ok":true,"sync_ready":true,"schema_version":2}`, and the CORS preflight for
+  `Origin: https://rajeshlande.github.io` is allowed. Reachability, key type and
+  the RPC all check out, which leaves the **pair** — the owner email and the
+  origin Central has pinned — and the client had no way to say so.
+
+- **The card.** Settings → Subscription (owners only) gains **Central Auto-Sync**:
+  configured yes/no with the config's own reason, the central host, live or demo
+  mode, the resolved owner email **masked, with the field that produced it**
+  (owner row / clinic / billing / session), the origin, the device id (first eight
+  characters), and the last attempt — timestamp, allowed/refused, `status`,
+  `code`, match mode and the RPC's `reason` verbatim. Offline attempts say so and
+  print the sealed lease's `expires_at` / `grace_until`.
+
+- **Two buttons, two different questions.** *Sync now* calls the existing
+  `syncCentralNow({ silent: false })`, prints the outcome inline and is disabled
+  while a request is in flight. *Test Central connection* calls the new
+  `probeCentralReadiness()`, which posts `{p_email:'', p_origin:'',
+  p_device_id:'healthcheck'}` with the existing 8 s timeout and
+  `credentials:'omit'`, and reports `{ok, syncReady, schemaVersion, httpStatus,
+  error}`. It never writes to Central, and it is held for ten seconds — in the
+  store, not only in the button — because Central rate-limits per IP. The card
+  labels it as reachability, never as a licence.
+
+- **One resolver, one vocabulary.** `resolveCentralIdentity()` replaces the
+  inline chain and returns `{email, source}`; `centralStateFromResult()` replaces
+  the inline state mapping so a refusal's `code` + `reason` reach the screen (and
+  a test) intact. `maskEmail()`, `centralHostLabel()` and `readCentralDeviceId()`
+  keep a render from minting a device id or leaking an address. No second status
+  vocabulary was invented: `centralStatusLabel`, `centralMatchLabel` and
+  `CENTRAL_STATUS_LABELS` are reused.
+
+- **What did not change.** The seal: `CENTRAL_SEAL_FIELDS` is still exactly
+  `allowed|status|tier|plan|expires_at|grace_until`, the version is still v2, and
+  `started_at` / `match_mode` / `server_time` remain unsealed — a seal change
+  would cost every deployed device its cached lease. Still no key in the repo, no
+  second Supabase client, no session JWT leaving this project.
+
+- 508 tests (10 new: the origin-pair rule, the identity order and its source, the
+  mask, the host label, a refusal's code reaching `centralState`, the probe's exact
+  body and headers — legacy `eyJ` key repeated as a bearer, modern
+  `sb_publishable_` key not — plus the unconfigured, dead-network, 404 and
+  wrong-body branches, and device-id reads that mint nothing). 28/28 contribution
+  rules, build, Pages check and `test:security` clean. No schema change.
+
 ## [1.24.0] — 2026-11-02 · schema 18
 
 **The subscription card says plan, start and end — and the licence authority is

@@ -7,8 +7,9 @@ import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
 import {
-  CENTRAL_MANAGED_MESSAGE, CENTRAL_SYNC_INTERVAL_MS, centralSubscriptionRow, centralSyncConfig,
-  getOrCreateCentralDeviceId, normalizeEmail, readCachedCentralSubscription, syncCentralSubscription,
+  CENTRAL_MANAGED_MESSAGE, CENTRAL_SYNC_INTERVAL_MS, centralHostLabel, centralStateFromResult,
+  centralSubscriptionRow, centralSyncConfig, getOrCreateCentralDeviceId, maskEmail, probeCentralReadiness,
+  readCachedCentralSubscription, readCentralDeviceId, resolveCentralIdentity, syncCentralSubscription,
 } from './central-sync.mjs';
 import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
@@ -88,6 +89,10 @@ export function StoreProvider({ children, session }) {
   const centralEnabled = centralCfg.enabled && mode === 'live';
   const [centralSubscription, setCentralSubscription] = useState(null);
   const [centralState, setCentralState] = useState({ state: 'idle', verdict: null, syncedAt: null, error: '' });
+  // The readiness probe's last answer, kept so the card still shows it after a
+  // re-render. Guarded by a clock, not by a boolean: Central rate-limits per IP.
+  const [centralProbe, setCentralProbe] = useState(null);
+  const centralProbeAt = useRef(0);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -789,17 +794,12 @@ export function StoreProvider({ children, session }) {
    * only then whoever is signed in. `url`-only licences work with an empty
    * string here, which is why this never throws when it finds nothing.
    */
-  const centralEmail = useCallback(() => {
-    const staff = stateRef.current.staff ?? [];
-    const owner = staff.find((row) => row.role === 'owner') ?? null;
-    return normalizeEmail(
-      owner?.email
-        || stateRef.current.clinic?.email
-        || stateRef.current.subscription?.billing_email
-        || session?.user?.email
-        || '',
-    );
-  }, [session]);
+  const centralIdentity = useCallback(() => resolveCentralIdentity({
+    staff: stateRef.current.staff ?? [],
+    clinic: stateRef.current.clinic ?? null,
+    subscription: stateRef.current.subscription ?? null,
+    sessionEmail: session?.user?.email ?? '',
+  }), [session]);
 
   /**
    * Ask Central — keyless, clientless, and with nothing of ours attached.
@@ -822,25 +822,40 @@ export function StoreProvider({ children, session }) {
       result = await syncCentralSubscription({
         config: centralCfg,
         clinicId,
-        email: centralEmail(),
+        email: centralIdentity().email,
         origin: typeof window !== 'undefined' ? window.location.origin : '',
         storage,
         now: new Date(),
       });
     } catch (e) {
-      setCentralState({ state: 'error', verdict: null, syncedAt: new Date().toISOString(), error: e.message ?? 'Central Auto-Sync failed.' });
+      setCentralState(centralStateFromResult({ allowed: false, ok: false, reason: e.message ?? 'Central Auto-Sync failed.' }));
       return null;
     }
 
     if (result?.subscriptionRow) setCentralSubscription(result.subscriptionRow);
-    setCentralState({
-      state: result.offline ? 'offline' : result.ok ? 'ok' : 'error',
-      verdict: result,
-      syncedAt: result.syncedAt ?? null,
-      error: result.allowed ? '' : String(result.reason ?? '') || 'Central Auto-Sync refused this clinic.',
-    });
+    setCentralState(centralStateFromResult(result));
     return result;
-  }, [mode, centralCfg, centralEmail]);
+  }, [mode, centralCfg, centralIdentity]);
+
+  /**
+   * "Is the central project there, and does the RPC exist?" — the zero-side-effect
+   * probe, never a subscription verdict. Guarded to one attempt per ten seconds
+   * because Central rate-limits per IP, and the guard lives here rather than in
+   * the button so a second caller cannot walk around it.
+   */
+  const probeCentral = useCallback(async () => {
+    const now = Date.now();
+    if (now - centralProbeAt.current < 10000) {
+      return {
+        ok: false, syncReady: false, schemaVersion: null, httpStatus: null, throttled: true,
+        error: 'Wait a few seconds — Central rate-limits probes per IP.',
+      };
+    }
+    centralProbeAt.current = now;
+    const result = await probeCentralReadiness(centralCfg);
+    setCentralProbe({ ...result, at: new Date().toISOString() });
+    return result;
+  }, [centralCfg]);
 
   /**
    * Boot sequence: the sealed cache first (zero flicker, and the clinic is
@@ -861,7 +876,7 @@ export function StoreProvider({ children, session }) {
       const cached = await readCachedCentralSubscription({
         clinicId,
         origin: typeof window !== 'undefined' ? window.location.origin : '',
-        email: centralEmail(),
+        email: centralIdentity().email,
         deviceId,
         storage,
       }).catch(() => null);
@@ -871,7 +886,7 @@ export function StoreProvider({ children, session }) {
     })().catch(() => {});
 
     return () => { cancelled = true; };
-  }, [centralEnabled, ready, state.clinic, centralEmail, syncCentralNow]);
+  }, [centralEnabled, ready, state.clinic, centralIdentity, syncCentralNow]);
 
   /**
    * Re-sync on the three moments that matter: the network came back, the tab was
@@ -895,6 +910,28 @@ export function StoreProvider({ children, session }) {
     };
   }, [centralEnabled, syncCentralNow]);
 
+  /**
+   * Everything the diagnostic card prints, resolved once per render: no key, no
+   * pepper, no full seal ever enters this object. The identity is the interesting
+   * part — Central's row is dual-pinned on email *and* origin, so the card names
+   * the field that produced the address it will send.
+   */
+  const centralDiagnostics = useMemo(() => {
+    const identity = centralIdentity();
+    return {
+      configured: centralCfg.enabled,
+      error: centralCfg.error,
+      host: centralHostLabel(centralCfg.url),
+      mode,
+      ready,
+      email: identity.email,
+      emailMasked: maskEmail(identity.email),
+      emailSource: identity.source,
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      deviceId: readCentralDeviceId(typeof localStorage !== 'undefined' ? localStorage : undefined),
+      probe: centralProbe,
+    };
+  }, [centralCfg, centralIdentity, centralProbe, mode, ready]);
 
   const startTrial = useCallback(async () => {
     // Central owns the plan while it is configured: a local click would be a lie
@@ -973,14 +1010,15 @@ export function StoreProvider({ children, session }) {
     changePlan, renewSubscription, startTrial,
     // keyless central auto-sync (no licence key, no key pair, no Edge Function)
     centralSync: { enabled: centralEnabled, ...centralState },
-    syncCentralNow,
+    centralDiagnostics,
+    syncCentralNow, probeCentral,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
     resetDemo, bootDemo, refresh, searchDrugDirectory,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, startTrial,
-    centralEnabled, centralState, centralCfg, syncCentralNow]);
+    centralEnabled, centralState, centralDiagnostics, syncCentralNow, probeCentral]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

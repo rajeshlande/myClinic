@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CENTRAL_CACHE_PREFIX, CENTRAL_CODES, CENTRAL_DEVICE_KEY, CENTRAL_ENV_KEY, CENTRAL_ENV_URL,
-  CENTRAL_GRACE_NOTE, CENTRAL_MANAGED_MESSAGE, CENTRAL_RPC, CENTRAL_SEAL_FIELDS, CENTRAL_UNSEALED_FIELDS,
-  centralMatchLabel, CENTRAL_TIER_TO_PLAN, blockedCentralKey, centralCacheKey,
+  CENTRAL_GRACE_NOTE, CENTRAL_MANAGED_MESSAGE, CENTRAL_PROBE_BODY, CENTRAL_RPC, CENTRAL_SEAL_FIELDS,
+  CENTRAL_UNSEALED_FIELDS, centralHostLabel, centralMatchLabel, centralStateFromResult, CENTRAL_TIER_TO_PLAN,
+  blockedCentralKey, centralCacheKey, maskEmail, probeCentralReadiness, readCentralDeviceId,
+  resolveCentralIdentity,
   centralHeaders, centralStatusLabel, centralSubscriptionRow, centralSyncConfig, clearCachedCentralSubscription,
   computeCentralSeal, getOrCreateCentralDeviceId, leaseWindow, normalizeEmail, normalizeOrigin,
   readCachedCentralSubscription, syncCentralSubscription,
@@ -544,4 +546,153 @@ test('the start date is carried but deliberately outside the seal', async () => 
   });
   assert.ok(cached, 'the lease is still usable: editing a start date promotes nobody');
   assert.equal(cached.lease.expires_at, '2027-11-02T00:00:00.000Z', 'the dates that decide writing stay sealed');
+});
+
+/* ------------------------------------------------- the diagnostic surface (1.25.0) */
+
+/*
+ * Central inserts a machine row only on the allowed path, so from its dashboard
+ * "never called", "called and refused" and "this build has no central project"
+ * are the same picture. Everything below exists so the client can tell those
+ * apart on its own screen — and so the diagnostic never becomes a second place
+ * where credentials or a licence decision live.
+ */
+
+test('a cloud origin is one origin whether or not a path is written after it', () => {
+  assert.equal(normalizeOrigin('https://Clinic.github.io/myClinic/'), 'https://clinic.github.io');
+  assert.equal(normalizeOrigin('https://clinic.github.io'), 'https://clinic.github.io');
+  assert.equal(normalizeOrigin('https://CLINIC.github.io/myClinic'), normalizeOrigin('https://clinic.github.io'));
+});
+
+test('the identity sent is resolved in one documented order, and says where it came from', () => {
+  const staff = [
+    { role: 'frontdesk', email: 'desk@clinic.example' },
+    { role: 'owner', email: ' Owner@Clinic.Example ' },
+  ];
+  assert.deepEqual(
+    resolveCentralIdentity({ staff, clinic: { email: 'clinic@clinic.example' }, subscription: { billing_email: 'bill@clinic.example' }, sessionEmail: 'doc@clinic.example' }),
+    { email: 'owner@clinic.example', source: 'owner' },
+  );
+  assert.deepEqual(
+    resolveCentralIdentity({ staff: [{ role: 'frontdesk', email: 'desk@clinic.example' }], clinic: { email: 'Clinic@Clinic.Example' } }),
+    { email: 'clinic@clinic.example', source: 'clinic' },
+  );
+  assert.deepEqual(resolveCentralIdentity({ staff: [], subscription: { billing_email: 'Bill@Clinic.Example' } }), { email: 'bill@clinic.example', source: 'billing' });
+  assert.deepEqual(resolveCentralIdentity({ sessionEmail: 'DOC@clinic.example' }), { email: 'doc@clinic.example', source: 'session' });
+  assert.deepEqual(resolveCentralIdentity({}), { email: '', source: 'none' });
+  // A receptionist's address must never be sent as the licence identity while an
+  // owner row exists — that is the mismatch this whole card exists to explain.
+  assert.equal(resolveCentralIdentity({ staff }).email, 'owner@clinic.example');
+});
+
+test('an email is masked for the card, and a card with nothing to show says so', () => {
+  assert.equal(maskEmail('owner@clinic.example'), 'o•••@clinic.example');
+  assert.equal(maskEmail(''), '');
+  assert.equal(maskEmail(undefined), '');
+  assert.equal(maskEmail('O@C.EXAMPLE'), 'o•••@c.example');
+});
+
+test('the central project is named by host only — never a key, never a path', () => {
+  assert.equal(centralHostLabel('https://inaqzvzfongngahxptzw.supabase.co'), 'inaqzvzfongngahxptzw.supabase.co');
+  assert.equal(centralHostLabel('https://central.example.supabase.co/rest/v1/rpc/x?apikey=leak'), 'central.example.supabase.co');
+  assert.equal(centralHostLabel(''), '');
+  assert.equal(centralHostLabel('not a url'), '');
+});
+
+test('a refusal keeps its code and its reason all the way into centralState', async () => {
+  // This is the dual-pinned mismatch: the row exists, but not for this pair.
+  const answer = { allowed: false, status: 'unlicensed', code: 'SUBSCRIPTION_NOT_FOUND', reason: 'No active subscription matched this clinic email / URL.' };
+  const result = await syncCentralSubscription({
+    config: config(), clinicId: 'clinic-1', email: 'someone@clinic.example', origin,
+    storage: fakeStorage(), fetchImpl: async () => reply(answer),
+  });
+
+  const state = centralStateFromResult(result);
+  assert.equal(state.state, 'error');
+  assert.equal(state.verdict.code, 'SUBSCRIPTION_NOT_FOUND', 'the operator needs the code, not just "refused"');
+  assert.match(state.error, /No active subscription matched this clinic email \/ URL\./);
+  assert.equal(state.syncedAt, result.syncedAt, 'the attempt is timestamped even when it is refused');
+
+  // and an allowed answer maps to a calm state with no error text
+  const allowed = await syncCentralSubscription({
+    config: config(), clinicId: 'clinic-1', email, origin, storage: fakeStorage(),
+    fetchImpl: async () => reply(activeAnswer()),
+  });
+  assert.equal(centralStateFromResult(allowed).state, 'ok');
+  assert.equal(centralStateFromResult(allowed).error, '');
+});
+
+/* ------------------------------------------------------------- the readiness probe */
+
+test('the readiness probe posts the health-check body and nothing of this clinic', async () => {
+  let seen = null;
+  const storage = fakeStorage();
+  const probe = await probeCentralReadiness(config(), {
+    fetchImpl: async (url, init) => {
+      seen = { url, init };
+      return reply({ ok: true, sync_ready: true, schema_version: 2, server_time: '2026-11-09T10:51:45.000Z' });
+    },
+  });
+
+  assert.equal(seen.url, 'https://central.example.supabase.co/rest/v1/rpc/sync_clinic_subscription');
+  assert.equal(seen.init.method, 'POST');
+  assert.equal(seen.init.credentials, 'omit');
+  assert.deepEqual(JSON.parse(seen.init.body), { p_email: '', p_origin: '', p_device_id: 'healthcheck' });
+  assert.deepEqual({ ...CENTRAL_PROBE_BODY }, { p_email: '', p_origin: '', p_device_id: 'healthcheck' });
+  assert.equal(seen.init.headers.apikey, 'publishable-fixture-key');
+  assert.equal(
+    seen.init.headers.authorization,
+    'Bearer publishable-fixture-key',
+    'a legacy eyJ… key predates publishable keys, so PostgREST is given it as the bearer token — that key, never a session JWT',
+  );
+  assert.equal(storage.map.size, 0, 'a probe writes nothing, anywhere');
+
+  assert.deepEqual(probe, { ok: true, syncReady: true, schemaVersion: 2, httpStatus: 200, error: '' });
+});
+
+test('the probe reports an unconfigured build without calling anything', async () => {
+  let called = false;
+  const probe = await probeCentralReadiness(centralSyncConfig({}), { fetchImpl: async () => { called = true; } });
+  assert.equal(called, false);
+  assert.equal(probe.ok, false);
+  assert.match(probe.error, /not configured/i);
+});
+
+test('the probe distinguishes a dead network from a missing RPC', async () => {
+  const offline = await probeCentralReadiness(config(), { fetchImpl: async () => { throw new Error('network down'); } });
+  assert.equal(offline.ok, false);
+  assert.equal(offline.httpStatus, null);
+  assert.match(offline.error, /Could not reach the central project/);
+
+  const missing = await probeCentralReadiness(config(), {
+    fetchImpl: async () => reply({ message: 'Could not find the function public.sync_clinic_subscription' }, 404),
+  });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.httpStatus, 404);
+  assert.match(missing.error, /answered 404/);
+  assert.match(missing.error, /Could not find the function/);
+
+  const wrongBody = await probeCentralReadiness(config(), { fetchImpl: async () => reply({ hello: 'world' }) });
+  assert.equal(wrongBody.ok, false);
+  assert.match(wrongBody.error, /not with a readiness body/);
+});
+
+test('the device id is read without ever being created by a render', () => {
+  const storage = fakeStorage();
+  assert.equal(readCentralDeviceId(storage), '');
+  assert.equal(storage.map.size, 0, 'reading the id must not mint one');
+  storage.setItem(CENTRAL_DEVICE_KEY, 'ABCDEF0123456789');
+  assert.equal(readCentralDeviceId(storage), 'abcdef0123456789');
+  storage.setItem(CENTRAL_DEVICE_KEY, 'not-hex');
+  assert.equal(readCentralDeviceId(storage), '');
+});
+
+test('a modern publishable key travels as apikey only, and never as an identity', async () => {
+  let seen = null;
+  await probeCentralReadiness(
+    { enabled: true, url: 'https://central.example.supabase.co', anonKey: ['sb', 'publishable', 'fixture'].join('_'), error: '' },
+    { fetchImpl: async (url, init) => { seen = init; return reply({ ok: true, sync_ready: true, schema_version: 2 }); } },
+  );
+  assert.equal('authorization' in seen.headers, false, 'no bearer header for a publishable key');
+  assert.equal(JSON.stringify(seen.headers).includes('Bearer'), false);
 });

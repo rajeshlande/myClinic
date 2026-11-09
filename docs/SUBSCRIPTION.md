@@ -107,3 +107,56 @@ clinic cannot renew, change plan or restart a trial locally. That rule is what
 the Postgres refusal `license:managed` says, and the app now translates it to
 "managed centrally". Removing a column is a data-loss operation, so the columns
 stay until a migration deliberately drops them.
+
+## The diagnostic card (Settings → Subscription, owners only)
+
+The central project inserts a machine row **only on the allowed path**. Every
+refusal returns before it, and Central keeps no attempt log — so from its
+dashboard, "the client never called", "the client called and was refused" and
+"this build has no central project" are the same picture: *Awaiting Connect*.
+That is why the client has to make its own state readable.
+
+The **Central Auto-Sync** card does exactly that, and nothing else:
+
+| Row | What it answers |
+|---|---|
+| Configured | Yes/no, and when no, `centralSyncConfig().error` in words — including "not configured in this build" |
+| Central project | the hostname only — never a key, never a path |
+| Mode | *live* (Central is asked) or *demo* (no session, so Central never is) |
+| Identity sent | the resolved owner email, masked (`o•••@clinic.com`) with a reveal toggle, **and which field produced it** — owner row, clinic, billing or session |
+| Origin sent | `location.origin` — scheme + host only |
+| Device id | the first eight characters |
+| Last attempt | timestamp, allowed/refused, `status`, `code`, match mode, and the RPC's `reason` verbatim |
+| Readiness probe | the result of **Test Central connection**, labelled distinctly from a verdict |
+
+Two buttons:
+
+- **Sync now** calls `syncCentralNow({ silent: false })` and prints the result
+  inline. Disabled while a request is in flight and when the build is not
+  configured.
+- **Test Central connection** calls `probeCentralReadiness()`, which posts the
+  zero-side-effect health check and reports `sync_ready` + the schema version.
+  It is held for ten seconds after each press — in the store, not only in the
+  button — because Central rate-limits per IP. **A green probe proves
+  reachability and that the RPC exists. It does not prove this clinic is
+  licensed**, and the card says so.
+
+The card prints no key, no pepper, no seal and no token. The email is masked by
+default because the card is a screenshot waiting to happen; the reveal toggle is
+there because comparing that exact address against the one pinned on Central is
+the point.
+
+### Reading a refusal
+
+| What the card shows | What it means |
+|---|---|
+| Probe green, sync `SUBSCRIPTION_NOT_FOUND` | The network is fine. Central has no row where **both** the email and the origin match — pin the address the card names. |
+| Probe green, sync `ORIGIN_MISMATCH` | The row exists for that email, but its pinned URL differs from the origin on the card (a path such as `/myClinic` is the usual culprit). |
+| Probe green, sync `SEAT_LIMIT_REACHED` | The plan's machines are all in use; a seat has to be released on Central. |
+| Identity sent: *nowhere* | No owner row, no clinic email, no billing email and no session address — nothing to match. |
+| Mode: *demo* | The build has no Supabase session, so nothing was ever asked. Sign in. |
+| Configured: *No* | The two Variables did not reach the build; the card prints the config's own reason. |
+| Sync `OFFLINE_GRACE` | Central was unreachable and the sealed lease answered. An outage, not a verdict. |
+
+The probe sends `{p_email:'', p_origin:'', p_device_id:'healthcheck'}`; it cannot
+create a machine, move a heartbeat or spend a seat.

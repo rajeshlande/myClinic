@@ -12,6 +12,7 @@ import {
 } from '../lib/license.mjs';
 import { APP_VERSION } from '../lib/version.js';
 import { CENTRAL_GRACE_NOTE, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
+import CentralDiagnostics from '../components/CentralDiagnostics.jsx';
 
 const PLAN_BLURB = {
   solo: 'One doctor, one front desk. The whole clinic on a single screen.',
@@ -286,6 +287,9 @@ export default function Subscription() {
           </div>
         </div>
       </Card>
+      {/* ------------------------------------------------ central diagnostics */}
+      <CentralDiagnostics />
+
       {/* ---------------------------------------------------------- plan grid */}
       <div className="grid three" style={{ gap: 14 }}>
         {PLANS.map((p) => {

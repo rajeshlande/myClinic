@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.24.0';
+export const APP_VERSION = '1.25.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.25.0', date: '2026-11-09', schema: 18,
+    highlights: [
+      'Settings → Subscription gains a **Central Auto-Sync** card that says what this build sends to the central subscription service and what came back: whether Auto-Sync is configured (and in what words it is not), the central host, live or demo mode, the owner email that will be sent **and which field produced it**, the origin, the device id, and the last answer with its `code`, `status`, match mode and `reason` verbatim. It exists because Central records nothing when it refuses — a paused row, a wrong pinned address and a build with no central project all look identical from the central dashboard.',
+      '**Test Central connection** runs a zero-side-effect readiness probe (`p_email`/`p_origin` empty, a health-check device id) and reports the schema version it finds. It is labelled as what it is: proof that the project answers and the RPC exists — never proof that this clinic is licensed. It cannot be pressed more than once every ten seconds, because Central rate-limits per IP.',
+      'The identity is now resolved by one exported function that also names its source — owner staff row, clinic email, billing email, or the signed-in user — so a dual-pinned mismatch can be fixed by pinning *that* address rather than guessing. Emails are masked on the card with a reveal toggle, and the readiness card never prints a key, the seal pepper or a seal.',
+      'A refused sync keeps its code and reason all the way into the store’s state, so "the client called and was refused" is now distinguishable from "the client never called" on the client’s own screen. 508 tests.',
+    ],
+  },
   {
     version: '1.24.0', date: '2026-11-02', schema: 18,
     highlights: [

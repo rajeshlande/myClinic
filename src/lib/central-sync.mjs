@@ -277,6 +277,152 @@ export function centralSyncConfig(env = {}) {
   return { enabled: true, url, anonKey, error: '' };
 }
 
+/* ------------------------------------------------------------------ diagnostics */
+
+/**
+ * The body of the zero-side-effect readiness probe.
+ *
+ * Empty email and origin, and a device id Central recognises as a health check:
+ * the RPC answers `sync_ready` and the schema version without looking anything
+ * up, so a probe cannot create a machine row, move a heartbeat or spend a seat.
+ */
+export const CENTRAL_PROBE_BODY = Object.freeze({ p_email: '', p_origin: '', p_device_id: 'healthcheck' });
+
+/** `o•••@clinic.com` — enough to compare domains, not enough to leak an address. */
+export function maskEmail(value) {
+  const email = normalizeEmail(value);
+  if (!email) return '';
+  const at = email.indexOf('@');
+  if (at <= 0) return `${email.slice(0, 1)}•••`;
+  const local = email.slice(0, at);
+  const domain = email.slice(at);
+  return `${local.slice(0, 1)}•••${domain}`;
+}
+
+/** Hostname only, for a card that must never print a key or a path. */
+export function centralHostLabel(url) {
+  const raw = String(url ?? '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).host;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Which address this build will send to Central — and where it came from.
+ *
+ * Central's row is dual-pinned (email AND origin), so a receptionist's address
+ * is not the one the licence was sold against. The order is deliberate: the
+ * owner's staff row, then the clinic's own address, then the billing address,
+ * then whoever is signed in. `source` is what the diagnostic card prints, so an
+ * operator can pin *that* address on Central instead of guessing which one the
+ * app chose.
+ *
+ * @returns {{email: string, source: 'owner'|'clinic'|'billing'|'session'|'none'}}
+ */
+export function resolveCentralIdentity({ staff = [], clinic = null, subscription = null, sessionEmail = '' } = {}) {
+  const owner = (staff ?? []).find((row) => row?.role === 'owner' && row?.email) ?? null;
+  const candidates = [
+    ['owner', owner?.email],
+    ['clinic', clinic?.email],
+    ['billing', subscription?.billing_email],
+    ['session', sessionEmail],
+  ];
+  for (const [source, value] of candidates) {
+    const email = normalizeEmail(value);
+    if (email) return { email, source };
+  }
+  return { email: '', source: 'none' };
+}
+
+/**
+ * The store's `centralState`, derived from one answer.
+ *
+ * Kept here rather than in the component so a refusal's code and reason can be
+ * asserted in a test: "the client called and Central said no" has to be
+ * distinguishable from "the client never called", which is the whole reason this
+ * diagnostic exists.
+ *
+ * @returns {{state: 'ok'|'offline'|'error', verdict: object|null, syncedAt: string|null, error: string}}
+ */
+export function centralStateFromResult(result, now = new Date()) {
+  if (!result) {
+    return { state: 'error', verdict: null, syncedAt: now.toISOString(), error: 'Central Auto-Sync returned nothing.' };
+  }
+  return {
+    state: result.offline ? 'offline' : result.ok ? 'ok' : 'error',
+    verdict: result,
+    syncedAt: result.syncedAt ?? now.toISOString(),
+    error: result.allowed ? '' : String(result.reason ?? '') || 'Central Auto-Sync refused this clinic.',
+  };
+}
+
+/**
+ * Is the central project there, and does the RPC exist?
+ *
+ * Deliberately separate from a subscription verdict: this proves reachability
+ * and the schema version, never that *this* clinic is licensed. It cannot change
+ * anything on Central — see `CENTRAL_PROBE_BODY`.
+ *
+ * @returns {Promise<{ok: boolean, syncReady: boolean, schemaVersion: number|null, httpStatus: number|null, error: string}>}
+ */
+export async function probeCentralReadiness(config, { fetchImpl, timeoutMs = CENTRAL_TIMEOUT_MS } = {}) {
+  const cfg = config ?? {};
+  const empty = { ok: false, syncReady: false, schemaVersion: null, httpStatus: null, error: '' };
+  if (!cfg.enabled || !cfg.url || !cfg.anonKey) {
+    return { ...empty, error: cfg.error || 'Central Auto-Sync is not configured in this build, so there is nothing to test.' };
+  }
+
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  let response = null;
+  let transportError = null;
+  try {
+    if (typeof fetchImpl !== 'function') throw new Error('no fetch');
+    response = await fetchImpl(`${cfg.url}/rest/v1/rpc/${CENTRAL_RPC}`, {
+      method: 'POST',
+      headers: centralHeaders(cfg),
+      body: JSON.stringify(CENTRAL_PROBE_BODY),
+      signal: controller?.signal,
+      mode: 'cors',
+      credentials: 'omit',
+    });
+  } catch (error) {
+    transportError = error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  if (!response) {
+    return { ...empty, error: `Could not reach the central project (${transportError?.message ?? 'network error'}).` };
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  const httpStatus = response.status ?? null;
+
+  if (response.ok === false) {
+    const said = body?.message ?? body?.error ?? '';
+    return { ...empty, httpStatus, error: `The central project answered ${httpStatus}${said ? `: ${said}` : '.'}` };
+  }
+
+  const syncReady = body?.sync_ready === true || body?.ok === true;
+  return {
+    ok: syncReady,
+    syncReady,
+    schemaVersion: typeof body?.schema_version === 'number' ? body.schema_version : null,
+    httpStatus,
+    error: syncReady ? '' : 'The RPC answered, but not with a readiness body — check which function is deployed.',
+  };
+}
+
 /* -------------------------------------------------------------- the device id */
 
 /**
@@ -286,14 +432,22 @@ export function centralSyncConfig(env = {}) {
  * about the person or the device beyond "this storage has been here before", and
  * it is cleared with the rest of the site data.
  */
-export function getOrCreateCentralDeviceId(storage) {
+/** The device id already on this profile, or `''` — never creates one. */
+export function readCentralDeviceId(storage) {
   const store = storageOf(storage);
   try {
     const existing = store.getItem(CENTRAL_DEVICE_KEY);
-    if (existing && /^[a-f0-9]{16,64}$/i.test(existing)) return existing.toLowerCase();
+    return existing && /^[a-f0-9]{16,64}$/i.test(existing) ? existing.toLowerCase() : '';
   } catch {
-    /* storage refused: fall through to a fresh id for this session */
+    return '';
   }
+}
+
+export function getOrCreateCentralDeviceId(storage) {
+  const store = storageOf(storage);
+  const existing = readCentralDeviceId(store);
+  if (existing) return existing;
+
   const id = randomHex(16);
   try {
     store.setItem(CENTRAL_DEVICE_KEY, id);
