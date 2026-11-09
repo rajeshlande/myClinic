@@ -123,10 +123,28 @@ test('the function declares a version', () => {
   assert.ok(declared, 'FUNCTION_VERSION is gone — a refusal is anonymous again');
 });
 
-test('the function version matches package.json', () => {
-  const declared = /const FUNCTION_VERSION = '(\d+\.\d+\.\d+)';/.exec(source);
+test('the function never claims a release that does not exist yet', () => {
+  // The function is bumped in the same commit that changes it, and it must never
+  // run ahead of the app: a function reporting 1.23.0 while the release is 1.22.x
+  // would make the very header this file protects into a lie. Being *behind* is
+  // normal and is exactly what the refusal text is for — a function older than
+  // the build says so, and the card tells the owner to deploy it again.
+  const declared = /const FUNCTION_VERSION = '(\d+\.\d+\.\d+)';/.exec(source)[1];
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  assert.equal(declared[1], pkg.version, 'bump FUNCTION_VERSION with the app version');
+  const rank = (v) => v.split('.').map(Number);
+  const [dMajor, dMinor, dPatch] = rank(declared);
+  const [pMajor, pMinor, pPatch] = rank(pkg.version);
+  const ahead = dMajor - pMajor || dMinor - pMinor || dPatch - pPatch;
+  assert.ok(ahead <= 0, `FUNCTION_VERSION ${declared} is newer than the app (${pkg.version})`);
+});
+
+test('every FUNCTION_VERSION is a release in the changelog', () => {
+  // A version nobody can look up is not a diagnosis. If the function is bumped,
+  // the release that carries it is written down.
+  const declared = /const FUNCTION_VERSION = '(\d+\.\d+\.\d+)';/.exec(source)[1];
+  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  assert.match(changelog, new RegExp(`^## \\[?${declared.replace(/\./g, '\\.')}\\]?`, 'm'),
+    `FUNCTION_VERSION ${declared} has no CHANGELOG entry`);
 });
 
 test('a mismatched public PEM envelope is normalized as SPKI', () => {

@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.22.4';
+export const APP_VERSION = '1.23.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.23.0', date: '2026-11-02', schema: 18,
+    highlights: [
+      'The subscription can now be managed from the central project with **no licence key, no RSA key pair and no Edge Function**. The browser posts three non-secret facts — the owner’s email, this deployment’s origin and a per-browser device id — to one public RPC (`sync_clinic_subscription`) and the answer decides the plan, the seat limits and the expiry.',
+      'That call is a plain `fetch`: no second Supabase client exists, so this clinic’s session token can never travel to another project. The only credential sent is the central project’s own *publishable* key — a `sb_secret_…` or service-role key is refused at load time, in the app and in the Pages workflow.',
+      'Every answer is sealed with a SHA-256 digest over the plan, tier, status and both dates plus this clinic, origin, owner and device; an edit in DevTools breaks the seal and the clinic drops to read-only instead of promoting itself. A paused or expired answer deletes the cache in the same tick. Without a connection, the sealed licence keeps the clinic writing until its dates pass — and never past them.',
+      'Two modules are obfuscated at build time (`central-sync.mjs` and `license.mjs`) and nothing else is; the clinical modules, the React tree and `node_modules` are untouched.',
+    ],
+  },
   {
     version: '1.22.4', date: '2026-11-08', schema: 18,
     highlights: [

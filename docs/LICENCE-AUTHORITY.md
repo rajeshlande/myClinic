@@ -437,3 +437,46 @@ tenant doors are shut, and proves a lapsed contract degrades to read-only.
 In the app, the browser layer runs even in the demo workspace's absence: with
 `VITE_LICENSE_PUBLIC_KEY` unset, every authority code path returns "not
 configured" and the rest of myClinic is untouched.
+
+## The simpler path: keyless Central Auto-Sync (v1.23.0)
+
+Everything in this document needs a secret somewhere: a licence key and an RSA
+key pair behind an Edge Function. If the central project can expose one public
+RPC, none of that is necessary — and that is what `VITE_CENTRAL_SUPABASE_URL`
+plus `VITE_CENTRAL_SUPABASE_ANON_KEY` turn on.
+
+| | Signed authority (this document) | Keyless Central Auto-Sync |
+|---|---|---|
+| Secrets needed | `LICENSE_KEY`, RSA key pair, Edge Function secrets | none — one publishable key |
+| Edge Function | `sync-clinic-license` | none |
+| What decides the plan | RS256 token verified in the browser and server-side | JSON from `rpc/sync_clinic_subscription` |
+| Offline behaviour | signed token cached until `exp` | sealed lease until `expires_at` **and** `grace_until` |
+| Pause switch | authority revokes the token | Central answers `allowed: false` |
+
+Rules that do not change: reads and exports never stop, writes stop the moment a
+refusal arrives, and the plan is never the clinic's to edit.
+
+The details worth knowing before switching on:
+
+- the call is a raw `fetch` to `/rest/v1/rpc/sync_clinic_subscription` with the
+  central **publishable** key as `apikey`. No second Supabase client exists, so
+  this clinic's session JWT is never sent to another project;
+- a `sb_secret_…` key, or a JWT decoding to `service_role`, disables the feature
+  with an error instead of shipping (`centralSyncConfig()` refuses it, and so does
+  the Pages workflow);
+- the answer is cached in `localStorage` under
+  `myclinic.central.subscription.v2.<clinicId>` with a SHA-256 seal over the
+  pepper, clinic id, origin, email, device id and
+  `allowed|status|tier|plan|expires_at|grace_until`. Editing the plan or the
+  expiry breaks the seal and the cache is deleted;
+- the seal is tamper-**evident**, not tamper-**proof**: the pepper ships in the
+  bundle (obfuscated, but present). Enforcement remains in Postgres and in the
+  central project;
+- `SUBSCRIPTION_PAUSED`, `SUBSCRIPTION_EXPIRED`, `SUBSCRIPTION_NOT_FOUND`,
+  `SEAT_LIMIT_REACHED` and `ORIGIN_MISMATCH` each delete the cache in the same
+  call and record their own code as the subscription's `collection_ref`, so a
+  support call has the real reason in it.
+
+Turn it on by setting both variables (Variables tab for a Pages deploy) and
+re-running the workflow. Unset them and the deployment behaves exactly as it did
+before this feature existed.

@@ -37,7 +37,12 @@ export const ALLOWED_DEPENDENCIES = [
   'react-router',
 ];
 
-export const ALLOWED_DEV_DEPENDENCIES = ['@vitejs/plugin-react', 'vite'];
+// javascript-obfuscator is pinned to 5.2.1 rather than the latest release: from
+// 5.3.0 it depends on @vercel/blob, which pulls a zod version with an open
+// high-severity advisory — and `npm audit --audit-level=high` in ci.yml counts
+// dev dependencies, so "latest" would have made every build red for a reason
+// that has nothing to do with this app.
+export const ALLOWED_DEV_DEPENDENCIES = ['@vitejs/plugin-react', 'javascript-obfuscator', 'vite'];
 
 /** Files we never scan for secrets, and why. */
 export const SECRET_SCAN_SKIP = [

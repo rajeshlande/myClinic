@@ -3,6 +3,79 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.23.0] — 2026-11-02 · schema 18
+
+**Keyless central subscription auto-sync, and two modules obfuscated.**
+
+- **What changed for an operator.** A clinic's plan, seat limits, expiry and
+  pause switch are now issued by `myClinicLicenseAuthority` (schema v2, RPC
+  `public.sync_clinic_subscription`). There is no `LICENSE_KEY`, no RSA key pair
+  and no Edge Function involved: the central project exposes ONE public RPC and
+  the browser calls it directly.
+
+  ```
+  POST ${VITE_CENTRAL_SUPABASE_URL}/rest/v1/rpc/sync_clinic_subscription
+  { "p_email": "<owner email, lowercase>", "p_origin": "<this origin>", "p_device_id": "<per-browser id>" }
+  ```
+
+- **Cross-project isolation, by construction.** No second `@supabase/supabase-js`
+  client is created — a second client would attach *this* clinic's session JWT to
+  *that* project's requests. The call is a raw `fetch` whose only credential is
+  the central project's publishable key (`Authorization` repeats it only for a
+  pre-`sb_publishable_` anon key). A `sb_secret_…` key, or a JWT decoding to
+  `service_role`, disables the feature with an error rather than shipping.
+
+- **Owner email for every seat.** A doctor or a receptionist sees the same
+  licence as the owner because the email is resolved as owner row → clinic email
+  → billing email → signed-in user. `url`-only licences work with an empty
+  email, which is why that chain ends at `''` rather than throwing.
+
+- **A sealed 7-day offline grace.** Each answer is stored with a SHA-256 seal
+  over the pepper, clinic id, origin, email, device id and
+  `allowed|status|tier|plan|expires_at|grace_until`. Editing the plan or the
+  expiry in `localStorage` breaks the seal, and the cache is deleted — the clinic
+  becomes read-only rather than upgrading itself. On a network failure the sealed
+  lease is honoured only while *both* dates are in the future. On any refusal —
+  `SUBSCRIPTION_PAUSED`, `SUBSCRIPTION_EXPIRED`, `SUBSCRIPTION_NOT_FOUND`,
+  `SEAT_LIMIT_REACHED`, `ORIGIN_MISMATCH` — the cache is deleted immediately and
+  the effective subscription becomes
+  `{ status: 'expired', plan: 'solo', collection_ref: <code> }`: writes stop,
+  charts and exports do not. Being plain about the seal: it is tamper-*evident*,
+  not tamper-*proof* — the pepper ships in the bundle. The real enforcement stays
+  in Postgres and in the central project.
+
+- **Auto-sync on the moments that matter**: on boot (cache first, then Central),
+  on `online`, on `visibilitychange` → visible, and every 30 minutes, each
+  listener and the interval removed in the same effect that added it. Local
+  self-service (`changePlan`, `renewSubscription`, `startTrial`) throws
+  `This clinic subscription is managed centrally.` while Central is configured.
+
+- **The Subscription screen** gains a *Managed centrally (Auto-Sync)* card —
+  plan, status, match mode, valid-until, last sync, the refusal reason, and a
+  **Sync now** button — and loses the local plan picker, payment dialog and trial
+  restart while Central owns the licence.
+
+- **Scoped build obfuscation.** A Vite post-transform obfuscates exactly
+  `src/lib/central-sync.mjs` and `src/lib/license.mjs` (compact, control-flow
+  flattening at 0.7, RC4 string array, split strings, numbers to expressions),
+  and nothing else: not `node_modules`, not the React tree, not `medicines.mjs` or
+  `drug-search.mjs`. It is a "do not hand a reader the plaintext" measure, not a
+  secret — the module still has to run in the browser. Verified by running the
+  obfuscated output: the licence rules, the seal, the refusal path and the cache
+  wipe all behave identically, and the pepper, the RPC name and the cache prefix
+  no longer appear in `dist/`.
+
+- **`javascript-obfuscator` is pinned to 5.2.1**, not the latest release: from
+  5.3.0 it depends on `@vercel/blob`, which pulls a `zod` version with an open
+  high-severity advisory, and `npm audit --audit-level=high` counts dev
+  dependencies. `latest` would have reddened every build for a reason unrelated
+  to this app.
+
+- **CI**: `pages.yml` passes both variables into the build and the configuration
+  report now states whether Central is configured, fails on a
+  `sb_secret|service_role` key, objectifies a half-configuration, and warns when
+  the central host never reached the bundle.
+
 ## [1.22.4] — 2026-11-08 · schema 18
 
 **Accept the public key's mismatched PEM labels.**

@@ -10,6 +10,10 @@ import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
 import { AUTHORITY_FUNCTION, authorityConfig, authorityErrorMessage, syncDue } from './authority.mjs';
 import { cachedClinicLicense, describeAuthorityFailure, syncClinicLicense } from './authority-sync.mjs';
+import {
+  CENTRAL_MANAGED_MESSAGE, CENTRAL_SYNC_INTERVAL_MS, centralSubscriptionRow, centralSyncConfig,
+  getOrCreateCentralDeviceId, normalizeEmail, readCachedCentralSubscription, syncCentralSubscription,
+} from './central-sync.mjs';
 import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
 import { TRIAL_DAYS } from './license.mjs';
@@ -86,6 +90,17 @@ export function StoreProvider({ children, session }) {
   // does — so a failure here degrades the card, not the clinic.
   const [authority, setAuthority] = useState(null);
   const [authoritySync, setAuthoritySync] = useState({ state: 'idle', at: null, error: '' });
+
+  // ---- keyless central auto-sync ---------------------------------------------
+  // `centralSubscription` is the row Central's public RPC returned (or the sealed
+  // cached one). While Central is configured it REPLACES the local subscription
+  // as the source of `license`, because the whole point is that the plan is not
+  // the clinic's to edit. `null` means "not verified yet", which reads as
+  // read-only rather than as a free upgrade.
+  const centralCfg = useMemo(() => centralSyncConfig(import.meta.env), []);
+  const centralEnabled = centralCfg.enabled && mode === 'live';
+  const [centralSubscription, setCentralSubscription] = useState(null);
+  const [centralState, setCentralState] = useState({ state: 'idle', verdict: null, syncedAt: null, error: '' });
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -706,7 +721,12 @@ export function StoreProvider({ children, session }) {
   // Defence in depth: every write path funnels through create/update/remove, so a
   // lapsed subscription is blocked here as well as in Postgres. Pages already
   // wrap these calls in try/catch and surface the message in a toast.
-  const license = useMemo(() => licenseState(state.subscription), [state.subscription]);
+  // With Central configured, the licence comes from Central — never from the
+  // clinic's own row, which the clinic could otherwise edit.
+  const license = useMemo(() => {
+    if (!centralEnabled) return licenseState(state.subscription);
+    return licenseState(centralSubscription ?? { status: 'read_only', plan: 'solo', interval: 'yearly' });
+  }, [centralEnabled, centralSubscription, state.subscription]);
 
   const licenseUsage = useMemo(() => ({
     doctors: (state.staff ?? []).filter((s) => s.active !== false && s.role !== 'frontdesk').length,
@@ -745,6 +765,10 @@ export function StoreProvider({ children, session }) {
   }, [mode, applyLicense]);
 
   const changePlan = useCallback(async ({ plan, interval = 'monthly', billing = {} }) => {
+    // Central owns the plan while it is configured: a local click would be a lie
+    // the database is about to contradict. Demo mode is exempt — it is a sandbox
+    // with no clinic behind it.
+    if (centralEnabled) throw new Error(CENTRAL_MANAGED_MESSAGE);
     if (mode === 'demo') {
       const period = billingPeriod({ interval });
       return applyLicense({
@@ -758,9 +782,13 @@ export function StoreProvider({ children, session }) {
     return licenceRpc('change_plan', {
       p_clinic: stateRef.current.clinic?.id, p_plan: plan, p_interval: interval, p_billing: billing,
     });
-  }, [mode, applyLicense, licenceRpc]);
+  }, [mode, applyLicense, licenceRpc, centralEnabled]);
 
   const renewSubscription = useCallback(async ({ reference = '', months = null } = {}) => {
+    // Central owns the plan while it is configured: a local click would be a lie
+    // the database is about to contradict. Demo mode is exempt — it is a sandbox
+    // with no clinic behind it.
+    if (centralEnabled) throw new Error(CENTRAL_MANAGED_MESSAGE);
     if (mode === 'demo') {
       // A payment buys the subscription's own period (12 months on a yearly plan)
       // unless the caller states a term — the demo used to hard-code 30 days, so a
@@ -778,7 +806,7 @@ export function StoreProvider({ children, session }) {
     return licenceRpc('renew_subscription', {
       p_clinic: stateRef.current.clinic?.id, p_reference: reference, p_months: months,
     });
-  }, [mode, applyLicense, licenceRpc]);
+  }, [mode, applyLicense, licenceRpc, centralEnabled]);
 
   const setLicenseStatus = useCallback(async (status) => {
     if (mode === 'demo') return applyLicense({ ...(stateRef.current.subscription ?? {}), status });
@@ -835,6 +863,121 @@ export function StoreProvider({ children, session }) {
   }, [mode, applyLicense]);
 
   /**
+   * Which email Central should match this clinic on.
+   *
+   * A doctor or a receptionist can sign in to the same clinic, and their own
+   * address is not the one the licence was sold against. So the owner's row on
+   * this clinic wins, then the clinic's address, then the billing address, and
+   * only then whoever is signed in. `url`-only licences work with an empty
+   * string here, which is why this never throws when it finds nothing.
+   */
+  const centralEmail = useCallback(() => {
+    const staff = stateRef.current.staff ?? [];
+    const owner = staff.find((row) => row.role === 'owner') ?? null;
+    return normalizeEmail(
+      owner?.email
+        || stateRef.current.clinic?.email
+        || stateRef.current.subscription?.billing_email
+        || session?.user?.email
+        || '',
+    );
+  }, [session]);
+
+  /**
+   * Ask Central — keyless, clientless, and with nothing of ours attached.
+   *
+   * The call is a plain `fetch` to the central project's public RPC; no second
+   * Supabase client exists, so this clinic's session JWT cannot travel to a
+   * project that has no business holding it. The result decides the licence, and
+   * the sealed lease keeps the clinic open if the network disappears.
+   */
+  const syncCentralNow = useCallback(async ({ silent = false } = {}) => {
+    if (mode !== 'live' || !centralCfg.enabled) return null;
+    const clinicId = stateRef.current.clinic?.id;
+    if (!clinicId) return null;
+
+    const storage = typeof localStorage !== 'undefined' ? localStorage : undefined;
+    if (!silent) setCentralState((prev) => ({ ...prev, state: 'syncing', error: '' }));
+
+    let result = null;
+    try {
+      result = await syncCentralSubscription({
+        config: centralCfg,
+        clinicId,
+        email: centralEmail(),
+        origin: typeof window !== 'undefined' ? window.location.origin : '',
+        storage,
+        now: new Date(),
+      });
+    } catch (e) {
+      setCentralState({ state: 'error', verdict: null, syncedAt: new Date().toISOString(), error: e.message ?? 'Central Auto-Sync failed.' });
+      return null;
+    }
+
+    if (result?.subscriptionRow) setCentralSubscription(result.subscriptionRow);
+    setCentralState({
+      state: result.offline ? 'offline' : result.ok ? 'ok' : 'error',
+      verdict: result,
+      syncedAt: result.syncedAt ?? null,
+      error: result.allowed ? '' : String(result.reason ?? '') || 'Central Auto-Sync refused this clinic.',
+    });
+    return result;
+  }, [mode, centralCfg, centralEmail]);
+
+  /**
+   * Boot sequence: the sealed cache first (zero flicker, and the clinic is
+   * writable within a frame), then the real question to Central.
+   */
+  const centralBootedFor = useRef('');
+  useEffect(() => {
+    if (!centralEnabled || !ready) return undefined;
+    const clinicId = state.clinic?.id;
+    if (!clinicId) return undefined;
+    if (centralBootedFor.current === clinicId) return undefined;
+    centralBootedFor.current = clinicId;
+
+    const storage = typeof localStorage !== 'undefined' ? localStorage : undefined;
+    let cancelled = false;
+    (async () => {
+      const deviceId = getOrCreateCentralDeviceId(storage);
+      const cached = await readCachedCentralSubscription({
+        clinicId,
+        origin: typeof window !== 'undefined' ? window.location.origin : '',
+        email: centralEmail(),
+        deviceId,
+        storage,
+      }).catch(() => null);
+      if (cancelled) return;
+      if (cached?.lease) setCentralSubscription(centralSubscriptionRow(cached.lease, { clinicId }));
+      await syncCentralNow({ silent: true }).catch(() => {});
+    })().catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [centralEnabled, ready, state.clinic, centralEmail, syncCentralNow]);
+
+  /**
+   * Re-sync on the three moments that matter: the network came back, the tab was
+   * brought forward, and every half hour in a tab left open all day. The cleanup
+   * removes exactly what the effect added — the same file adds two listeners and
+   * one interval, so it removes two listeners and clears one interval.
+   */
+  useEffect(() => {
+    if (!centralEnabled) return undefined;
+    const check = () => { syncCentralNow({ silent: true }).catch(() => {}); };
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') check();
+    };
+    const timer = setInterval(check, CENTRAL_SYNC_INTERVAL_MS);
+    if (typeof window !== 'undefined') window.addEventListener('online', check);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      if (typeof window !== 'undefined') window.removeEventListener('online', check);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [centralEnabled, syncCentralNow]);
+
+  /**
    * Boot phone-home: show the cached licence at once, then refresh it if the
    * six-hour window has passed. Only the owner triggers the sync — it spends an
    * authority seat slot — so every other seat simply reads what the database
@@ -871,6 +1014,10 @@ export function StoreProvider({ children, session }) {
   }, [mode, ready, state.clinic, state.staff, userId, syncAuthority]);
 
   const startTrial = useCallback(async () => {
+    // Central owns the plan while it is configured: a local click would be a lie
+    // the database is about to contradict. Demo mode is exempt — it is a sandbox
+    // with no clinic behind it.
+    if (centralEnabled) throw new Error(CENTRAL_MANAGED_MESSAGE);
     if (mode === 'demo') {
       return applyLicense({
         ...(stateRef.current.subscription ?? {}),
@@ -879,7 +1026,7 @@ export function StoreProvider({ children, session }) {
       });
     }
     return licenceRpc('start_trial', { p_clinic: stateRef.current.clinic?.id });
-  }, [mode, applyLicense, licenceRpc]);
+  }, [mode, applyLicense, licenceRpc, centralEnabled]);
 
   /**
    * The drug directory (schema 14), searched on the server, or nothing at all.
@@ -943,13 +1090,17 @@ export function StoreProvider({ children, session }) {
     changePlan, renewSubscription, setLicenseStatus, startTrial,
     // licence authority (verified RS256 token, never the source of enforcement)
     authority, authoritySync, syncAuthority,
+    // keyless central auto-sync (no licence key, no key pair, no Edge Function)
+    centralSync: { enabled: centralEnabled, ...centralState },
+    syncCentralNow, centralConfig: centralCfg,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
     resetDemo, bootDemo, refresh, searchDrugDirectory,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, setLicenseStatus, startTrial,
-    authority, authoritySync, syncAuthority]);
+    authority, authoritySync, syncAuthority,
+    centralEnabled, centralState, centralCfg, syncCentralNow]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

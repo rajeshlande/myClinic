@@ -103,6 +103,9 @@ jobs:
           # authority exists, so a missing key cannot be fixed after the fact.
           VITE_LICENSE_PUBLIC_KEY: ${{ vars.VITE_LICENSE_PUBLIC_KEY }}
           VITE_LICENSE_ISSUER: ${{ vars.VITE_LICENSE_ISSUER }}
+          # Keyless Central Auto-Sync. Both empty = license locally, as before.
+          VITE_CENTRAL_SUPABASE_URL: ${{ vars.VITE_CENTRAL_SUPABASE_URL }}
+          VITE_CENTRAL_SUPABASE_ANON_KEY: ${{ vars.VITE_CENTRAL_SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Check GitHub Pages readiness
@@ -123,6 +126,8 @@ jobs:
           # under the wrong spelling is indistinguishable from no variable at all
           # unless something looks for it.
           VITE_LICENCE_PUBLIC_KEY: ${{ vars.VITE_LICENCE_PUBLIC_KEY }}
+          VITE_CENTRAL_SUPABASE_URL: ${{ vars.VITE_CENTRAL_SUPABASE_URL }}
+          VITE_CENTRAL_SUPABASE_ANON_KEY: ${{ vars.VITE_CENTRAL_SUPABASE_ANON_KEY }}
         run: |
           set -uo pipefail
 
@@ -186,6 +191,35 @@ jobs:
             else
               echo "::notice title=Licence authority configured::The public key reached the bundle — the Subscription screen can connect this clinic to the authority."
             fi
+          fi
+
+          # ------------------------------------------------ Central Auto-Sync
+          # Keyless by design: a URL and a *publishable* key, nothing else. The
+          # one mistake that cannot be undone is a privileged key in a variable
+          # that is compiled into a bundle and served to every visitor, so that
+          # is a hard failure — and the app refuses such a build on its own too.
+          if [ -n "${VITE_CENTRAL_SUPABASE_URL:-}" ] || [ -n "${VITE_CENTRAL_SUPABASE_ANON_KEY:-}" ]; then
+            if [ -z "${VITE_CENTRAL_SUPABASE_URL:-}" ] || [ -z "${VITE_CENTRAL_SUPABASE_ANON_KEY:-}" ]; then
+              echo "::warning title=Central Auto-Sync half configured::One of VITE_CENTRAL_SUPABASE_URL / VITE_CENTRAL_SUPABASE_ANON_KEY is set and the other is not, so the feature stays off and this deploy licenses itself locally. Set both (Variables tab) and re-run."
+            elif grep -qiE 'sb_secret|service_role' <<< "${VITE_CENTRAL_SUPABASE_ANON_KEY}"; then
+              echo "::error title=Privileged key in the bundle::VITE_CENTRAL_SUPABASE_ANON_KEY matches sb_secret|service_role. That key can read and write the whole central project, and everything here is served to every visitor. Replace it with the publishable key and rotate the secret."
+              status=1
+            elif ! grep -qiE '^(https://|http://localhost)' <<< "${VITE_CENTRAL_SUPABASE_URL}"; then
+              echo "::error title=Central URL is not https::VITE_CENTRAL_SUPABASE_URL must be the https:// project URL (http://localhost only for a local build)."
+              status=1
+            else
+              # The device id and the RPC name are obfuscated into a string array,
+              # so do not look for them: look for the central host, which has to
+              # reach the bundle for the feature to work at all.
+              centralhost=$(printf '%s' "${VITE_CENTRAL_SUPABASE_URL}" | sed -E 's#^(https?://[^/]+).*#\1#')
+              if grep -rqF "$centralhost" dist/assets/*.js; then
+                echo "::notice title=Central Auto-Sync configured::The central project URL reached the bundle — this deploy takes its plan, seat limits and expiry from the central subscription service, with no licence key, no key pair and no Edge Function."
+              else
+                echo "::warning title=Central Auto-Sync URL not in the bundle::VITE_CENTRAL_SUPABASE_URL was set but its host does not appear in dist/assets. Check that this step passes it into 'npm run build' and that no .env file overrides it."
+              fi
+            fi
+          else
+            echo "Central Auto-Sync: not configured (VITE_CENTRAL_SUPABASE_URL / ANON_KEY empty) — this deploy licenses itself locally, as before."
           fi
 
           # Sanity: the bundle exists and boots.

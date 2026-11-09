@@ -1,7 +1,7 @@
 {
   "name": "myclinic",
   "private": true,
-  "version": "1.22.4",
+  "version": "1.23.0",
   "type": "module",
   "description": "myClinic — OPD clinic management SaaS: appointments, public booking, token queue, patient records, consultations with a typo-tolerant Indian drug directory, offline-first sync, multi-language prescriptions, billing and follow-ups.",
   "engines": {
@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.2.1",
+    "javascript-obfuscator": "5.2.1",
     "vite": "^8.3.5"
   },
   "keywords": [

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import JavaScriptObfuscator from 'javascript-obfuscator';
 import { execSync } from 'node:child_process';
 
 /** Short commit id for support ("which build are you on?"). */
@@ -16,12 +17,65 @@ function commitId() {
  *
  * Set VITE_BASE (e.g. "/myclinic/") only if you deliberately want absolute URLs.
  */
+/**
+ * The only two modules that get obfuscated, and the reason is narrow.
+ *
+ * `central-sync.mjs` holds the seal pepper and the exact shape of the licence
+ * request; `license.mjs` holds the rules that decide whether a clinic may write.
+ * Neither is a secret — the browser has to run them — but there is no reason to
+ * hand a reader the plaintext of either, so their identifiers are mangled and
+ * their strings go through an RC4 string array.
+ *
+ * Everything else is left alone on purpose: React components stay debuggable, and
+ * the clinical modules (`medicines.mjs`, `drug-search.mjs`) are large, hot, and
+ * have nothing to hide. `node_modules` is never touched.
+ */
+const OBFUSCATED_MODULES = /\/src\/(?:lib\/(?:central-sync|license))\.[cm]?js$/;
+
+function scopedObfuscation() {
+  const options = {
+    compact: true,
+    controlFlowFlattening: true,
+    controlFlowFlatteningThreshold: 0.7,
+    stringArray: true,
+    stringArrayEncoding: ['rc4'],
+    splitStrings: true,
+    numbersToExpressions: true,
+    selfDefending: false,
+    sourceMap: false,
+    sourceType: 'module',
+    // Keep export names: the rest of the bundle imports the RPC name, the plan
+    // map and `canWrite` by name, and mangling those would break the app rather
+    // than slow a reader down.
+    renameGlobals: false,
+  };
+  const seen = [];
+  return {
+    name: 'myclinic:scoped-obfuscation',
+    apply: 'build',
+    enforce: 'post',
+    transform(code, id) {
+      const file = String(id).split('?')[0];
+      if (!OBFUSCATED_MODULES.test(file)) return null;
+      const result = JavaScriptObfuscator.obfuscate(code, options);
+      seen.push(file.split(/[\\/]/).pop());
+      return { code: result.getObfuscatedCode(), map: null };
+    },
+    // A build that silently stopped obfuscating is worse than none: it looks like
+    // the protection is on. So say what was transformed, every build.
+    closeBundle() {
+      const list = seen.join(', ') || 'nothing (no module matched)';
+      this.warn(`[scoped-obfuscation] obfuscated: ${list}`);
+    },
+  };
+}
+
 const override = process.env.VITE_BASE;
 const base = override ? (override.endsWith('/') ? override : `${override}/`) : './';
 
 export default defineConfig({
   base,
-  plugins: [react()],
+  plugins: [react(), scopedObfuscation()],
   define: {
     __BUILD_BASE__: JSON.stringify(base),
     __MYCLINIC_BUILD__: JSON.stringify({ id: commitId(), at: new Date().toISOString() }),

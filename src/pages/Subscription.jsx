@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  BadgeCheck, CalendarClock, Check, CreditCard, Download, Fingerprint, IndianRupee,
-  ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, Users,
+  BadgeCheck, CalendarClock, Check, CreditCard, Download, Fingerprint, Globe2, IndianRupee,
+  ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, Users, WifiOff,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -13,6 +13,7 @@ import {
 } from '../lib/license.mjs';
 import { APP_VERSION, BUILD_LABEL, SCHEMA_VERSION } from '../lib/version.js';
 import { authorityConfig, authorityErrorMessage, authorityPanel, seatsForTier } from '../lib/authority.mjs';
+import { CENTRAL_GRACE_NOTE, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
 
 const PLAN_BLURB = {
   solo: 'One doctor, one front desk. The whole clinic on a single screen.',
@@ -38,6 +39,27 @@ export default function Subscription() {
   const [busy, setBusy] = useState(false);
   const [renewOpen, setRenewOpen] = useState(false);
   const [reference, setReference] = useState('');
+
+  /**
+   * Central Auto-Sync takes precedence over everything local: when it is
+   * configured, the plan on this screen came from the central project, the local
+   * plan picker has nothing to sell, and "renew" is a button that would be
+   * refused by the store anyway (it throws `CENTRAL_MANAGED_MESSAGE`).
+   */
+  const central = store.centralSync ?? { enabled: false };
+  const centrallyManaged = Boolean(central.enabled);
+  const centralVerdict = central.verdict ?? null;
+  const centralPlan = centralVerdict?.plan ?? license?.plan ?? 'solo';
+  const centralStatusText = central.state === 'offline'
+    ? 'Offline grace'
+    : centralStatusLabel(centralVerdict?.status ?? (license?.status === 'expired' ? 'expired' : 'active'));
+  const centralTone = central.state === 'syncing' || central.state === 'idle'
+    ? 'neutral'
+    : central.state === 'offline'
+      ? 'warn'
+      : centralVerdict?.allowed === false
+        ? 'danger'
+        : 'success';
 
   const isOwner = store.role === 'owner';
   const writable = canWrite(license);
@@ -86,6 +108,21 @@ export default function Subscription() {
       setRenewOpen(false); setReference('');
     } catch (e) {
       toast.error(e.message ?? 'Could not renew the subscription.');
+    } finally { setBusy(false); }
+  };
+
+  const syncCentrally = async () => {
+    setBusy(true);
+    try {
+      const result = await store.syncCentralNow();
+      if (!result) toast.error('Central Auto-Sync is not configured for this build.');
+      else if (result.allowed) {
+        toast.success(result.offline
+          ? `Offline — the sealed licence is still in force until ${formatExpiry(result.expiresAt)}.`
+          : `Licence confirmed: ${PLANS.find((p) => p.id === result.plan)?.name ?? result.plan} until ${formatExpiry(result.expiresAt)}.`);
+      } else toast.error(result.reason || 'The central subscription service refused this clinic.');
+    } catch (e) {
+      toast.error(e.message ?? 'Central Auto-Sync failed.');
     } finally { setBusy(false); }
   };
 
@@ -175,7 +212,25 @@ export default function Subscription() {
           </div>
 
           <div className="row wrap" style={{ gap: 8, marginTop: 16 }}>
-            {managed ? (
+            {centrallyManaged ? (
+              <>
+                {isOwner ? (
+                  <Button
+                    variant="primary"
+                    icon={RefreshCw}
+                    loading={busy || central.state === 'syncing'}
+                    onClick={syncCentrally}
+                  >
+                    Sync now
+                  </Button>
+                ) : (
+                  <span className="tiny muted">Only the clinic owner can ask Central to re-check the subscription.</span>
+                )}
+                <span className="tiny muted">
+                  Plan, seat limits and expiry are managed centrally — they are changed in the central Control Room, not here.
+                </span>
+              </>
+            ) : managed ? (
               <>
                 {isOwner ? (
                   <Button
@@ -207,7 +262,7 @@ export default function Subscription() {
               <span className="tiny muted">Only the clinic owner can change the subscription.</span>
             )}
             <Button variant="ghost" icon={Download} onClick={exportBilling}>Export summary</Button>
-            {isOwner && !writable && !managed ? (
+            {isOwner && !writable && !managed && !centrallyManaged ? (
               <Button variant="subtle" icon={BadgeCheck} onClick={() => store.startTrial().then(() => toast.success('Trial restarted.')).catch((e) => toast.error(e.message))}>
                 Restart 14-day trial
               </Button>
@@ -215,6 +270,86 @@ export default function Subscription() {
           </div>
         </div>
       </Card>
+
+      {/* -------------------------------------------------- central auto-sync card */}
+      {centrallyManaged ? (
+        <Card style={{ marginBottom: 16 }}>
+          <CardHead
+            title="Managed centrally (Auto-Sync)"
+            sub="Plan, seat limits and expiry are issued by the central subscription service. There is no licence key in this build and no Edge Function involved — the browser asks one public endpoint, and the answer is sealed for offline use."
+            icon={Globe2}
+            action={<Badge tone={centralTone} dot>{centralStatusText}</Badge>}
+          />
+          <div className="card-body stack" style={{ gap: 12 }}>
+            <div className="grid two" style={{ gap: 14, alignItems: 'start' }}>
+              <div className="stack" style={{ gap: 5 }}>
+                <span className="eyebrow">Plan</span>
+                <strong style={{ fontSize: '1.15rem' }}>
+                  {PLANS.find((p) => p.id === centralPlan)?.name ?? centralPlan}
+                </strong>
+                <span className="tiny muted">
+                  {centralVerdict?.tier
+                    ? `Central tier: ${centralVerdict.tier}`
+                    : 'Not verified on this device yet'}
+                </span>
+                <span className="tiny faint">
+                  {centralVerdict?.matchMode ? centralMatchLabel(centralVerdict.matchMode) : 'Match mode unknown until the first sync'}
+                </span>
+              </div>
+
+              <div className="stack" style={{ gap: 5 }}>
+                <span className="eyebrow">Valid until</span>
+                <strong className="small">
+                  {centralVerdict?.expiresAt ? formatExpiry(centralVerdict.expiresAt) : '—'}
+                </strong>
+                {centralVerdict?.graceUntil ? (
+                  <span className="tiny muted">Offline grace until {formatExpiry(centralVerdict.graceUntil)}</span>
+                ) : null}
+                <span className="tiny faint">
+                  {central.syncedAt
+                    ? `Last auto-synced ${formatExpiry(central.syncedAt)} · ${new Date(central.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Not synced on this device yet'}
+                </span>
+                <span className="tiny faint">{CENTRAL_GRACE_NOTE}</span>
+              </div>
+            </div>
+
+            {central.error ? (
+              <div className="row" style={{ gap: 8, background: 'var(--danger-bg)', color: 'var(--danger)', padding: '10px 12px', borderRadius: 11 }}>
+                <TriangleAlert size={14} />
+                <span className="tiny">{central.error}</span>
+              </div>
+            ) : null}
+
+            {central.state === 'offline' ? (
+              <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 11 }}>
+                <WifiOff size={14} />
+                <span className="tiny">
+                  The central service could not be reached. This clinic keeps writing on its sealed cached licence until
+                  {' '}{centralVerdict?.expiresAt ? formatExpiry(centralVerdict.expiresAt) : 'it expires'} — after that it becomes read-only,
+                  and every patient record stays readable and exportable throughout.
+                </span>
+              </div>
+            ) : null}
+
+            <div className="row wrap" style={{ gap: 10, alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+              {isOwner ? (
+                <Button
+                  variant="subtle"
+                  icon={RefreshCw}
+                  loading={busy || central.state === 'syncing'}
+                  onClick={syncCentrally}
+                >
+                  Sync now
+                </Button>
+              ) : (
+                <span className="tiny muted">Only the clinic owner can sync the subscription.</span>
+              )}
+              <span className="tiny faint mono">build v{APP_VERSION} · no licence key, no key pair, no Edge Function</span>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {/* ----------------------------------------------------- licence authority */}
       {panel.visible ? (
@@ -352,12 +487,14 @@ export default function Subscription() {
                   <Button
                     variant={p.popular ? 'primary' : 'subtle'}
                     className="block"
-                    disabled={!isOwner || managed}
+                    disabled={!isOwner || managed || centrallyManaged}
                     onClick={() => setOpen(p.id)}
                   >
-                    {managed
-                      ? 'Managed by the authority'
-                      : cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
+                    {centrallyManaged
+                      ? 'Managed centrally'
+                      : managed
+                        ? 'Managed by the authority'
+                        : cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
                   </Button>
                 )}
                 {cost && !current ? (
