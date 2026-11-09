@@ -82,10 +82,9 @@ Requirements: **Node 26 LTS** (pinned in `.nvmrc`; anything ≥ 22.22 works) and
 |---|---|
 | `npm run dev` | Dev server on `0.0.0.0:5173` |
 | `npm run build` | Production bundle in `dist/` |
-| `npm test` | 286 unit tests across 13 suites |
+| `npm test` | 498 unit tests across 24 suites |
 | `npm run check:pages` | Proves the bundle is deployable as-is |
-| `npm run check:key` | Is a licence public key usable — and are two of them the same key |
-| `npm run deploy:function` | Deploys the licence Edge Function: type-checks it, dodges the CLI's config trap, then deploys |
+| `npm run deploy:function` | Redeploys the legacy licence Edge Function (schema 18). Nothing in the app calls it since 1.24.0 — see [`docs/SUBSCRIPTION.md`](docs/SUBSCRIPTION.md) |
 | `npm run verify` | `test` + `build` + `check:pages` — the gate CI runs |
 
 ## Screenshots
@@ -205,7 +204,7 @@ src/
 supabase/
   schema.sql              the whole database: tables, policies, functions, migrations 1→18
   schema-tests.sql        fourteen rolled-back SQL suites
-tests/                    286 unit tests across 13 suites
+tests/                    498 unit tests across 24 suites
 docs/                     setup, security, dependency and gap analysis
 scripts/                  check-pages.mjs, security-check.mjs
 ```
@@ -252,7 +251,7 @@ node scripts/security-check.mjs
 
 | Gate | Scope |
 |---|---|
-| `npm test` | **542 tests / 25 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the licence authority (real RS256 signatures), replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
+| `npm test` | **498 tests / 24 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the keyless Central Auto-Sync lease and its seal, replay, responsive breakpoints, landing-page promises, schema-shaped guards. |
 | `supabase/schema-tests.sql` | **Thirteen SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion, hours, profiles, the drug directory and drug search at scale, investigations, the audit fixes (schema 17) and the licence authority (schema 18). |
 | CI (`.github/workflows/ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
 
@@ -295,6 +294,7 @@ build expects.
 |---|---|
 | [`docs/SUPABASE-SETUP.md`](docs/SUPABASE-SETUP.md) | Project creation, redirect URLs, secrets, deploy, self-test. |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, findings and their remediation status. |
+| [`docs/SUBSCRIPTION.md`](docs/SUBSCRIPTION.md) | How plans are set — locally, and by Central Auto-Sync — and what the RPC must return. |
 | [`SECURITY.md`](SECURITY.md) | How to report a vulnerability, privately. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, conventions, and what must never regress. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Every release, with the schema version it needs. |

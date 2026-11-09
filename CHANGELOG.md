@@ -3,6 +3,72 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.24.0] — 2026-11-02 · schema 18
+
+**The subscription card says plan, start and end — and the licence authority is
+gone.**
+
+- **One card, three facts.** *Your subscription* used to lead with a price and a
+  "valid until"; it now leads with what a clinic is actually asked for:
+
+  ```
+  Plan            Start date          End date
+  Growth          01 Nov 2026         30 Nov 2026
+  ```
+
+  Start is `license.startsAt`, end is `license.endsAt`. The monthly/yearly toggle
+  and the price are printed only when the clinic licenses itself — a centrally
+  issued plan has commercial terms this build has no business quoting.
+
+- **Where the start date comes from.** Central's answer carries `started_at`;
+  `current_period_start` is accepted as the same fact under its table name. The
+  chain is RPC answer → lease → sealed cache → local mirror row
+  (`clinic_subscriptions.current_period_start`) → `licenseState().startsAt`, and
+  five tests walk it end to end, including the offline fallback. **To light the
+  start date up, the central RPC must return that column** — until it does, the
+  card prints `—` rather than guessing.
+
+- **`started_at` is deliberately outside the seal.** `CENTRAL_SEAL_FIELDS` still
+  covers the six fields that decide whether a clinic may write. A start date
+  grants nothing, and sealing it would mean bumping the seal version, which
+  would cost every device its cached lease on upgrade for no security in return.
+  `CENTRAL_UNSEALED_FIELDS` says so, and a test edits the date in the cache and
+  asserts the lease stays usable.
+
+- **A trial's start is derived, and only a trial's.** `trial_ends_at − 14 days`
+  is exactly how `start_trial()` writes a trial, so that one date is arithmetic.
+  Every other licence shows its stored start or `—`.
+
+- **The separate "Managed centrally (Auto-Sync)" card is gone.** Match mode,
+  last-sync time, the offline-grace date, the seal sentence and the error and
+  offline banners now sit under the dates they describe. The schema version is
+  no longer printed on this screen at all; the build number stays, because
+  support asks for it.
+
+- **The licence authority is removed from the client.** Deleted:
+  `src/lib/authority.mjs`, `src/lib/authority-sync.mjs`, that panel and its
+  store surface (`authority`, `authoritySync`, `syncAuthority`) and the boot
+  phone-home, `scripts/check-public-key.mjs` with `npm run check:key`,
+  `tests/authority.test.mjs` and `tests/public-key.test.mjs`, the
+  `VITE_LICENSE_PUBLIC_KEY` / `VITE_LICENSE_ISSUER` plumbing in `.env.example`
+  and both workflows (including the forty-line "did the key reach the bundle?"
+  diagnostic), and `docs/LICENCE-AUTHORITY.md`, replaced by a shorter
+  [`docs/SUBSCRIPTION.md`](docs/SUBSCRIPTION.md) that documents what actually
+  exists.
+
+- **What deliberately stays.** Schema 18's `authority_*` columns,
+  `apply_authority_license()` (`service_role` only) and the rule that a bound
+  clinic cannot renew, change plan or restart a trial locally. Dropping columns
+  is a data-loss operation, so the columns stay until a migration says otherwise;
+  the refusal they raise is now worded "managed centrally", and the Subscription
+  screen explains that Central owns the plan. The `sync-clinic-license` Edge
+  Function and `npm run deploy:function` remain for older deployments, with the
+  script saying plainly that nothing in the app calls it any more.
+
+- 498 tests (down 44 with the two deleted suites, up 5 for the contract window),
+  28/28 contribution rules, build and Pages check clean. No schema change, no new
+  secret, no function deploy.
+
 ## [1.23.1] — 2026-11-02 · schema 18
 
 **Nothing new to learn; less code behind it.** A full sweep for unreachable code,

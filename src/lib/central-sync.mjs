@@ -65,10 +65,8 @@ const SEP = '\u241f';
 /**
  * Central tier → the plan myClinic already understands.
  *
- * Deliberately a copy of `TIER_TO_PLAN` in authority.mjs rather than an import:
- * this module is loaded (and obfuscated) on its own, and the copy is held to the
- * original by a test that compares both maps, so drift fails the build instead
- * of shipping.
+ * The only tier map left in the build: the RS256 licence-authority path it was
+ * once a copy of is gone, so this is now the single place a tier becomes a plan.
  */
 export const CENTRAL_TIER_TO_PLAN = Object.freeze({
   solo: 'solo',
@@ -82,6 +80,17 @@ export const CENTRAL_TIER_TO_PLAN = Object.freeze({
 export const CENTRAL_SEAL_FIELDS = Object.freeze([
   'allowed', 'status', 'tier', 'plan', 'expires_at', 'grace_until',
 ]);
+
+/**
+ * Carried, shown, and deliberately NOT sealed: the day the contract started.
+ *
+ * A seal exists so a clinic cannot edit itself into a better licence. A start
+ * date grants nothing — it is a line on a card — so sealing it would buy no
+ * security and would cost every device its cached lease on upgrade, because a
+ * v2 seal computed over six fields cannot verify a lease sealed over seven. The
+ * dates that decide writing (`expires_at`, `grace_until`) stay inside the seal.
+ */
+export const CENTRAL_UNSEALED_FIELDS = Object.freeze(['started_at', 'match_mode', 'server_time']);
 
 /** Refusal codes the central project can answer with. */
 export const CENTRAL_CODES = Object.freeze({
@@ -459,6 +468,10 @@ export function centralSubscriptionRow(lease, { clinicId } = {}) {
     status: 'active',
     plan: CENTRAL_TIER_TO_PLAN[String(lease?.tier ?? '').toLowerCase()] ?? 'solo',
     interval: 'yearly',
+    // The contract's own window: `current_period_start` is what `licenseState()`
+    // reads as `startsAt`, so the card can print "01 Nov 2026 → 30 Nov 2026"
+    // without inventing either end of it.
+    current_period_start: lease?.started_at ?? null,
     current_period_end: lease?.expires_at ?? null,
     collection_ref: String(lease?.code ?? 'CENTRAL-ACTIVE'),
   };
@@ -479,7 +492,8 @@ export function centralStatusLabel(status) {
  *
  * @returns {Promise<{
  *   ok: boolean, allowed: boolean, status: string, plan: string, tier: string,
- *   expiresAt: string|null, graceUntil: string|null, matchMode: string,
+ *   expiresAt: string|null, graceUntil: string|null, startedAt: string|null,
+ *   matchMode: string,
  *   reason: string, code: string, fromCache: boolean, offline: boolean,
  *   syncedAt: string|null, subscriptionRow: object,
  * }>}
@@ -505,6 +519,7 @@ export async function syncCentralSubscription({
       tier: '',
       expiresAt: null,
       graceUntil: null,
+      startedAt: null,
       matchMode: '',
       reason: '',
       fromCache: false,
@@ -585,6 +600,7 @@ export async function syncCentralSubscription({
       tier: String(lease.tier ?? ''),
       expiresAt: lease.expires_at ?? null,
       graceUntil: lease.grace_until ?? null,
+      startedAt: lease.started_at ?? null,
       matchMode: String(lease.match_mode ?? ''),
       reason: why,
       code: 'OFFLINE_GRACE',
@@ -631,6 +647,10 @@ export async function syncCentralSubscription({
       plan: CENTRAL_TIER_TO_PLAN[tier] ?? 'solo',
       expires_at: answer.expires_at ?? null,
       grace_until: answer.grace_until ?? null,
+      // `started_at` is the column this release asks the central RPC to return;
+      // `current_period_start` is accepted as the same fact under its table name,
+      // so the card works whichever of the two the central project exposes.
+      started_at: answer.started_at ?? answer.current_period_start ?? null,
       match_mode: String(answer.match_mode ?? ''),
       code,
       server_time: answer.server_time ?? null,
@@ -653,6 +673,7 @@ export async function syncCentralSubscription({
       tier,
       expiresAt: lease.expires_at,
       graceUntil: lease.grace_until,
+      startedAt: lease.started_at,
       matchMode: lease.match_mode,
       reason: '',
       code: code || 'ACTIVE',

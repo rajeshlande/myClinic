@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import {
-  BadgeCheck, CalendarClock, Check, CreditCard, Download, Fingerprint, Globe2, IndianRupee, ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, WifiOff,
+  BadgeCheck, CalendarClock, Check, CreditCard, Download, IndianRupee, ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, WifiOff,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
 import { Badge, Button, Card, CardHead, Modal, useToast } from '../components/ui.jsx';
 import { PLANS, downloadFile, formatMoney, toCSV, today } from '../lib/logic.mjs';
 import {
-  GRACE_DAYS, TRIAL_DAYS, billingPeriod, canWrite, formatExpiry, licenseHeadline, licenseTone,
+  GRACE_DAYS, billingPeriod, canWrite, formatExpiry, licenseHeadline, licenseTone,
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
-import { APP_VERSION, BUILD_LABEL, SCHEMA_VERSION } from '../lib/version.js';
-import { authorityConfig, authorityErrorMessage, authorityPanel, seatsForTier } from '../lib/authority.mjs';
+import { APP_VERSION } from '../lib/version.js';
 import { CENTRAL_GRACE_NOTE, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
 
 const PLAN_BLURB = {
@@ -66,23 +65,12 @@ export default function Subscription() {
   const seats = store.licenseSeats ?? [];
 
   /**
-   * Two sources, one answer. `store.authority` is the RS256 token this browser
-   * verified itself; `license.authority.bound` is the verdict the clinic's Edge
-   * Function already wrote into the database. Either one means the subscription
-   * is not the clinic's to change, so the plan picker and the payment dialog go
-   * away — not hidden out of politeness, but because the database now refuses
-   * those calls with `license:managed`.
+   * The contract's own window. `license.startsAt` is the date the central
+   * project issued with the plan; `license.endsAt` is its expiry. Both are
+   * printed verbatim — a blank card is honest, a guessed date is not.
    */
-  const authority = store.authority;
-  const authorityBinding = license?.authority ?? null;
-  const managed = Boolean(authority || authorityBinding?.bound);
-  const authorityConfigured = authorityConfig(import.meta.env).enabled;
-  const panel = authorityPanel({
-    mode: store.mode, configured: authorityConfigured, bound: managed, isOwner,
-    status: authority?.status ?? authorityBinding?.status ?? '',
-  });
-  const tierSeats = seatsForTier(authority?.tier ?? authorityBinding?.tier ?? '');
-  const tierName = String(authority?.tier ?? authorityBinding?.tier ?? '').trim();
+  const startsAt = license?.startsAt ?? null;
+  const endsAt = license?.endsAt ?? null;
 
   const buy = async () => {
     if (!isOwner) { toast.error('Only the clinic owner can change the subscription.'); return; }
@@ -125,32 +113,24 @@ export default function Subscription() {
     } finally { setBusy(false); }
   };
 
-  const syncLicence = async () => {
-    setBusy(true);
-    try {
-      const result = await store.syncAuthority();
-      if (result?.ok) toast.success(`Licence verified — ${result.view?.tier ?? 'active'} until ${formatExpiry(result.view?.endsAt)}.`);
-      else if (result) toast.error(authorityErrorMessage(result.code, result.error));
-      else toast.error('This build is not connected to a licence authority.');
-    } catch (e) {
-      toast.error(e.message ?? 'The licence could not be synced.');
-    } finally { setBusy(false); }
-  };
-
   const exportBilling = () => {
+    // A centrally issued plan has terms this build does not know: it knows the
+    // plan and both dates, not the price or the billing interval. Those cells are
+    // left empty rather than filled with the local catalogue's numbers.
     const row = [{
       clinic: store.clinic?.name ?? '',
-      plan,
+      plan: centrallyManaged ? `Central · ${centralPlan}` : plan,
       status: license?.status ?? '',
-      interval: period,
-      ends: license?.endsAt ? formatExpiry(license.endsAt) : '',
-      price_paise: (planPrice(plan, { interval: period }) ?? 0) / 100,
+      interval: centrallyManaged ? '' : period,
+      starts: startsAt ? formatExpiry(startsAt) : '',
+      ends: endsAt ? formatExpiry(endsAt) : '',
+      price_paise: centrallyManaged ? '' : (planPrice(plan, { interval: period }) ?? 0) / 100,
       reference: license?.collectionRef ?? '',
       generated_on: today(),
     }];
     downloadFile(`myclinic-subscription-${today()}.csv`, toCSV(row, [
       { label: 'Clinic', key: 'clinic' }, { label: 'Plan', key: 'plan' }, { label: 'Status', key: 'status' },
-      { label: 'Interval', key: 'interval' }, { label: 'Valid until', key: 'ends' },
+      { label: 'Interval', key: 'interval' }, { label: 'Starts', key: 'starts' }, { label: 'Valid until', key: 'ends' },
       { label: 'Amount (INR)', key: 'price_paise' }, { label: 'Reference', key: 'reference' },
       { label: 'Generated', key: 'generated_on' },
     ]));
@@ -159,293 +139,153 @@ export default function Subscription() {
 
   return (
     <div className="page" style={{ padding: '4px 20px 96px', maxWidth: 1180, margin: '0 auto' }}>
-      {/* ---------------------------------------------------------- status card */}
+      {/* ---------------------------------------------------------- the one card */}
       <Card style={{ marginBottom: 16 }}>
         <CardHead
           title="Your subscription"
-          sub={`${store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'} · licensing, schema ${SCHEMA_VERSION}`}
+          sub={store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'}
           icon={BadgeCheck}
-          action={<Badge tone={licenseTone(license)} dot>{licenseHeadline(license)}</Badge>}
+          action={(
+            <Badge tone={centrallyManaged ? centralTone : licenseTone(license)} dot>
+              {centrallyManaged ? centralStatusText : licenseHeadline(license)}
+            </Badge>
+          )}
         />
-        <div className="card-body">
-          <div className="grid two" style={{ gap: 14, alignItems: 'start' }}>
-            <div className="stack" style={{ gap: 6 }}>
+        <div className="card-body stack" style={{ gap: 14 }}>
+          {/* plan · start · end — the three facts a clinic asks for */}
+          <div className="grid three" style={{ gap: 14, alignItems: 'start' }}>
+            <div className="stack" style={{ gap: 5 }}>
               <span className="eyebrow">Plan</span>
-              <div className="row" style={{ gap: 8 }}>
-                <strong style={{ fontSize: '1.35rem' }}>{PLANS.find((p) => p.id === plan)?.name ?? plan}</strong>
-                <Badge tone="neutral">{period === 'yearly' ? 'Yearly' : 'Monthly'}</Badge>
-              </div>
-              <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>
-                {money(planPrice(plan, { interval: period }))}
-                <span className="tiny faint"> /{term.short}</span>
-              </div>
-              <span className="tiny muted">
-                {license?.status === 'trial'
-                  ? `Trial started ${formatExpiry(license.endsAt ? new Date(new Date(license.endsAt).getTime() - TRIAL_DAYS * 86400000) : null)} · ends ${formatExpiry(license?.endsAt)}`
-                  : license?.endsAt
-                    ? `${license?.status === 'active' ? 'Renews' : 'Valid until'} ${formatExpiry(license?.endsAt)}`
-                    : 'No period end set'}
-              </span>
-              {license?.collectionRef ? <span className="tiny faint">Collection ref: {license.collectionRef}</span> : null}
+              <strong style={{ fontSize: '1.35rem' }}>{PLANS.find((p) => p.id === centralPlan)?.name ?? centralPlan}</strong>
+              {centrallyManaged ? (
+                <span className="tiny muted">
+                  {centralVerdict?.tier ? `Central tier: ${centralVerdict.tier}` : 'Not verified on this device yet'}
+                </span>
+              ) : (
+                <>
+                  <span className="tiny muted">{period === 'yearly' ? 'Yearly' : 'Monthly'} billing</span>
+                  <div className="kpi-value mono" style={{ fontSize: '1.3rem' }}>
+                    {money(planPrice(plan, { interval: period }))}
+                    <span className="tiny faint"> /{term.short}</span>
+                  </div>
+                  {license?.collectionRef ? <span className="tiny faint">Collection ref: {license.collectionRef}</span> : null}
+                </>
+              )}
             </div>
 
-            <div className="stack" style={{ gap: 8 }}>
-              <span className="eyebrow">Seats</span>
-              {seats.map((row) => (
-                <div key={row.id} className="stack" style={{ gap: 4 }}>
-                  <div className="row small" style={{ justifyContent: 'space-between' }}>
-                    <span className="muted">{row.label}</span>
-                    <span className="mono strong">{row.used} / {row.unlimited ? '∞' : row.limit}</span>
-                  </div>
-                  <div style={{ height: 6, borderRadius: 99, background: 'var(--surface-3)', overflow: 'hidden' }}>
-                    <div style={{ width: `${row.unlimited ? 6 : row.percent}%`, height: '100%', borderRadius: 99, background: row.over ? 'var(--danger)' : row.full ? 'var(--warn)' : 'var(--brand-500)' }} />
-                  </div>
-                </div>
-              ))}
-              {seats.some((r) => r.full && r.id !== 'branches') ? (
-                <span className="tiny" style={{ color: 'var(--warn)' }}>
-                  <TriangleAlert size={11} /> A seat limit is reached — upgrade to add more staff.
-                </span>
+            <div className="stack" style={{ gap: 5 }}>
+              <span className="eyebrow">Start date</span>
+              <strong className="mono" style={{ fontSize: '1.05rem' }}>{startsAt ? formatExpiry(startsAt) : '—'}</strong>
+              <span className="tiny muted">
+                {startsAt
+                  ? (centrallyManaged ? 'Issued with the plan by Central' : 'Beginning of this billing period')
+                  : (centrallyManaged ? 'Central did not send a start date' : 'No start date recorded')}
+              </span>
+            </div>
+
+            <div className="stack" style={{ gap: 5 }}>
+              <span className="eyebrow">End date</span>
+              <strong className="mono" style={{ fontSize: '1.05rem' }}>{endsAt ? formatExpiry(endsAt) : '—'}</strong>
+              <span className="tiny muted">
+                {typeof license?.daysLeft === 'number'
+                  ? (license.daysLeft > 0 ? `${license.daysLeft} days left` : 'This period has ended')
+                  : 'No period end set'}
+              </span>
+              {centrallyManaged && centralVerdict?.graceUntil ? (
+                <span className="tiny faint">Offline grace until {formatExpiry(centralVerdict.graceUntil)}</span>
               ) : null}
             </div>
           </div>
 
-          <div className="row wrap" style={{ gap: 8, marginTop: 16 }}>
+          {/* seats */}
+          <div className="stack" style={{ gap: 8 }}>
+            <span className="eyebrow">Seats</span>
+            {seats.map((row) => (
+              <div key={row.id} className="stack" style={{ gap: 4 }}>
+                <div className="row small" style={{ justifyContent: 'space-between' }}>
+                  <span className="muted">{row.label}</span>
+                  <span className="mono strong">{row.used} / {row.unlimited ? '∞' : row.limit}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 99, background: 'var(--surface-3)', overflow: 'hidden' }}>
+                  <div style={{ width: `${row.unlimited ? 6 : row.percent}%`, height: '100%', borderRadius: 99, background: row.over ? 'var(--danger)' : row.full ? 'var(--warn)' : 'var(--brand-500)' }} />
+                </div>
+              </div>
+            ))}
+            {seats.some((r) => r.full && r.id !== 'branches') ? (
+              <span className="tiny" style={{ color: 'var(--warn)' }}>
+                <TriangleAlert size={11} /> A seat limit is reached — upgrade to add more staff.
+              </span>
+            ) : null}
+          </div>
+
+          {/* where the plan comes from, and how fresh that answer is */}
+          {centrallyManaged ? (
+            <div className="stack" style={{ gap: 8, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+              <div className="row wrap" style={{ gap: 10, justifyContent: 'space-between' }}>
+                <span className="tiny muted">
+                  {centralVerdict?.matchMode ? centralMatchLabel(centralVerdict.matchMode) : 'Match mode unknown until the first sync'}
+                </span>
+                <span className="tiny faint">
+                  {central.syncedAt
+                    ? `Last synced ${formatExpiry(central.syncedAt)} · ${new Date(central.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Not synced on this device yet'}
+                </span>
+              </div>
+              <span className="tiny faint">{CENTRAL_GRACE_NOTE}</span>
+
+              {central.error ? (
+                <div className="row" style={{ gap: 8, background: 'var(--danger-bg)', color: 'var(--danger)', padding: '10px 12px', borderRadius: 11 }}>
+                  <TriangleAlert size={14} />
+                  <span className="tiny">{central.error}</span>
+                </div>
+              ) : null}
+
+              {central.state === 'offline' ? (
+                <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 11 }}>
+                  <WifiOff size={14} />
+                  <span className="tiny">
+                    The central service could not be reached. This clinic keeps writing on its sealed cached licence until
+                    {' '}{endsAt ? formatExpiry(endsAt) : 'it expires'} — after that it becomes read-only,
+                    and every patient record stays readable and exportable throughout.
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* actions */}
+          <div className="row wrap" style={{ gap: 8, borderTop: '1px solid var(--line)', paddingTop: 10, alignItems: 'center' }}>
             {centrallyManaged ? (
-              <>
-                {isOwner ? (
-                  <Button
-                    variant="primary"
-                    icon={RefreshCw}
-                    loading={busy || central.state === 'syncing'}
-                    onClick={syncCentrally}
-                  >
+              isOwner ? (
+                <>
+                  <Button variant="primary" icon={RefreshCw} loading={busy || central.state === 'syncing'} onClick={syncCentrally}>
                     Sync now
                   </Button>
-                ) : (
-                  <span className="tiny muted">Only the clinic owner can ask Central to re-check the subscription.</span>
-                )}
-                <span className="tiny muted">
-                  Plan, seat limits and expiry are managed centrally — they are changed in the central Control Room, not here.
-                </span>
-              </>
-            ) : managed ? (
-              <>
-                {isOwner ? (
-                  <Button
-                    variant="primary"
-                    icon={RefreshCw}
-                    loading={busy || store.authoritySync?.state === 'syncing'}
-                    onClick={syncLicence}
-                  >
-                    Check the licence now
-                  </Button>
-                ) : (
-                  <span className="tiny muted">Only the clinic owner can check the licence with the authority.</span>
-                )}
-                <span className="tiny muted">
-                  Plan and renewal are managed by the licence authority — they are changed in its Control Room, not here.
-                </span>
-              </>
+                  <span className="tiny muted">
+                    Plan, seat limits and both dates are issued by Central — they are changed in the Control Room, not here.
+                  </span>
+                </>
+              ) : (
+                <span className="tiny muted">Only the clinic owner can ask Central to re-check the subscription.</span>
+              )
             ) : isOwner ? (
               <>
                 <Button variant="primary" icon={Sparkles} onClick={() => setOpen(plan)}>Change plan</Button>
                 <Button variant="subtle" icon={CalendarClock} onClick={() => setRenewOpen(true)}>Record a payment</Button>
-                {panel.state === 'unbound' ? (
-                  <span className="tiny muted">
-                    Not connected to a licence authority yet — connect it in the card below.
-                  </span>
-                ) : null}
               </>
             ) : (
               <span className="tiny muted">Only the clinic owner can change the subscription.</span>
             )}
             <Button variant="ghost" icon={Download} onClick={exportBilling}>Export summary</Button>
-            {isOwner && !writable && !managed && !centrallyManaged ? (
+            {isOwner && !writable && !centrallyManaged ? (
               <Button variant="subtle" icon={BadgeCheck} onClick={() => store.startTrial().then(() => toast.success('Trial restarted.')).catch((e) => toast.error(e.message))}>
                 Restart 14-day trial
               </Button>
             ) : null}
+            <span className="tiny faint mono" style={{ marginLeft: 'auto' }}>build v{APP_VERSION}</span>
           </div>
         </div>
       </Card>
-
-      {/* -------------------------------------------------- central auto-sync card */}
-      {centrallyManaged ? (
-        <Card style={{ marginBottom: 16 }}>
-          <CardHead
-            title="Managed centrally (Auto-Sync)"
-            sub="Plan, seat limits and expiry are issued by the central subscription service. There is no licence key in this build and no Edge Function involved — the browser asks one public endpoint, and the answer is sealed for offline use."
-            icon={Globe2}
-            action={<Badge tone={centralTone} dot>{centralStatusText}</Badge>}
-          />
-          <div className="card-body stack" style={{ gap: 12 }}>
-            <div className="grid two" style={{ gap: 14, alignItems: 'start' }}>
-              <div className="stack" style={{ gap: 5 }}>
-                <span className="eyebrow">Plan</span>
-                <strong style={{ fontSize: '1.15rem' }}>
-                  {PLANS.find((p) => p.id === centralPlan)?.name ?? centralPlan}
-                </strong>
-                <span className="tiny muted">
-                  {centralVerdict?.tier
-                    ? `Central tier: ${centralVerdict.tier}`
-                    : 'Not verified on this device yet'}
-                </span>
-                <span className="tiny faint">
-                  {centralVerdict?.matchMode ? centralMatchLabel(centralVerdict.matchMode) : 'Match mode unknown until the first sync'}
-                </span>
-              </div>
-
-              <div className="stack" style={{ gap: 5 }}>
-                <span className="eyebrow">Valid until</span>
-                <strong className="small">
-                  {centralVerdict?.expiresAt ? formatExpiry(centralVerdict.expiresAt) : '—'}
-                </strong>
-                {centralVerdict?.graceUntil ? (
-                  <span className="tiny muted">Offline grace until {formatExpiry(centralVerdict.graceUntil)}</span>
-                ) : null}
-                <span className="tiny faint">
-                  {central.syncedAt
-                    ? `Last auto-synced ${formatExpiry(central.syncedAt)} · ${new Date(central.syncedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                    : 'Not synced on this device yet'}
-                </span>
-                <span className="tiny faint">{CENTRAL_GRACE_NOTE}</span>
-              </div>
-            </div>
-
-            {central.error ? (
-              <div className="row" style={{ gap: 8, background: 'var(--danger-bg)', color: 'var(--danger)', padding: '10px 12px', borderRadius: 11 }}>
-                <TriangleAlert size={14} />
-                <span className="tiny">{central.error}</span>
-              </div>
-            ) : null}
-
-            {central.state === 'offline' ? (
-              <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 11 }}>
-                <WifiOff size={14} />
-                <span className="tiny">
-                  The central service could not be reached. This clinic keeps writing on its sealed cached licence until
-                  {' '}{centralVerdict?.expiresAt ? formatExpiry(centralVerdict.expiresAt) : 'it expires'} — after that it becomes read-only,
-                  and every patient record stays readable and exportable throughout.
-                </span>
-              </div>
-            ) : null}
-
-            <div className="row wrap" style={{ gap: 10, alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-              {isOwner ? (
-                <Button
-                  variant="subtle"
-                  icon={RefreshCw}
-                  loading={busy || central.state === 'syncing'}
-                  onClick={syncCentrally}
-                >
-                  Sync now
-                </Button>
-              ) : (
-                <span className="tiny muted">Only the clinic owner can sync the subscription.</span>
-              )}
-              <span className="tiny faint mono">build v{APP_VERSION} · no licence key, no key pair, no Edge Function</span>
-            </div>
-          </div>
-        </Card>
-      ) : null}
-
-      {/* ----------------------------------------------------- licence authority */}
-      {panel.visible ? (
-        <Card style={{ marginBottom: 16 }}>
-          <CardHead
-            title="Licence authority"
-            sub={managed
-              ? 'This clinic’s subscription is issued and signed by the licence authority.'
-              : panel.state === 'unconfigured'
-                ? 'This deploy was built without the authority public key.'
-                : 'This build can check a licence authority; this clinic is not bound to one yet.'}
-            icon={ShieldCheck}
-            action={<Badge tone={panel.tone} dot>{panel.badge}</Badge>}
-          />
-          <div className="card-body stack" style={{ gap: 12 }}>
-            {managed ? (
-              <>
-                <div className="grid two" style={{ gap: 14, alignItems: 'start' }}>
-                  <div className="stack" style={{ gap: 6 }}>
-                    <span className="eyebrow">Tier</span>
-                    <strong style={{ fontSize: '1.15rem', textTransform: 'capitalize' }}>{tierName || '—'}</strong>
-                    <span className="tiny muted">
-                      {tierSeats.doctors === null
-                        ? 'Unlimited doctors, front desk and branches'
-                        : `${tierSeats.doctors} doctors · ${tierSeats.frontdesk} front desk · ${tierSeats.branches} branch`}
-                    </span>
-                    <span className="tiny faint mono">
-                      {authority?.subscriptionId || authorityBinding?.subscription_id || '—'}
-                    </span>
-                  </div>
-                  <div className="stack" style={{ gap: 6 }}>
-                    <span className="eyebrow">Contract</span>
-                    <span className="small">
-                      {authority?.endsAt || authorityBinding?.token_exp
-                        ? `Valid until ${formatExpiry(authority?.endsAt ?? license?.endsAt)}`
-                        : 'No contract date yet'}
-                    </span>
-                    {typeof authority?.daysLeft === 'number' ? (
-                      <span className="tiny" style={{ color: authority.daysLeft <= 14 ? 'var(--warn)' : 'var(--muted)' }}>
-                        {authority.daysLeft > 0 ? `${authority.daysLeft} days left on the contract` : 'The contract has ended — the clinic is read-only.'}
-                      </span>
-                    ) : null}
-                    {authority?.tokenExp ? (
-                      <span className="tiny faint">Offline token valid until {formatExpiry(authority.tokenExp)}</span>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="row wrap" style={{ gap: 14, alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                  <span className="tiny muted row" style={{ gap: 6 }}>
-                    <Fingerprint size={12} />
-                    <span className="mono">{authority?.fingerprint || authorityBinding?.fingerprint || '—'}</span>
-                  </span>
-                  <span className="tiny faint mono">build v{APP_VERSION} · {BUILD_LABEL}</span>
-                  <span className="tiny faint">
-                    {store.authoritySync?.at || authorityBinding?.synced_at
-                      ? `Last checked ${formatExpiry(store.authoritySync?.at ?? authorityBinding?.synced_at)}`
-                      : 'Not checked on this device yet'}
-                  </span>
-                  {store.authoritySync?.error ? (
-                    <span className="tiny" style={{ color: 'var(--warn)' }}>
-                      <TriangleAlert size={11} /> {store.authoritySync.error}
-                    </span>
-                  ) : null}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="small muted" style={{ margin: 0 }}>{panel.reason}</p>
-                {panel.canCheck ? (
-                  <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
-                    <Button
-                      variant="primary"
-                      icon={RefreshCw}
-                      loading={busy || store.authoritySync?.state === 'syncing'}
-                      onClick={syncLicence}
-                    >
-                      {panel.buttonLabel}
-                    </Button>
-                    <span className="tiny muted">
-                      The licence key stays in this clinic’s Edge Function secrets — the browser never sees it.
-                    </span>
-                  </div>
-                ) : null}
-                <span className="tiny faint mono">This build: v{APP_VERSION} · {BUILD_LABEL}</span>
-                {store.authoritySync?.state === 'error' && store.authoritySync?.error ? (
-                  <div className="row" style={{ gap: 8, background: 'var(--warn-bg)', color: 'var(--warn)', padding: '10px 12px', borderRadius: 11 }}>
-                    <TriangleAlert size={14} />
-                    <span className="tiny">{store.authoritySync.error}</span>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        </Card>
-      ) : null}
-
       {/* ---------------------------------------------------------- plan grid */}
       <div className="grid three" style={{ gap: 14 }}>
         {PLANS.map((p) => {
@@ -486,14 +326,12 @@ export default function Subscription() {
                   <Button
                     variant={p.popular ? 'primary' : 'subtle'}
                     className="block"
-                    disabled={!isOwner || managed || centrallyManaged}
+                    disabled={!isOwner || centrallyManaged}
                     onClick={() => setOpen(p.id)}
                   >
                     {centrallyManaged
                       ? 'Managed centrally'
-                      : managed
-                        ? 'Managed by the authority'
-                        : cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
+                      : cost?.direction === 'upgrade' ? `Upgrade · +${money(cost.delta)}` : cost?.direction === 'downgrade' ? 'Downgrade' : 'Switch'}
                   </Button>
                 )}
                 {cost && !current ? (

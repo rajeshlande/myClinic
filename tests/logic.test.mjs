@@ -626,6 +626,17 @@ test('licence: a fresh trial reports days left and allows writing', () => {
   assert.match(licenseHeadline(s), /Trial · 9 days left/);
 });
 
+test('licence: a trial start is counted back from its end, and nothing else is guessed', () => {
+  const trial = licenseState({ status: 'trial', plan: 'growth', trial_ends_at: day(9) }, NOW);
+  assert.equal(Date.parse(trial.startsAt), NOW.getTime() + 9 * 86400000 - TRIAL_DAYS * 86400000);
+
+  // A paying clinic has a real start date on the row, or none at all. Deriving
+  // one from the end date would be a guess dressed as a fact.
+  assert.equal(licenseState({ status: 'active', plan: 'solo', current_period_end: day(30) }, NOW).startsAt, null);
+  const dated = licenseState({ status: 'active', plan: 'solo', current_period_start: day(-5), current_period_end: day(25) }, NOW);
+  assert.equal(dated.startsAt, day(-5));
+});
+
 test('licence: an active plan renews and stays writable', () => {
   const s = licenseState({ status: 'active', plan: 'solo', current_period_end: day(30) }, NOW);
   assert.equal(s.status, 'active');

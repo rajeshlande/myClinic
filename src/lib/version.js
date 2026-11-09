@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.23.1';
+export const APP_VERSION = '1.24.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.24.0', date: '2026-11-02', schema: 18,
+    highlights: [
+      'The Subscription screen now answers the three questions it is opened for, in one card: **Plan · Start date · End date**. The start date is the central project’s own — `started_at`, or `current_period_start` under its table name — carried from the RPC answer through the sealed lease into the licence the screen reads. When Central sends no start date the card shows `—`; it is never computed from the end date, because a guessed billing date is worse than a blank one. A trial is the single exception: its start is exactly its end minus fourteen days, which is how the trial is written.',
+      'The separate “Managed centrally (Auto-Sync)” card is gone — its match mode, last-sync time, offline-grace date and warning banners now sit under the dates they belong to. The schema version no longer appears on this screen; the build number does, because support asks for it.',
+      '**The licence authority is gone.** No licence key, no RSA pair, no “Check the licence now”, no `VITE_LICENSE_PUBLIC_KEY`, no `npm run check:key`. The RS256 client (`authority.mjs`, `authority-sync.mjs`), its store surface and its panel were deleted in this release; the keyless Central Auto-Sync path replaced them entirely. The database keeps schema 18’s `authority_*` columns and `apply_authority_license()` — dropping columns is a data-loss operation — and the refusal they raise still stops a bound clinic renewing itself, now worded as “managed centrally”.',
+      'Nothing a clinic does changed and nothing is lost: reads and exports never stop, writes stop only when a plan lapses, and the subscription screen shows the same plan it did before. 498 tests pass.',
+    ],
+  },
   {
     version: '1.23.1', date: '2026-11-02', schema: 18,
     highlights: [

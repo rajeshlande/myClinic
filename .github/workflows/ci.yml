@@ -39,10 +39,8 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          # Built the same way the deploy is, so a key that reaches Pages also
-          # reaches this build — and so CI compiles the authority code paths.
-          VITE_LICENSE_PUBLIC_KEY: ${{ vars.VITE_LICENSE_PUBLIC_KEY }}
-          VITE_LICENSE_ISSUER: ${{ vars.VITE_LICENSE_ISSUER }}
+          VITE_CENTRAL_SUPABASE_URL: ${{ vars.VITE_CENTRAL_SUPABASE_URL }}
+          VITE_CENTRAL_SUPABASE_ANON_KEY: ${{ vars.VITE_CENTRAL_SUPABASE_ANON_KEY }}
 
       - name: GitHub Pages readiness
         run: npm run check:pages

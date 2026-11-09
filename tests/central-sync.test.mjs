@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CENTRAL_CACHE_PREFIX, CENTRAL_CODES, CENTRAL_DEVICE_KEY, CENTRAL_ENV_KEY, CENTRAL_ENV_URL,
-  CENTRAL_GRACE_NOTE, CENTRAL_MANAGED_MESSAGE, CENTRAL_RPC, centralMatchLabel, CENTRAL_TIER_TO_PLAN, blockedCentralKey, centralCacheKey,
+  CENTRAL_GRACE_NOTE, CENTRAL_MANAGED_MESSAGE, CENTRAL_RPC, CENTRAL_SEAL_FIELDS, CENTRAL_UNSEALED_FIELDS,
+  centralMatchLabel, CENTRAL_TIER_TO_PLAN, blockedCentralKey, centralCacheKey,
   centralHeaders, centralStatusLabel, centralSubscriptionRow, centralSyncConfig, clearCachedCentralSubscription,
   computeCentralSeal, getOrCreateCentralDeviceId, leaseWindow, normalizeEmail, normalizeOrigin,
   readCachedCentralSubscription, syncCentralSubscription,
 } from '../src/lib/central-sync.mjs';
-import { TIER_TO_PLAN, tierToPlan } from '../src/lib/authority.mjs';
 import { canRead, canWrite, licenseState } from '../src/lib/license.mjs';
 
 /*
@@ -182,12 +182,7 @@ test('an active licence maps the tier onto the plan the app already knows', asyn
     assert.equal(result.allowed, true, tier);
     assert.equal(result.plan, plan, tier);
     assert.equal(result.subscriptionRow.plan, plan, tier);
-    assert.equal(tierToPlan(tier), plan, 'central-sync and the authority agree on tiers');
   }
-});
-
-test('the tier map is a copy of the authority map, held to it by this test', () => {
-  assert.deepEqual({ ...CENTRAL_TIER_TO_PLAN }, { ...TIER_TO_PLAN });
 });
 
 test('an active licence unlocks writing, and a lapsed one only stops writing', async () => {
@@ -486,4 +481,67 @@ test('a refusal leaves the row readable and nothing else behind', () => {
   });
   assert.equal(CENTRAL_CACHE_PREFIX, 'myclinic.central.subscription.v2.');
   assert.equal(CENTRAL_MANAGED_MESSAGE, 'This clinic subscription is managed centrally.');
+});
+
+/* ----------------------------------------------------------- the contract window */
+
+/*
+ * The Subscription screen prints "plan · start · end" from these three facts, so
+ * the start date has to travel the whole way: RPC answer → lease → cached lease
+ * → local mirror row → `licenseState()`. A date that dies in the middle would
+ * show as a blank card and look like a central-project fault.
+ */
+
+test('the contract start reaches the verdict, the mirror row and the licence view', async () => {
+  const { result } = await primeCache({ answer: activeAnswer({ started_at: '2026-11-01T00:00:00.000Z' }) });
+  assert.equal(result.startedAt, '2026-11-01T00:00:00.000Z');
+  assert.equal(result.subscriptionRow.current_period_start, '2026-11-01T00:00:00.000Z');
+
+  const license = licenseState(result.subscriptionRow, new Date('2026-11-02T09:00:00.000Z'));
+  assert.equal(license.startsAt, '2026-11-01T00:00:00.000Z');
+  assert.equal(license.endsAt, '2027-11-02T00:00:00.000Z');
+});
+
+test('current_period_start is accepted as the same fact under its table name', async () => {
+  const { result } = await primeCache({ answer: activeAnswer({ current_period_start: '2026-10-15T00:00:00.000Z' }) });
+  assert.equal(result.startedAt, '2026-10-15T00:00:00.000Z');
+  assert.equal(result.subscriptionRow.current_period_start, '2026-10-15T00:00:00.000Z');
+});
+
+test('an answer with no start date stays blank instead of being invented', async () => {
+  const { result } = await primeCache();
+  assert.equal(result.startedAt, null);
+  assert.equal(result.subscriptionRow.current_period_start, null);
+  assert.equal(licenseState(result.subscriptionRow).startsAt, null);
+});
+
+test('the start date survives a sync that falls back to the sealed lease', async () => {
+  const storage = fakeStorage();
+  const now = new Date('2026-11-02T09:00:00.000Z');
+  await primeCache({ storage, now, answer: activeAnswer({ started_at: '2026-11-01T00:00:00.000Z' }) });
+
+  const offline = await syncCentralSubscription({
+    config: config(), clinicId: 'clinic-1', email, origin, storage, now,
+    fetchImpl: async () => { throw new Error('offline'); },
+  });
+  assert.equal(offline.offline, true);
+  assert.equal(offline.startedAt, '2026-11-01T00:00:00.000Z');
+  assert.equal(offline.subscriptionRow.current_period_start, '2026-11-01T00:00:00.000Z');
+});
+
+test('the start date is carried but deliberately outside the seal', async () => {
+  assert.equal(CENTRAL_SEAL_FIELDS.includes('started_at'), false, 'a display-only date grants nothing');
+  assert.equal(CENTRAL_UNSEALED_FIELDS.includes('started_at'), true);
+
+  const { storage, now } = await primeCache({ answer: activeAnswer({ started_at: '2026-11-01T00:00:00.000Z' }) });
+  const key = centralCacheKey('clinic-1');
+  const edited = JSON.parse(storage.getItem(key));
+  edited.lease.started_at = '2019-01-01T00:00:00.000Z';
+  storage.setItem(key, JSON.stringify(edited));
+
+  const cached = await readCachedCentralSubscription({
+    clinicId: 'clinic-1', origin, email, deviceId: getOrCreateCentralDeviceId(storage), storage, now,
+  });
+  assert.ok(cached, 'the lease is still usable: editing a start date promotes nobody');
+  assert.equal(cached.lease.expires_at, '2027-11-02T00:00:00.000Z', 'the dates that decide writing stay sealed');
 });

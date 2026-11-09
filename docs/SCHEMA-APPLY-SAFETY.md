@@ -105,6 +105,6 @@ Not a row was added, altered or removed; no table appeared or disappeared;
 ## Related
 
 - [`SUPABASE-SETUP.md`](SUPABASE-SETUP.md) — every migration and what it added
-- [`LICENCE-AUTHORITY.md`](LICENCE-AUTHORITY.md) — schema 18's licence binding
+- [`SUBSCRIPTION.md`](SUBSCRIPTION.md) — how plans are set, locally and centrally
 - `supabase/schema-tests.sql` — the 14 rolled-back suites that prove the file
   behaves, including the tenancy doors schema 18 closed

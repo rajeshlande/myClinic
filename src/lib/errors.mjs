@@ -91,15 +91,16 @@ export function explainError(error, { context = 'That did not save' } = {}) {
     });
   }
 
-  // Schema 18: a clinic bound to a licence authority cannot renew itself. This is
-  // not a permissions accident, so it says what to do instead of who to ask.
+  // A clinic whose plan is issued centrally cannot renew itself — schema 18 keeps
+  // the refusal, and Central is now the only thing that can raise it. Not a
+  // permissions accident, so it says what to do instead of who to ask.
   if (/license:managed/i.test(raw)) {
     return finish({
       code: 'license:managed',
-      title: `${context}: this clinic's licence is managed by the licence authority.`,
+      title: `${context}: this clinic's subscription is managed centrally.`,
       fix: 'retry',
       raw: 'license:managed',
-      hint: 'Renewals and plan changes happen in the authority\u2019s Control Room. On the Subscription page, \u201cCheck the licence now\u201d asks the authority for a fresh signed licence.',
+      hint: 'Renewals and plan changes are made in the central Control Room. On the Subscription page, \u201cSync now\u201d asks Central for a fresh answer.',
     });
   }
 

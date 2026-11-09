@@ -154,10 +154,11 @@ function main() {
   run('npx', ['--yes', `supabase@${CLI}`, ...deployArgs(CLI, REF)]);
 
   console.log('');
-  console.log('Deployed. What to watch for on the next attempt from the app:');
-  console.log('  · the function log now carries a line per refusal — `refused 403 <code> {…}`');
-  console.log('  · `key-private` / `key-malformed` name a bad LICENSE_PUBLIC_KEY before the authority is called');
-  console.log('  · anything else is answered by `npm run check:key` and docs/LICENCE-AUTHORITY.md');
+  console.log('Deployed. Note what this function is now:');
+  console.log('  · nothing in the app calls it since 1.24.0 — the keyless Central Auto-Sync');
+  console.log('    path replaced it, and the RS256 licence-authority client was removed');
+  console.log('  · it is kept so an older build can still be pointed at a working deployment,');
+  console.log('    and so the schema 18 columns have a writer; see docs/SUBSCRIPTION.md');
 }
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('deploy-licence-function.mjs')) main();

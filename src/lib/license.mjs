@@ -61,6 +61,14 @@ export function daysUntil(value, now = new Date()) {
  * @param {Date} now
  * @returns {License}
  */
+/** A trial's start date, counted back from its end. `null` for every other row. */
+function trialStart(row = {}) {
+  if (row.status !== 'trial' || !row.trial_ends_at) return null;
+  const end = Date.parse(String(row.trial_ends_at));
+  if (!Number.isFinite(end)) return null;
+  return new Date(end - TRIAL_DAYS * 86400000).toISOString();
+}
+
 export function licenseState(sub, now = new Date()) {
   // `interval` and `collection_ref` travel with the licence on purpose: dropping
   // them here is what made a yearly clinic read as monthly, quote a monthly price,
@@ -70,6 +78,15 @@ export function licenseState(sub, now = new Date()) {
     plan: PLAN_ORDER.includes(row.plan) ? row.plan : 'growth',
     interval: row.interval === 'yearly' ? 'yearly' : 'monthly',
     collectionRef: String(row.collection_ref ?? ''),
+    // When this period began. Central writes it from the contract's own start
+    // date; a clinic that licenses itself writes it when it records a plan. Null
+    // is shown as "—" rather than guessed at, because a wrong start date on a
+    // billing card is worse than a blank one.
+    //
+    // The one date that is not a guess: a trial's start is exactly
+    // `trial_ends_at − TRIAL_DAYS`, because that is how `start_trial()` writes
+    // it. Nothing else is derived.
+    startsAt: row.current_period_start ?? trialStart(row),
   });
 
   if (!sub) return { status: 'expired', ...base(), daysLeft: 0, endsAt: null };
