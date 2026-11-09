@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.25.2';
+export const APP_VERSION = '1.26.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.26.0', date: '2026-11-09', schema: 18,
+    highlights: [
+      '**A visit now ends the same way from every screen.** Saving a consultation used to finish in five different places depending on where the doctor was standing: the dashboard said “billing is one tap away” while the invoice it had just raised was behind two menus, the queue and the appointments board closed in silence, and the consultation list jumped straight to the invoice and skipped the prescription slip. One sheet now opens on save — *Visit saved — what next?* — showing where the visit got to (Token → Consultation → Prescription → Invoice → Follow-up) and offering only what is still missing: collect the fee, print the slip, book the return visit.',
+      'The five steps of a visit are data now (`src/lib/visit-flow.mjs`), not five copies of a callback: which step is done, which is next, and which actions may be offered. A visit is complete when the patient has a slip, a bill and a return date — not when the note was saved.',
+      '**No more double billing from the queue.** “Bill” was offered on every completed token, so a second tap after “Save & bill” raised a duplicate invoice for the same visit. The button now reads “Collect ₹x” when the visit already has an unpaid bill, opens the payment sheet on that exact invoice, and only says “Bill” when nothing has been raised.',
+      'The follow-up is one tap: the sheet books the return visit with the date the doctor wrote down (or the clinic default), the same doctor and a reason taken from the diagnosis.',
+    ],
+  },
   {
     version: '1.25.2', date: '2026-11-09', schema: 18,
     highlights: [

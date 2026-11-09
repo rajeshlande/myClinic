@@ -10,6 +10,7 @@ import {
 } from '../components/ui.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
+import VisitNextSteps from '../components/VisitNextSteps.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import { DayBoard, WeekGrid } from '../components/DayBoard.jsx';
 import MessageSheet from '../components/MessageSheet.jsx';
@@ -35,6 +36,7 @@ export default function Appointments() {
   const [editing, setEditing] = useState(null);
   const [patientOpen, setPatientOpen] = useState(false);
   const [consultFor, setConsultFor] = useState(null);
+  const [savedVisit, setSavedVisit] = useState(null);
   const [cancelFor, setCancelFor] = useState(null);
   const [lastCleared, setLastCleared] = useState(null);
 
@@ -319,8 +321,23 @@ export default function Appointments() {
       />
       <PatientForm open={patientOpen} onClose={() => setPatientOpen(false)} onCreated={(p) => { setEditing({ patient_id: p.id, scheduled_on: date }); setFormOpen(true); }} />
       {consultFor ? (
-        <ConsultationForm open onClose={() => setConsultFor(null)} appointment={consultFor} patient={patientOf(consultFor.patient_id)} onSaved={() => setConsultFor(null)} />
+        <ConsultationForm
+          open onClose={() => setConsultFor(null)}
+          appointment={consultFor} patient={patientOf(consultFor.patient_id)}
+          onSaved={(saved, raised) => {
+            setSavedVisit({ visit: saved, invoice: raised ?? null, tokenNo: consultFor?.token_no ?? null });
+            setConsultFor(null);
+          }}
+        />
       ) : null}
+
+      <VisitNextSteps
+        open={Boolean(savedVisit)}
+        onClose={() => setSavedVisit(null)}
+        visit={savedVisit?.visit ?? null}
+        invoice={savedVisit?.invoice ?? null}
+        tokenNo={savedVisit?.tokenNo ?? null}
+      />
 
       <MessageSheet
         open={Boolean(msgFor)}

@@ -5,6 +5,7 @@ import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
 import { Avatar, Badge, Button, Card, CardHead, EmptyState, SearchInput, Select, Segmented, Kpi } from '../components/ui.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
+import VisitNextSteps from '../components/VisitNextSteps.jsx';
 import {
   appointmentsForDate, currentMonth, formatDate, monthLabel, today, patientVisits, followUpDue,
 } from '../lib/logic.mjs';
@@ -26,6 +27,7 @@ export default function Consultations() {
   const [formOpen, setFormOpen] = useState(false);
   const [presetPatient, setPresetPatient] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [savedVisit, setSavedVisit] = useState(null);
 
   const from = range === 'today' ? today() : range === 'week' ? new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10) : `${currentMonth()}-01`;
 
@@ -207,14 +209,22 @@ export default function Consultations() {
           open onClose={() => setFormOpen(false)}
           patient={presetPatient?.patient ?? null}
           appointment={presetPatient?.appt ?? null}
-          onSaved={(_visit, raised) => {
+          onSaved={(saved, raised) => {
             setFormOpen(false);
-            // “Save & bill” continues into the invoice: consult → bill → collect,
-            // without the front desk hunting for the document afterwards.
-            if (raised?.id) navigate(`/invoice/${raised.id}`);
+            // One ending everywhere: the sheet offers the slip, the money and the
+            // return date, instead of jumping to the invoice and hiding the slip.
+            setSavedVisit({ visit: saved, invoice: raised ?? null, tokenNo: presetPatient?.appt?.token_no ?? null });
           }}
         />
       ) : null}
+
+      <VisitNextSteps
+        open={Boolean(savedVisit)}
+        onClose={() => setSavedVisit(null)}
+        visit={savedVisit?.visit ?? null}
+        invoice={savedVisit?.invoice ?? null}
+        tokenNo={savedVisit?.tokenNo ?? null}
+      />
 
       {/* Patient-history preview drawer */}
       {historyFor ? (

@@ -11,6 +11,7 @@ import {
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
+import VisitNextSteps from '../components/VisitNextSteps.jsx';
 import InvoiceForm from '../components/InvoiceForm.jsx';
 import CollectPayment from '../components/CollectPayment.jsx';
 import {
@@ -29,6 +30,7 @@ export default function PatientDetail() {
   const [consultOpen, setConsultOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [payFor, setPayFor] = useState(null);
+  const [savedVisit, setSavedVisit] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // What this member may see of the chart. The clinical half and the money half
@@ -431,12 +433,17 @@ export default function PatientDetail() {
         onClose={() => setConsultOpen(false)}
         patient={patient}
         appointment={upcoming[0] ?? null}
-        onSaved={(_visit, raised) => {
+        onSaved={(saved, raised) => {
           setConsultOpen(false);
-          // Saving with “Save & bill” raises an invoice — walk the front desk
-          // straight into it so the consultation ends with money collected.
-          if (raised?.id) navigate(`/invoice/${raised.id}`);
+          setSavedVisit({ visit: saved, invoice: raised ?? null, tokenNo: upcoming[0]?.token_no ?? null });
         }}
+      />
+      <VisitNextSteps
+        open={Boolean(savedVisit)}
+        onClose={() => setSavedVisit(null)}
+        visit={savedVisit?.visit ?? null}
+        invoice={savedVisit?.invoice ?? null}
+        tokenNo={savedVisit?.tokenNo ?? null}
       />
       <InvoiceForm open={invoiceOpen} onClose={() => setInvoiceOpen(false)} patient={patient} />
       <CollectPayment

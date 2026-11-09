@@ -187,8 +187,13 @@ test('a role with half the clinic still gets the numbers it can see', () => {
 
 test('the shortcuts follow the same line as the screens', () => {
   const dashboard = read('../src/pages/Dashboard.jsx');
-  // "Day close" in the greeting band is a shortcut into the till
-  assert.match(dashboard, /canCollect \? <Button variant="ghost" icon=\{Sunset\}/);
+  // "Day close" is deliberately *not* a shortcut in the greeting band any more
+  // (v1.26.0): reconciliation stopped competing with "Issue token" on the home
+  // screen. It keeps its sidebar entry and its route guard, so the till is still
+  // reachable by exactly the roles that hold day:close.
+  assert.doesNotMatch(dashboard, /Day close/);
+  assert.match(layout, /to: '\/app\/day-close', label: 'Day close', icon: Sunset, capability: 'day:close'/);
+  assert.match(app, /path="day-close" element=\{<RequireCapability capability="day:close">/);
   // and the invoice count in the greeting belongs to the role that can see invoices
   assert.match(dashboard, /canSeeMoney && duesCount \?/);
   // the quick-register card offered a doctor a bill

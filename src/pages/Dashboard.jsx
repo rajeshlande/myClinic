@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import {
   ArrowUpRight, BellRing, CalendarPlus, CheckCircle2, ChevronRight, Clock, CreditCard,
   IndianRupee, LogIn, PlayCircle, Stethoscope, TrendingUp, UserPlus, Users, Wallet, AlertTriangle,
-  Ticket, Volume2, Sunset,
+  Ticket, Volume2,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
@@ -13,6 +13,7 @@ import AppointmentForm from '../components/AppointmentForm.jsx';
 import TokenForm from '../components/TokenForm.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
+import VisitNextSteps from '../components/VisitNextSteps.jsx';
 import {
   addDays, appointmentsForDate, categoryRevenue, currentMonth, formatMoney, formatTime, followUpDue, monthTotals, monthLabel, revenueSeries, relativeDay, statusMeta, today, doctorPerformance, footfallSeries, outstandingByPatient, shiftMonth, formatDate, queueBoard, tokenLabel, humanWait, averageWait,
 } from '../lib/logic.mjs';
@@ -24,6 +25,8 @@ export default function Dashboard() {
   const [apptOpen, setApptOpen] = useState(false);
   const [patientOpen, setPatientOpen] = useState(false);
   const [consultFor, setConsultFor] = useState(null);
+  // Saving a note opens the next-step sheet: the visit is not over at the signature.
+  const [savedVisit, setSavedVisit] = useState(null);
   const [tokenOpen, setTokenOpen] = useState(false);
   const t = today();
   const month = currentMonth();
@@ -33,7 +36,6 @@ export default function Dashboard() {
   const role = store.role ?? 'owner';
   const canReadConsults = can(role, 'consultation:read');
   const canSeeMoney = can(role, 'clinic:reports:money');
-  const canCollect = can(role, 'day:close');
 
   const totals = useMemo(() => monthTotals({
     invoices: canSeeMoney ? store.invoices : [],
@@ -112,7 +114,6 @@ export default function Dashboard() {
         <div className="row wrap hero-actions" style={{ gap: 8 }}>
           <Button variant="subtle" icon={UserPlus} onClick={() => setPatientOpen(true)}>Register patient</Button>
           <Button variant="subtle" icon={CalendarPlus} onClick={() => setApptOpen(true)}>Book appointment</Button>
-          {canCollect ? <Button variant="ghost" icon={Sunset} onClick={() => navigate('/app/day-close')}>Day close</Button> : null}
           <Button variant="primary" icon={Ticket} onClick={() => setTokenOpen(true)}>Issue token</Button>
         </div>
       </div>
@@ -331,9 +332,20 @@ export default function Dashboard() {
         <ConsultationForm
           open={Boolean(consultFor)} onClose={() => setConsultFor(null)}
           appointment={consultFor} patient={patientOf(consultFor.patient_id)}
-          onSaved={() => { setConsultFor(null); toast.info('Chart updated. Billing is one tap away.'); }}
+          onSaved={(saved, raised) => {
+            setSavedVisit({ visit: saved, invoice: raised ?? null, tokenNo: consultFor?.token_no ?? null });
+            setConsultFor(null);
+          }}
         />
       ) : null}
+
+      <VisitNextSteps
+        open={Boolean(savedVisit)}
+        onClose={() => setSavedVisit(null)}
+        visit={savedVisit?.visit ?? null}
+        invoice={savedVisit?.invoice ?? null}
+        tokenNo={savedVisit?.tokenNo ?? null}
+      />
     </div>
   );
 }

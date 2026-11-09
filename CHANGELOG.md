@@ -3,6 +3,60 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.26.0] — 2026-11-09 · schema 18
+
+**One ending for every visit, and three things taken off the screens they were
+cluttering.**
+
+### The visit flows token → consultation → prescription → invoice → follow-up
+
+The audit, before the change — the same save, five different endings:
+
+| Saved from | What happened |
+| --- | --- |
+| Dashboard | “Chart updated. Billing is one tap away.” — while the invoice that save had just raised was hidden behind Billing → the invoice |
+| Token queue | nothing at all |
+| Appointments | nothing at all |
+| Consultations list | jumped to the invoice, skipping the prescription slip the patient was waiting for |
+| Patient chart | same jump to the invoice |
+
+- **`src/lib/visit-flow.mjs`** (pure, 12 tests) holds the five steps and answers
+  the two questions those screens were each guessing at: *where is this visit*
+  (`visitFlowState`) and *what is the next step* (`visitNextActions`). A visit is
+  complete when the patient has a slip, a bill and a return date — not when the
+  note was saved.
+- **`VisitNextSteps`** is the one ending, mounted once in all five places: a chip
+  row (Token ✓ · Consultation ✓ · Prescription · Invoice · Follow-up), a summary
+  of the chart, the invoice and the follow-up, and a footer that offers only what
+  is missing — **Collect ₹x**, **Print slip**, **Follow-up 19 Nov**. The first
+  entry is the primary button, in the order the counter works: money, then the
+  slip, then the return date.
+- **No duplicate bills from the queue.** “Bill” was unconditional on every
+  completed token, so a second tap after “Save & bill” raised a second invoice for
+  the same visit. `invoiceForVisit()` matches on `appointment_id` first, then on
+  *this patient, that day*, never on a voided invoice — so the button now reads
+  **Collect ₹x** and opens the payment sheet on the bill that already exists, and
+  only says **Bill** when nothing has been raised.
+- **The follow-up is one tap:** prefilled with the date the doctor wrote down (or
+  the clinic's `follow_up_days`), the same doctor, and a reason taken from the
+  diagnosis.
+
+### Off the screens
+
+- **Settings → Plan & data:** the link to `#/setup` is gone. The setup guide is a
+  developer page; the owner-facing tab no longer advertises it. (The one remaining
+  link lives in *My account* and only renders in an unconfigured build, where it
+  is the only useful thing on the card.)
+- **Dashboard:** the **Day close** button is gone from the header. Day close keeps
+  its sidebar entry and its screen for the role that holds `day:close`; it just no
+  longer competes with *Issue token* on the home screen.
+- **Subscription:** the **Central Auto-Sync** diagnostics card is no longer
+  mounted. The component, its probe and its tests stay in the tree — it is the
+  owner's debugging surface, not something a clinic should meet on the billing
+  page.
+
+**529 tests / 25 suites**, 28/28 contributing checks, 0 warnings.
+
 ## [1.25.2] — 2026-11-09 · schema 18
 
 **The Cloudflare deploy never started.** The build was green; the deploy command

@@ -907,7 +907,6 @@ export default function Settings() {
               <Monitor size={15} className="muted" />
               <span className="small muted">myClinic v1.0 · {store.mode === 'demo' ? 'demo mode' : 'connected'} · {store.patients.length} patients · {store.consultations.length} consultations</span>
               <span className="spacer" />
-              <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => navigate('/setup')}>Setup</Button>
             </div>
           </Card>
         </div>

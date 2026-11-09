@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  CheckCircle2, Clock, CreditCard, MessageSquare, PlayCircle, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
+  CheckCircle2, Clock, CreditCard, HandCoins, MessageSquare, PlayCircle, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, Modal, Segmented } from '../components/ui.jsx';
 import TokenForm from '../components/TokenForm.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
+import VisitNextSteps from '../components/VisitNextSteps.jsx';
+import CollectPayment from '../components/CollectPayment.jsx';
+import { invoiceForVisit } from '../lib/visit-flow.mjs';
 import MessageSheet from '../components/MessageSheet.jsx';
 import { tokenMessage } from '../lib/messages.mjs';
 import {
-  addDays, averageWait, formatDate, formatTime, humanWait, nextTokenNo, queueBoard, queueState, relativeDay, tokenLabel, today, waitedMinutes,
+  addDays, averageWait, formatDate, formatMoney, formatTime, humanWait, invoiceBalance, nextTokenNo, queueBoard, queueState, relativeDay, tokenLabel, today, waitedMinutes,
 } from '../lib/logic.mjs';
 
 export default function Queue() {
@@ -23,6 +26,8 @@ export default function Queue() {
   const [tokenOpen, setTokenOpen] = useState(false);
   const [patientOpen, setPatientOpen] = useState(false);
   const [consultFor, setConsultFor] = useState(null);
+  const [savedVisit, setSavedVisit] = useState(null);
+  const [payFor, setPayFor] = useState(null);
   const [msgFor, setMsgFor] = useState(null); // { patient, message }
   const [displayOpen, setDisplayOpen] = useState(false);
   const [feeFor, setFeeFor] = useState(null);
@@ -35,6 +40,16 @@ export default function Queue() {
   const serving = board.rows.find((r) => r.serving);
   const patientOf = (id) => store.patients.find((p) => p.id === id);
   const doctorOf = (id) => store.doctors.find((d) => d.id === id);
+
+  /**
+   * The bill this visit already has. The queue used to offer "Bill" unconditionally,
+   * so a second tap after the doctor's "Save & bill" raised a duplicate invoice for
+   * the same token. Now the button becomes "Collect" when there is something to
+   * collect, and only says "Bill" when nothing has been raised yet.
+   */
+  const billFor = (appt) => invoiceForVisit(store.invoices, {
+    appointmentId: appt.id, patientId: appt.patient_id, on: appt.scheduled_on ?? date,
+  });
 
   async function setStatus(appt, status, message) {
     try {
@@ -196,7 +211,9 @@ export default function Queue() {
                               {appt.status === 'booked' ? <Button size="sm" variant="subtle" onClick={() => setStatus(appt, 'checked-in', 'Patient is at the desk.')}>Arrived</Button> : null}
                               {appt.status === 'checked-in' ? <Button size="sm" variant="primary" onClick={() => setStatus(appt, 'in-consult', 'Called in.')}>Call in</Button> : null}
                               {appt.status === 'in-consult' ? <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(appt)}>Consult</Button> : null}
-                              {appt.status === 'completed' ? <Button size="sm" variant="ghost" icon={CreditCard} onClick={() => setFeeFor(appt)}>Bill</Button> : null}
+                              {appt.status === 'completed' ? (billFor(appt)
+                                ? <Button size="sm" variant="ghost" icon={HandCoins} onClick={() => setPayFor(billFor(appt))}>Collect {formatMoney(invoiceBalance(billFor(appt)))}</Button>
+                                : <Button size="sm" variant="ghost" icon={CreditCard} onClick={() => setFeeFor(appt)}>Bill</Button>) : null}
                               {appt.token_no ? (
                                 <Button
                                   size="sm"
@@ -263,7 +280,9 @@ export default function Queue() {
                     <span className="li-title">{patientOf(appt.patient_id)?.full_name}</span>
                     <span className="li-sub">{doctorOf(appt.doctor_id)?.full_name} · {formatTime(appt.scheduled_at)} · {appt.kind}</span>
                   </span>
-                  <Button size="sm" variant="subtle" icon={CreditCard} onClick={() => setFeeFor(appt)}>Bill</Button>
+                  {billFor(appt)
+                    ? <Button size="sm" variant="subtle" icon={HandCoins} onClick={() => setPayFor(billFor(appt))}>Collect {formatMoney(invoiceBalance(billFor(appt)))}</Button>
+                    : <Button size="sm" variant="subtle" icon={CreditCard} onClick={() => setFeeFor(appt)}>Bill</Button>}
                 </div>
               ))
           ) : <p className="small muted">No completed tokens for this day yet.</p>}
@@ -276,9 +295,20 @@ export default function Queue() {
         <ConsultationForm
           open onClose={() => setConsultFor(null)}
           appointment={consultFor} patient={patientOf(consultFor.patient_id)}
-          onSaved={() => setConsultFor(null)}
+          onSaved={(saved, raised) => {
+            setSavedVisit({ visit: saved, invoice: raised ?? null, tokenNo: consultFor?.token_no ?? null });
+            setConsultFor(null);
+          }}
         />
       ) : null}
+
+      <VisitNextSteps
+        open={Boolean(savedVisit)}
+        onClose={() => setSavedVisit(null)}
+        visit={savedVisit?.visit ?? null}
+        invoice={savedVisit?.invoice ?? null}
+        tokenNo={savedVisit?.tokenNo ?? null}
+      />
 
       <Modal open={Boolean(feeFor)} onClose={() => setFeeFor(null)} title="Raise the fee" sub={feeFor ? `${tokenLabel(feeFor.token_no)} · ${patientOf(feeFor.patient_id)?.full_name}` : ''}
         footer={<>
@@ -289,6 +319,13 @@ export default function Queue() {
           Opens the invoice with this patient pre-filled and the doctor’s consultation fee as the first line. Take cash, UPI, card or insurance on the same screen.
         </p>
       </Modal>
+
+      <CollectPayment
+        invoice={payFor}
+        open={Boolean(payFor)}
+        onClose={() => setPayFor(null)}
+        onDone={() => setPayFor(null)}
+      />
 
       <Modal open={displayOpen} onClose={() => setDisplayOpen(false)} title="Waiting-room display" sub="Show this on the lounge TV or a tablet at reception">
         <WaitingDisplay board={board} patientOf={patientOf} />
