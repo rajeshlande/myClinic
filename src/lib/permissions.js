@@ -102,11 +102,6 @@ export function can(role, capability) {
 }
 
 /** Convenience: describe a capability's audience for UI copy. */
-export function whoCan(capability) {
-  const roles = MATRIX[capability] ?? [];
-  return roles.map((r) => ROLE_LABEL[r]).join(', ');
-}
-
 /**
  * Route guards. A member without the capability is redirected to their first
  * permitted screen rather than shown an empty page.

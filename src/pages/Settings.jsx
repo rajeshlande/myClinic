@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  BellRing, Building2, Check, CreditCard, Copy, Download, ExternalLink, LogOut, MoonStar,
-  RefreshCw, Save, Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, Smartphone,
-  ImagePlus, CalendarDays, CalendarOff, Clock, AlertCircle,
+  BellRing, Building2, Check, CreditCard, Copy, Download, ExternalLink, LogOut, RefreshCw, Save, Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, Smartphone, ImagePlus, CalendarDays, CalendarOff, Clock, AlertCircle,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
@@ -19,15 +17,12 @@ import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
 import { BOOKING_HORIZON_DAYS, bookingUrl, clinicSlug } from '../lib/public-booking.mjs';
 import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
 import {
-  FOLLOW_UP_MAX_DAYS, FOLLOW_UP_MIN_DAYS, WEEKDAYS, clinicSessions, closure,
-  normaliseDates, normaliseSessions, normaliseWeekdays, sessionsSummary, validateFollowUpDays,
-  validateSessions,
+  FOLLOW_UP_MAX_DAYS, FOLLOW_UP_MIN_DAYS, clinicSessions, closure, normaliseDates, normaliseWeekdays, validateFollowUpDays, validateSessions,
 } from '../lib/hours.mjs';
-import { clearRecentErrors, diagnosticsText, explainError, recentErrors, rememberError } from '../lib/errors.mjs';
+import { diagnosticsText, recentErrors, rememberError } from '../lib/errors.mjs';
 import { CloudOff, GitBranch, History, Palette, QrCode, RefreshCcw, Scale } from 'lucide-react';
 import {
-  CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput,
-  addDays, profilePatch, today, toCSV, patientSearch,
+  CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput, addDays, profilePatch, today, toCSV,
 } from '../lib/logic.mjs';
 
 export default function Settings() {

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
-import { ROLES, formatMoney, moneyToPaise, paiseToInput, slugify } from '../lib/logic.mjs';
+import { ROLES, formatMoney, moneyToPaise, paiseToInput } from '../lib/logic.mjs';
 import { canAddSeat } from '../lib/license.mjs';
 import { can, roleMatrixFor } from '../lib/permissions.js';
 import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
@@ -18,8 +18,7 @@ import {
 const WEEKDAY_SHORT = Object.fromEntries(WEEKDAYS.map((d) => [d.id, d.short]));
 import { rememberError } from '../lib/errors.mjs';
 import {
-  daysLeft, inviteDefaults, inviteEmailError, inviteLink as buildInviteLink, inviteState,
-  pendingInvites, rememberInviteToken,
+  daysLeft, inviteDefaults, inviteEmailError, inviteLink as buildInviteLink, pendingInvites, rememberInviteToken,
 } from '../lib/invites.mjs';
 import { guardWrite } from '../components/LicenseBanner.jsx';
 

@@ -6,8 +6,7 @@ import { can } from '../lib/permissions.js';
 import { Avatar, Badge, Button, Card, CardHead, EmptyState, SearchInput, Select, Segmented, Kpi } from '../components/ui.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import {
-  appointmentsForDate, currentMonth, formatDate, formatMoney, inMonth, monthLabel, today,
-  patientVisits, followUpDue,
+  appointmentsForDate, currentMonth, formatDate, monthLabel, today, patientVisits, followUpDue,
 } from '../lib/logic.mjs';
 
 const PAGE_SIZE = 20;
@@ -170,9 +169,6 @@ export default function Consultations() {
                 const patient = patientOf(visit.patient_id);
                 const doctor = doctorOf(visit.doctor_id);
                 const visits = patient ? patientVisits(store.consultations, patient.id).length : 0;
-                const followUp = visit.follow_up_on ? (
-                  <Badge tone={visit.follow_up_done ? 'success' : 'warn'} size="sm">{visit.follow_up_done ? 'F/U done' : `F/U ${formatDate(visit.follow_up_on, { withYear: false })}`}</Badge>
-                ) : null;
                 return (
                   <div key={visit.id} className="list-item row wrap" style={{ gap: 10, alignItems: 'center', padding: '10px', border: '1px solid var(--border)', borderRadius: 10, cursor: 'pointer' }}
                     onClick={() => patient && navigate(`/app/patients/${patient.id}`)}>

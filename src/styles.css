@@ -184,21 +184,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .page-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .page-head h2 { font-size: clamp(1.12rem, 1rem + 0.4vw, 1.36rem); }
 .page-head .sub { font-size: 0.8rem; color: var(--muted); }
-.toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
 /* controls sitting directly in a horizontal row must not claim 100% width */
-.row > .select, .row > .input, .toolbar-actions > .select, .toolbar > .select, .page-head > .select {
+.row > .select,
+.row > .input,
+.toolbar > .select,
+.page-head > .select {
   width: auto; min-width: 148px; max-width: 100%; flex: 0 1 auto;
 }
-.row > .field, .toolbar-actions > .field { flex: 1 1 160px; }
+.row > .field { flex: 1 1 160px; }
 .weekstrip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(58px, 1fr); gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .weekstrip::-webkit-scrollbar { display: none; }
 @media (max-width: 720px) {
   .toolbar { flex-direction: column; align-items: stretch; }
   .toolbar .spacer { display: none; }
-  .toolbar-actions { width: 100%; }
-  .toolbar-actions .select { flex: 1 1 120px; max-width: none !important; }
-  .toolbar-actions .segmented { flex: 0 0 auto; }
-  .toolbar-actions .btn.primary { flex: 1 1 auto; }
 }
 
 /* --------------------------------------------------------------- mobile chrome */
@@ -234,7 +232,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .tab:hover { text-decoration: none; }
   .page { padding-bottom: calc(var(--tabbar) + 28px + env(safe-area-inset-bottom)); }
   .topbar { display: none; }
-  .sheet-safe { padding-bottom: env(safe-area-inset-bottom); }
 }
 
 /* --------------------------------------------------------------- primitives */
@@ -247,7 +244,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .card-head h3 { font-size: 0.96rem; }
 .card-head .sub { font-size: 0.78rem; color: var(--muted); }
 .card-body { padding: clamp(14px, 1.6vw, 20px); }
-.card-foot { padding: 12px clamp(14px, 1.6vw, 20px); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .row { display: flex; align-items: center; gap: 10px; }
@@ -298,7 +294,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn.sm { padding: 6px 10px; font-size: 0.8rem; min-height: 32px; border-radius: 9px; }
 .btn.lg { padding: 12px 20px; font-size: 0.95rem; min-height: 48px; border-radius: 13px; }
 .btn.block { width: 100%; }
-.btn.pill { border-radius: 999px; }
 
 .icon-btn {
   display: inline-grid; place-items: center; width: 38px; height: 38px; flex: none;
@@ -489,18 +484,11 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .chart { width: 100%; overflow: visible; }
 .chart .grid-line { stroke: var(--border); stroke-dasharray: 3 4; }
 .chart .axis-label { fill: var(--faint); font-size: 10px; font-weight: 600; }
-.bar-track { fill: var(--surface-3); }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.76rem; color: var(--muted); }
 .legend .swatch { width: 9px; height: 9px; border-radius: 3px; display: inline-block; margin-right: 5px; }
 
 /* schedule grid */
 .schedule { display: grid; gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
-.schedule-cell { background: var(--surface); padding: 6px; min-height: 46px; }
-.schedule-cell.free:hover { background: var(--brand-50); cursor: pointer; }
-.slot-chip { display: block; width: 100%; text-align: left; border: 0; border-radius: 7px; padding: 5px 7px; font-size: 0.72rem; font-weight: 600; cursor: pointer; background: var(--brand-50); color: var(--brand-600); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-:root[data-theme='dark'] .slot-chip { color: var(--brand-300); }
-.slot-chip.done { background: var(--success-bg); color: var(--success); }
-.slot-chip.live { background: var(--violet); color: #fff; }
 
 /* modal / sheet */
 .overlay {
@@ -568,7 +556,6 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 38px 20px; text-align: center; color: var(--muted); }
 .empty .e-icon { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--surface-2); color: var(--faint); }
 .empty h4 { color: var(--text); }
-.skeleton { background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: 8px; }
 @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 
 /* tabs */
@@ -1098,7 +1085,6 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
   font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; line-height: 1.5;
   border: 1px solid currentColor;
 }
-.med-schedule.otc { color: var(--success); }
 .med-schedule.h { color: var(--warn); }
 .med-schedule.h1, .med-schedule.x { color: var(--danger); }
 
@@ -1254,7 +1240,7 @@ body[data-modal='true'] .toasts { top: 16px; bottom: auto; }
     background: #fff !important;
   }
 
-  .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts, .syncbar, .pwa-bar, .print-foot { display: none !important; }
+  .sidebar, .topbar, .mobilebar, .tabbar, .no-print, .toasts, .syncbar, .pwa-bar { display: none !important; }
   body { background: #fff; color: #111; }
 
   /* 2 — one element per sheet. @page owns the margins (they repeat on every page,
@@ -1384,9 +1370,6 @@ body[data-modal='true'] .syncbar { display: none; }
 /* The page box (size, margins, shadow) comes from .print-sheet: the slip must not
    carry a second, different padding of its own, or on screen it stops being A4. */
 .rx-sheet { background: #fff; color: #111; }
-.rx-head { display: flex; justify-content: space-between; gap: 18px; border-bottom: 2px solid #0f766e; padding-bottom: 12px; }
-.rx-doctor { font-size: 1.12rem; font-weight: 800; letter-spacing: -0.01em; }
-.rx-meta { font-size: 0.78rem; color: #4b5a57; line-height: 1.5; }
 .rx-patient { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px 16px; margin: 14px 0; font-size: 0.82rem; }
 .rx-patient b { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7b77; font-weight: 700; }
 .rx-symbol { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; color: #0f766e; line-height: 1; }
@@ -1915,8 +1898,8 @@ button.slot:hover .slot-icon { opacity: 1; }
     font-size: 16px; min-height: 44px;
   }
   textarea { min-height: 84px; }
-  .field > label, .field-label { font-size: 0.74rem; }
-  .checkbox, .radio { min-height: 38px; }
+  .field > label { font-size: 0.74rem; }
+  .checkbox { min-height: 38px; }
 
   /* -- KPI tiles: two per row, no orphan icon column ----------------------- */
   .grid.kpis, .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
@@ -1932,9 +1915,7 @@ button.slot:hover .slot-icon { opacity: 1; }
   .hero-actions { gap: 8px; }
   .hero-actions .btn { flex: 1 1 44%; }
   .hero-actions .btn.primary { flex: 1 1 100%; }
-  .toolbar-actions { flex-wrap: wrap; }
-  .toolbar-actions .btn { flex: 1 1 auto; }
-  .filters, .filter-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
   .filters > .search, .filters > .searchbox { grid-column: 1 / -1; }
   .segmented { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
   .segmented::-webkit-scrollbar { display: none; }
@@ -1953,7 +1934,6 @@ button.slot:hover .slot-icon { opacity: 1; }
   .patient-row .who, .patient-row .li-main { flex: 1 1 calc(100% - 46px); min-width: 0; }
   .patient-row .patient-actions { flex: 1 1 100%; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 2px; }
   .patient-row .patient-actions .btn { flex: 1 1 0; }
-  .patient-row .dues-pill, .patient-row .pill { margin-left: 0; }
 
   /* consultations: avatar + name, then meta, then a row of actions */
   .consult-list { gap: 9px; }
@@ -2062,7 +2042,6 @@ button.slot:hover .slot-icon { opacity: 1; }
   .recent-chips::-webkit-scrollbar { display: none; }
   .recent-chips > .btn { flex: 0 0 auto; min-height: 36px; font-size: 0.78rem; }
 
-  .rx-card { padding: 10px; }
   .rx-salt-line { font-size: 0.74rem; }
   .rx-safety-item { padding: 10px 11px; }
   .rx-safety-ack { min-height: 44px; align-items: center; }
@@ -2071,15 +2050,13 @@ button.slot:hover .slot-icon { opacity: 1; }
   .med-option { padding: 10px 10px; }
 
   /* -- reports ------------------------------------------------------------- */
-  .chart, .chart-body, .sparkline { max-width: 100%; }
-  .chart-wrap { overflow-x: auto; }
+  .chart { max-width: 100%; }
   table.data { font-size: 0.8rem; }
   table.data th, table.data td { padding: 9px 8px; }
-  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
   /* -- page head: title block on top, actions in a full-width row ---------- */
   .page-head { flex-direction: column; align-items: stretch; gap: 10px; }
-  .page-head > .toolbar-actions, .page-head > .btn, .page-head > .row { margin-left: 0; width: 100%; }
+  .page-head > .btn, .page-head > .row { margin-left: 0; width: 100%; }
   .page-head > .btn { justify-content: center; }
   .page-head h2, .page-head .sub { overflow-wrap: anywhere; }
 
@@ -2125,12 +2102,12 @@ button.slot:hover .slot-icon { opacity: 1; }
 @media (max-width: 700px) {
   .page-titlebar { flex-direction: column; align-items: stretch !important; gap: 9px !important; }
   .page-titlebar > div { min-width: 0 !important; flex: 1 1 auto !important; width: 100%; }
-  .page-titlebar > .btn, .page-titlebar > .row, .page-titlebar > .toolbar-actions {
+  .page-titlebar > .btn, .page-titlebar > .row {
     width: 100%; margin-left: 0; justify-content: center;
   }
   .page-titlebar > .btn { min-height: 44px; }
   .page-titlebar .card-head { padding: 0; border: 0; background: none; }
-  .page-titlebar .card-head h3, .page-titlebar .card-head .card-title { font-size: 1.1rem; }
+  .page-titlebar .card-head h3 { font-size: 1.1rem; }
   .page-titlebar .card-head .sub { white-space: normal; }
 }
 

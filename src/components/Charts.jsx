@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react';
+import { useId } from 'react';
 import { formatMoney } from '../lib/logic.mjs';
 
 /* Area + line chart, responsive via viewBox. */
@@ -155,5 +155,3 @@ export function WeekStrip({ days }) {
     </div>
   );
 }
-
-export function useMemoSafe(fn, deps) { return useMemo(fn, deps); }

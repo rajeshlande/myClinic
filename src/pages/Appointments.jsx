@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
-  CalendarDays, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Clock, LayoutGrid,
-  List, LogIn, MessageSquare, Pencil, PlayCircle, RotateCcw, Search, Sparkles, UserX, X,
+  CalendarDays, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, LayoutGrid, List, LogIn, MessageSquare, Pencil, PlayCircle, RotateCcw, Search, UserX, X,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import {
@@ -76,7 +75,6 @@ export default function Appointments() {
     [doctorsShown, store.appointments, date, store.clinic],
   );
 
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(date, i - 3)), [date]);
   const week = useMemo(() => weekLoad({ doctors: doctorsShown, appointments: store.appointments, startIso: addDays(date, -3) }),
     [doctorsShown, store.appointments, date]);
   const weekRows = useMemo(() => weekByDoctor({ doctors: doctorsShown, appointments: store.appointments, startIso: addDays(date, -3) }),

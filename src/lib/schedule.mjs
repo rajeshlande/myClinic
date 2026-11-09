@@ -276,8 +276,3 @@ export function explainConflict(clash, patientName = 'this patient') {
   const { start, end } = intervalOf(clash);
   return `${patientName} already has ${time(start)}–${time(end)} booked with this doctor. Pick another time or a different doctor.`;
 }
-
-/** Copy an appointment into a reschedule draft, keeping everything but the slot. */
-export function rescheduleDraft(appointment) {
-  return { ...appointment, id: appointment.id, scheduled_at: appointment.scheduled_at, rescheduled_from: appointment.scheduled_at };
-}

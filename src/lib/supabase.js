@@ -12,12 +12,6 @@ export const supabase = supabaseConfigured
     })
   : null;
 
-export const configError = !url || !key
-  ? null
-  : supabaseConfigured
-    ? null
-    : 'Supabase URL must be HTTPS and the key must be a publishable/anon key — never a service-role or secret key.';
-
 /** Friendly copy for common Supabase auth errors (never logs credentials). */
 export function authErrorMessage(error) {
   const msg = String(error?.message ?? error ?? 'Something went wrong.');

@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.23.0';
+export const APP_VERSION = '1.23.1';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.23.1', date: '2026-11-02', schema: 18,
+    highlights: [
+      'A sweep for code nobody reaches: 19 exported helpers and constants, 64 imported names, five local variables and four store values that nothing read (`signOutCleanup`, `acceptInvite`, `setLicenseStatus`, the raw central config) are gone. Nothing a clinic does changed — each removal was proved unreferenced first: one hit in the whole repo, the declaration itself.',
+      'That sweep also found the leftovers of an older prescription sheet and an older day board in `styles.css`: 23 CSS classes no element carries any more. Their rules are deleted, so the stylesheet no longer carries a print header, a sparkline or a slot chip that cannot appear.',
+      'Two real bugs surfaced while proving the surfaces were clean. The Consultations register computed a follow-up badge for every visit and never rendered it; it now renders nothing and computes nothing. And the store still imported `clearAllCache` after the sign-out path that used it was removed — the import is gone, and sign-out still clears the offline cache through `auth-context.jsx`.',
+      'No schema change, no new secret, no deploy step: this release is the same app with less behind it. 542 tests still pass.',
+    ],
+  },
   {
     version: '1.23.0', date: '2026-11-02', schema: 18,
     highlights: [

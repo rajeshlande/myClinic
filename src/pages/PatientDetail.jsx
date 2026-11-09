@@ -1,20 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
-  ArrowLeft, CalendarPlus, CreditCard, FileText, Pencil, Phone, Mail, MapPin, ShieldAlert,
-  Stethoscope, Trash2, Activity, Pill, Printer, ChevronRight, HeartPulse, Wallet, Clock, Download,
-  HandCoins, Receipt,
+  ArrowLeft, CalendarPlus, CreditCard, FileText, Pencil, Phone, Mail, MapPin, ShieldAlert, Stethoscope, Trash2, Activity, Pill, Printer, ChevronRight, HeartPulse, Wallet, Clock, HandCoins, Receipt,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
-import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, Modal, Tabs, Progress } from '../components/ui.jsx';
+import {
+  useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Modal, Tabs, Progress,
+} from '../components/ui.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import InvoiceForm from '../components/InvoiceForm.jsx';
 import CollectPayment from '../components/CollectPayment.jsx';
 import {
-  ageFromDOB, ageLabel, formatDate, formatMoney, formatTime, invoiceBalance, invoiceStatus,
+  ageLabel, formatDate, formatMoney, formatTime, invoiceBalance, invoiceStatus,
   patientVisits, relativeDay, today,
 } from '../lib/logic.mjs';
 
@@ -68,7 +68,6 @@ export default function PatientDetail() {
     );
   }
 
-  const age = patient.dob ? ageFromDOB(patient.dob) : null;
   const doctorOf = (docId) => store.doctors.find((d) => d.id === docId);
 
   async function archive() {

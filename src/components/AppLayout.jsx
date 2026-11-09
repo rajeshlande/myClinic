@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
-import { applyTheme, readTheme, saveTheme } from '../lib/theme.js';
-import { appointmentMatchesQuery, formatMoney, patientSearch, relativeDay, today, tokenLabel } from '../lib/logic.mjs';
+import { readTheme, saveTheme } from '../lib/theme.js';
+import { appointmentMatchesQuery, formatMoney, patientSearch, relativeDay, today } from '../lib/logic.mjs';
 import { can } from '../lib/permissions.js';
 import { SyncBadge, SyncCenter } from './SyncCenter.jsx';
 import { LicenseBanner } from './LicenseBanner.jsx';

@@ -43,13 +43,6 @@ export const FREQUENCIES = [
   { value: 'Once a week', key: 'weekly' },
 ];
 
-export const TIMINGS = [
-  { value: 'Morning', key: 'morning' },
-  { value: 'Afternoon', key: 'afternoon' },
-  { value: 'Evening', key: 'evening' },
-  { value: 'Night', key: 'night' },
-];
-
 export const RELATIONS = [
   { value: 'After food', key: 'after_food' },
   { value: 'Before food', key: 'before_food' },

@@ -24,11 +24,6 @@ import { dosePattern, quantityToDispense } from './rx-language.js';
 /** Keep in step with `reminders.body` in supabase/schema.sql. */
 export const BODY_LIMIT = 1200;
 
-export const MESSAGE_KINDS = ['token', 'appointment', 'invoice', 'prescription', 'reminder'];
-
-/** The kinds that this module builds. Reminders come from `reminderText()`. */
-export const BUILT_KINDS = ['token', 'appointment', 'invoice', 'prescription'];
-
 function firstName(fullName) {
   return String(fullName ?? '').trim().split(/\s+/)[0] || 'there';
 }

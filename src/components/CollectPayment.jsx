@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Banknote, CheckCircle2, Copy, CreditCard, HandCoins, ShieldCheck, Smartphone, Split } from 'lucide-react';
+import { CheckCircle2, Copy, HandCoins, Smartphone } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Badge, Button, Field, Input, Modal, Segmented } from './ui.jsx';
 import UpiQr from './UpiQr.jsx';
@@ -7,8 +7,6 @@ import {
   PAYMENT_METHODS, applyPayment, formatDate, formatMoney, invoiceBalance, invoiceStatus, moneyToPaise, paiseToInput, today,
 } from '../lib/logic.mjs';
 import { UPI_APPS, invoiceUpiLink, isValidUpiId, normaliseVpa, upiPayeeName } from '../lib/upi.mjs';
-
-const METHOD_ICON = { cash: Banknote, upi: Smartphone, card: CreditCard, insurance: ShieldCheck, credit: Split };
 
 /**
  * The counter's payment sheet.

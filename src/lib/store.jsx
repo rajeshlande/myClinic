@@ -1,9 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, supabaseConfigured } from './supabase.js';
 import { makeDemoWorkspace } from './demo-data.js';
-import {
-  inviteDefaults, recallInviteError, recallInviteToken, rememberInviteError, rememberInviteToken,
-} from './invites.mjs';
+import { inviteDefaults, recallInviteToken, rememberInviteError, rememberInviteToken } from './invites.mjs';
 import { nextId } from './logic.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
@@ -18,7 +16,7 @@ import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
 import { TRIAL_DAYS } from './license.mjs';
 import {
-  TABLES, mergeFields, readCache, writeCache, clearAllCache, purgeExpiredCache, readOutbox, writeOutbox, enqueue,
+  TABLES, mergeFields, readCache, writeCache, purgeExpiredCache, readOutbox, writeOutbox, enqueue,
   newClientId, replayOutbox, readSyncMeta, writeSyncMeta, unknownColumn,
 } from './offline.js';
 
@@ -55,7 +53,6 @@ const emptyState = {
   clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [],
   invoices: [], day_closes: [], reminders: [], invites: [], subscription: null,
 };
-const STATE_TABLES = ['staff', 'patients', 'appointments', 'consultations', 'invoices', 'day_closes', 'reminders'];
 
 function readDemo() {
   try {
@@ -640,15 +637,6 @@ export function StoreProvider({ children, session }) {
     await loadLive({ quiet: true });
   }, [mode, loadLive]);
 
-  /** Invitee-side: claim a pending invite addressed to this user's email. */
-  const acceptInvite = useCallback(async (token = null) => {
-    if (mode === 'demo') return null;
-    const { data, error: e } = await supabase.rpc('accept_invite', { p_token: token });
-    if (e) throw e;
-    await loadLive();
-    return data;
-  }, [mode, loadLive]);
-
   const resetDemo = useCallback(() => {
     const fresh = makeDemoWorkspace();
     setState(fresh);
@@ -707,13 +695,6 @@ export function StoreProvider({ children, session }) {
   }, [mode, update, create, applyRemote, persistLocal, userId, session]);
 
   const dismissConflict = useCallback((id) => setConflicts((c) => c.filter((x) => x.id !== id)), []);
-
-  const signOutCleanup = useCallback(() => {
-    clearAllCache();
-    setPending([]);
-    setConflicts([]);
-    setUsingCache(false);
-  }, []);
 
   const refresh = useCallback(() => loadLive(), [loadLive]);
 
@@ -807,11 +788,6 @@ export function StoreProvider({ children, session }) {
       p_clinic: stateRef.current.clinic?.id, p_reference: reference, p_months: months,
     });
   }, [mode, applyLicense, licenceRpc, centralEnabled]);
-
-  const setLicenseStatus = useCallback(async (status) => {
-    if (mode === 'demo') return applyLicense({ ...(stateRef.current.subscription ?? {}), status });
-    return licenceRpc('set_license_status', { p_clinic: stateRef.current.clinic?.id, p_status: status });
-  }, [mode, applyLicense, licenceRpc]);
 
   /**
    * Phone home to the licence authority.
@@ -1080,25 +1056,25 @@ export function StoreProvider({ children, session }) {
       ?? (state.staff ?? [])[0]?.role ?? 'owner',
     // sync surface
     online, pending, conflicts, syncState, lastSyncedAt, usingCache,
-    flushNow: flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
+    flushNow: flush, resolveConflict, dismissConflict,
+    create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
     refresh, resetDemo, enterDemo: bootDemo,
     // drug directory (schema 14) — searched on the server, always optional
     searchDrugDirectory,
     // licensing
     license, licenseSeats, licenseUsage, writable,
-    changePlan, renewSubscription, setLicenseStatus, startTrial,
+    changePlan, renewSubscription, startTrial,
     // licence authority (verified RS256 token, never the source of enforcement)
     authority, authoritySync, syncAuthority,
     // keyless central auto-sync (no licence key, no key pair, no Edge Function)
     centralSync: { enabled: centralEnabled, ...centralState },
-    syncCentralNow, centralConfig: centralCfg,
+    syncCentralNow,
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
-    syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict, signOutCleanup,
-    create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite, acceptInvite,
+    syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict,
+    create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
     resetDemo, bootDemo, refresh, searchDrugDirectory,
     license, licenseSeats, licenseUsage, writable,
-    changePlan, renewSubscription, setLicenseStatus, startTrial,
+    changePlan, renewSubscription, startTrial,
     authority, authoritySync, syncAuthority,
     centralEnabled, centralState, centralCfg, syncCentralNow]);
 

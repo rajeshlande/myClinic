@@ -7,17 +7,14 @@ import {
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
-import { useToast, Badge, Button, Card, CardHead, Kpi, EmptyState, Avatar, Modal } from '../components/ui.jsx';
+import { useToast, Badge, Button, Card, CardHead, Kpi, EmptyState, Avatar } from '../components/ui.jsx';
 import { TrendChart, BarList, Donut, WeekStrip, Columns } from '../components/Charts.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import TokenForm from '../components/TokenForm.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import ConsultationForm from '../components/ConsultationForm.jsx';
 import {
-  addDays, appointmentsForDate, categoryRevenue, currentMonth, formatMoney, formatTime,
-  followUpDue, monthTotals, monthLabel, patientVisits, revenueSeries, relativeDay, statusMeta,
-  today, doctorPerformance, footfallSeries, outstandingByPatient, shiftMonth, formatDate,
-  queueBoard, tokenLabel, humanWait, waitedMinutes, averageWait,
+  addDays, appointmentsForDate, categoryRevenue, currentMonth, formatMoney, formatTime, followUpDue, monthTotals, monthLabel, revenueSeries, relativeDay, statusMeta, today, doctorPerformance, footfallSeries, outstandingByPatient, shiftMonth, formatDate, queueBoard, tokenLabel, humanWait, averageWait,
 } from '../lib/logic.mjs';
 
 export default function Dashboard() {

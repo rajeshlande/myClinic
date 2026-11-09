@@ -3,6 +3,55 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.23.1] — 2026-11-02 · schema 18
+
+**Nothing new to learn; less code behind it.** A full sweep for unreachable code,
+run over every export, import, local, context value, file and CSS class in the
+project.
+
+- **19 exports deleted, each proved unreferenced first.** The test was not "does
+  it look used" but "how many places in `src/`, `tests/`, `scripts/`, `supabase/`
+  and `docs/` name it" — one hit, the declaration, meant dead:
+  `logic.{appointmentDateTime, queueForDate, detectConflicts, DEFAULT_DOCTOR,
+  isOpenStatus}`, `messages.{MESSAGE_KINDS, BUILT_KINDS}`,
+  `public-booking.{bookingIsValid, localToday}`, `rx-language.TIMINGS`,
+  `schedule.rescheduleDraft`, `permissions.whoCan`, `offline.dequeue`,
+  `health.GO_LIVE_CHECKLIST`, `store.STATE_TABLES`, `supabase.configError`,
+  `AppointmentForm.sortedUpcoming`, `Charts.useMemoSafe`,
+  `CollectPayment.METHOD_ICON`, `demo-data.demoIds`.
+
+- **64 unused import bindings across 27 files**, found by blanking every `import …from`
+  span and then counting the name in the rest of the file — a name that appears
+  nowhere else is an import that was carrying nothing. The trimmer asserts after
+  writing that no dropped name is still referenced, because the first version of
+  it silently dropped a live one.
+
+- **The store no longer exposes values nothing read.** `signOutCleanup`,
+  `acceptInvite` (a second, unused copy of the invite-accept path — the mount
+  effect still calls the `accept_invite` RPC) and `setLicenseStatus` are gone from
+  the context, along with the raw `centralConfig`. `Appointments.jsx` loses a
+  `weekDays` memo and `Consultations.jsx` a follow-up badge that was computed for
+  every row and rendered in none.
+
+- **`styles.css` loses 23 classes no element carries** — the print header
+  (`rx-head`, `rx-doctor`, `rx-meta`, `rx-card`, `print-foot`), the old day board
+  (`slot-chip`, `schedule-cell`), the sparkline chart (`chart-wrap`,
+  `chart-body`, `sparkline`, `bar-track`), `skeleton`, `toolbar-actions`,
+  `sheet-safe`, `card-foot`, `field-label`, `radio`, `filter-row`, `dues-pill`,
+  `table-scroll`, `card-title`, `btn.pill`, `.med-schedule.otc` and their
+  `@media` counterparts. Only selectors whose class string appears nowhere in
+  `src/`, `index.html` or `public/sw.js` were touched, so no rule that can match
+  an element was removed. `tone-*` was kept: it is built as `` `tone-${tone}` ``.
+
+- **Two loose ends the sweep exposed.** `store.jsx` still imported
+  `clearAllCache` from the sign-out path deleted above; sign-out clears the cache
+  in `auth-context.jsx`, which was always the live path. `PatientDetail.jsx`
+  computed an `age` nobody rendered.
+
+- 542 tests pass, `npm run verify` is clean, no schema change, no secret, no
+  function deploy. The two obfuscated modules (`central-sync.mjs`, `license.mjs`)
+  and their public surface are untouched.
+
 ## [1.23.0] — 2026-11-02 · schema 18
 
 **Keyless central subscription auto-sync, and two modules obfuscated.**

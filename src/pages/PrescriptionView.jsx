@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { ArrowLeft, Printer, Stethoscope, ShieldAlert, Languages, Pill, CalendarClock, MessageSquare, FileText } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Badge, Button, Card, EmptyState, Segmented } from '../components/ui.jsx';
+import { Badge, Button, Card, EmptyState } from '../components/ui.jsx';
 import { ageLabel, formatDate } from '../lib/logic.mjs';
 import { RX_LANGUAGES, dosePattern, patientInstruction, quantityToDispense, rxSheet, fontStackFor } from '../lib/rx-language.js';
 import { DocumentHeader } from '../components/Branding.jsx';
@@ -15,7 +15,6 @@ export default function PrescriptionView() {
   const { id } = useParams();
   const store = useStore();
   const navigate = useNavigate();
-  const toast = useToast();
   const visit = store.consultations.find((c) => c.id === id);
   const [lang, setLang] = useState(visit?.rx_language ?? 'en');
   const [msgOpen, setMsgOpen] = useState(false);

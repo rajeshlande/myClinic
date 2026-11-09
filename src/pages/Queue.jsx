@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  ArrowRight, BellRing, CheckCircle2, Clock, CreditCard, MessageSquare, Phone, PlayCircle, Printer,
-  RotateCcw, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
+  CheckCircle2, Clock, CreditCard, MessageSquare, PlayCircle, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, Modal, Segmented } from '../components/ui.jsx';
@@ -12,8 +11,7 @@ import ConsultationForm from '../components/ConsultationForm.jsx';
 import MessageSheet from '../components/MessageSheet.jsx';
 import { tokenMessage } from '../lib/messages.mjs';
 import {
-  addDays, averageWait, formatDate, formatMoney, formatTime, humanWait, nextTokenNo, queueBoard,
-  queueState, relativeDay, tokenLabel, today, waitedMinutes,
+  addDays, averageWait, formatDate, formatTime, humanWait, nextTokenNo, queueBoard, queueState, relativeDay, tokenLabel, today, waitedMinutes,
 } from '../lib/logic.mjs';
 
 export default function Queue() {

@@ -137,7 +137,7 @@ Matched by name. **Bold** rows are the ones a buyer will ask about first.
 `docs/PRODUCT-GAP-ANALYSIS.md` §11 ranks these; the first one is still unfixed and it is a
 security claim in `docs/SECURITY.md`:
 
-1. **Sign-out does not purge the local cache** (G1) — `store.signOutCleanup()` is defined and never called.
+1. ~~**Sign-out does not purge the local cache** (G1)~~ — closed: `useAuth().signOut()` calls `clearAllCache()` (1.23.1).
 2. No E2E suite in the repo (the demo-door bug reached production because of this).
 3. Postgres is not in CI, so "runs on a real Postgres" is proven on my machine, not yours.
 4. No error boundary or diagnostics panel.

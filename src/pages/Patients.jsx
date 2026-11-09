@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
-  Archive, ArrowUpDown, CalendarPlus, Download, Phone, Plus, Users, UserRound,
-  ChevronRight, ShieldAlert, Wallet, Filter, MoreHorizontal,
+  CalendarPlus, Download, Phone, Plus, Users, UserRound, ChevronRight, ShieldAlert, Wallet, MoreHorizontal,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, SearchInput, Select, Tabs, Segmented } from '../components/ui.jsx';
+import {
+  useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, SearchInput, Select, Tabs,
+} from '../components/ui.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
 import {
-  ageLabel, appointmentVisitsSince, downloadFile, formatDate, formatMoney, lastAppointmentVisit,
-  lastVisit, outstandingByPatient, patientSearch, patientVisits, toCSV, today, visitFrequency,
+  ageLabel, appointmentVisitsSince, downloadFile, formatDate, formatMoney, lastAppointmentVisit, lastVisit, outstandingByPatient, patientSearch, toCSV, today, visitFrequency,
 } from '../lib/logic.mjs';
 import { can } from '../lib/permissions.js';
 

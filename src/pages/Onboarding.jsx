@@ -4,7 +4,7 @@ import { ArrowRight, Building2, Check, Clock, Stethoscope, TriangleAlert, UserRo
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
 import { Button, Field, Input, Select, Badge, Progress } from '../components/ui.jsx';
-import { CLINIC_TYPES, moneyToPaise, paiseToInput } from '../lib/logic.mjs';
+import { CLINIC_TYPES, moneyToPaise } from '../lib/logic.mjs';
 import { recallInviteError, rememberInviteError } from '../lib/invites.mjs';
 
 const STEPS = [

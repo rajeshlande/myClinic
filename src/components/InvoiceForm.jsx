@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, Trash2, Receipt } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Button, Field, Input, Select, Textarea, Modal, Avatar, Badge, IconButton } from './ui.jsx';
+import { useToast, Button, Field, Input, Select, Modal, Avatar, Badge, IconButton } from './ui.jsx';
 import {
   DEFAULT_SERVICES, PAYMENT_METHODS, computeInvoice, formatMoney, invoiceNumber, moneyToPaise,
   paiseToInput, today,

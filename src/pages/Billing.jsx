@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
-  CreditCard, Download, IndianRupee, Plus, Printer, Wallet, CircleDollarSign, Search,
-  ChevronRight, HandCoins, FileText, Receipt, TrendingUp,
+  CreditCard, Download, IndianRupee, Plus, Wallet, Search, ChevronRight, HandCoins, FileText, Receipt, TrendingUp,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, SearchInput, Select, Tabs } from '../components/ui.jsx';

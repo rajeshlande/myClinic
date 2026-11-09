@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
-  BadgeCheck, CalendarClock, Check, CreditCard, Download, Fingerprint, Globe2, IndianRupee,
-  ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, Users, WifiOff,
+  BadgeCheck, CalendarClock, Check, CreditCard, Download, Fingerprint, Globe2, IndianRupee, ReceiptText, RefreshCw, ShieldCheck, Sparkles, TriangleAlert, WifiOff,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';

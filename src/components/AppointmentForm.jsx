@@ -3,8 +3,7 @@ import { CalendarClock, UserPlus, AlertTriangle, Check, ChevronLeft, ChevronRigh
 import { useStore } from '../lib/store.jsx';
 import { useToast, Button, Field, IconButton, Input, Select, Textarea, Modal, Avatar, Badge } from './ui.jsx';
 import {
-  APPOINTMENT_TYPES, addDays, formatMoney, formatSlotRange, relativeDay, sortAppointments,
-  today, validateAppointment,
+  APPOINTMENT_TYPES, addDays, formatMoney, formatSlotRange, relativeDay, today, validateAppointment,
 } from '../lib/logic.mjs';
 import { availableSlots, detectClashes, explainConflict, groupSlots, suggestNext } from '../lib/schedule.mjs';
 import { doctorSessions } from '../lib/hours.mjs';
@@ -291,5 +290,3 @@ function patientOfName(store, id) {
   const p = store.patients.find((x) => x.id === id);
   return p?.full_name ?? 'This patient';
 }
-
-export function sortedUpcoming(appointments) { return sortAppointments(appointments.filter((a) => a.status === 'booked')); }

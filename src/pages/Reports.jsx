@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
-import { useToast, Badge, Button, Card, CardHead, Kpi, Segmented, Select } from '../components/ui.jsx';
+import { useToast, Badge, Button, Card, CardHead, Kpi, Select } from '../components/ui.jsx';
 import { TrendChart, BarList, Donut, Columns } from '../components/Charts.jsx';
 import {
   categoryRevenue, currentMonth, doctorPerformance, downloadFile, footfallSeries, formatMoney,

@@ -2,10 +2,7 @@
 // Demo workspace: fictional but realistic OPD data so the product can be
 // explored end-to-end without a Supabase project. Nothing here is real PHI.
 // ---------------------------------------------------------------------------
-import {
-  DEFAULT_CLINIC, DEFAULT_PREFERENCES, addDays, currentMonth, localISO,
-  nextId, shiftMonth, today,
-} from './logic.mjs';
+import { DEFAULT_CLINIC, DEFAULT_PREFERENCES, addDays, currentMonth, shiftMonth, today } from './logic.mjs';
 import { closure } from './hours.mjs';
 
 // Deterministic PRNG so the demo looks the same on every device.
@@ -396,5 +393,3 @@ export function makeDemoWorkspace() {
     version: 1,
   };
 }
-
-export const demoIds = { next: () => nextId() };

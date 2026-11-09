@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
-  ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarCheck, Check, ChevronRight,
-  CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar,
-  ShieldCheck, Smartphone, Sparkles, Stethoscope, Sun, Users, WifiOff, Zap, Ticket,
-  CloudOff, Languages, Paintbrush, KeyRound, Send, Sunset, Menu, X, Plus, Minus,
+  ArrowRight, BadgeCheck, BarChart3, BellRing, CalendarCheck, Check, ChevronRight, CreditCard, FileText, LayoutDashboard, Lock, MessageSquare, MoonStar, ShieldCheck, Smartphone, Sparkles, Stethoscope, Sun, Users, WifiOff, Zap, Ticket, CloudOff, Languages, KeyRound, Send, Sunset, Menu, X, Plus, Minus,
 } from 'lucide-react';
 import { PLANS, formatMoney } from '../lib/logic.mjs';
 import { useAuth } from '../lib/auth-context.jsx';

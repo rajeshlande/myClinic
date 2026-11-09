@@ -4,7 +4,7 @@ import {
   AlertCircle, ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, Clock, Copy,
   MapPin, MessageSquare, Phone, Ticket,
 } from 'lucide-react';
-import { useToast, Badge, Button, Field, Input, Spinner, Textarea } from '../components/ui.jsx';
+import { useToast, Button, Field, Input, Spinner, Textarea } from '../components/ui.jsx';
 import { formatMoney } from '../lib/logic.mjs';
 import {
   BOOKING_HORIZON_DAYS, BOOKING_SLUG_FALLBACK, availabilityByDay, bookingApi, bookingDays,

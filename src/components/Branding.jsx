@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import { ImagePlus, Loader2, Trash2, Upload, ShieldCheck, AlertTriangle } from 'lucide-react';
-import { Button, Field, IconButton, Input } from './ui.jsx';
+import { Button, Field, Input } from './ui.jsx';
 import { LOGO_ACCEPT, LOGO_KINDS, clinicInitials, logoFor, formatBytes } from '../lib/branding.mjs';
 import { describeLogo, processLogoFile } from '../lib/logo.js';
 

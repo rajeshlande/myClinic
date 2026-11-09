@@ -1,7 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import {
-  Activity, HeartPulse, Languages, Pill, Plus, Stethoscope, Trash2, Thermometer, FileText, Droplets,
-  ShieldAlert, Save, History, X, AlertTriangle, Info, CheckCircle2, Sparkles,
+  HeartPulse, Languages, Pill, Plus, Stethoscope, Trash2, FileText, ShieldAlert, Save, History, X, AlertTriangle, Info, CheckCircle2, Sparkles,
 } from 'lucide-react';
 import MedicinePicker from './MedicinePicker.jsx';
 import {
@@ -9,7 +8,7 @@ import {
 } from '../lib/medicines.mjs';
 import { useStore } from '../lib/store.jsx';
 import { can } from '../lib/permissions.js';
-import { useToast, Button, Field, Input, Select, Textarea, Modal, Avatar, Badge, IconButton } from './ui.jsx';
+import { useToast, Button, Field, Input, Select, Textarea, Modal, Badge, IconButton } from './ui.jsx';
 import { addDays, ageLabel, formatDate, formatMoney, nextRxNumber, today, validateConsultation } from '../lib/logic.mjs';
 import {
   FREQUENCIES, FREQUENCY_SHORTHAND, PATTERN_PRESETS, RELATIONS, RX_LANGUAGES,

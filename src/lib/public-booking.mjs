@@ -19,7 +19,7 @@
  * unique (doctor, date, time) constraint inside an advisory lock, so two patients
  * tapping the last slot at 11pm cannot both win.
  */
-import { addDays, localISO, slugify, timeToMinutes, today } from './logic.mjs';
+import { addDays, slugify, timeToMinutes, today } from './logic.mjs';
 import { availableSlots, groupSlots, isoDate } from './schedule.mjs';
 import { makeDemoWorkspace } from './demo-data.js';
 import { whatsappLink } from './daybook.mjs';
@@ -180,8 +180,6 @@ export function validateBooking({ name = '', phone = '', reason = '' } = {}) {
 
   return errors;
 }
-
-export const bookingIsValid = (draft) => Object.keys(validateBooking(draft)).length === 0;
 
 /** A reference a human can read out loud: BK-4K7P2Q. No vowel-less noise. */
 export function makeBookingRef(random = Math.random) {
@@ -620,5 +618,3 @@ export function dayLabel(iso) {
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
 }
-
-export const localToday = () => localISO(new Date());

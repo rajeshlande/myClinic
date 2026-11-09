@@ -1,10 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
-  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CloudOff, Cloud,
-  RefreshCw, Scale, Trash2, X, ChevronRight, Database, WifiOff,
+  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CloudOff, Cloud, RefreshCw, Scale, Trash2, ChevronRight, Database, WifiOff,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { useToast, Badge, Button, Card, CardHead, Modal, EmptyState } from './ui.jsx';
+import { useToast, Badge, Button, Modal } from './ui.jsx';
 import { describeOp } from '../lib/offline.js';
 import { formatMoney } from '../lib/logic.mjs';
 

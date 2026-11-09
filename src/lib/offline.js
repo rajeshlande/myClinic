@@ -202,12 +202,6 @@ export function enqueue(userId, op) {
   return record;
 }
 
-export function dequeue(userId, opId) {
-  const ops = readOutbox(userId).filter((o) => o.op_id !== opId);
-  writeOutbox(userId, ops);
-  return ops;
-}
-
 /** Stable id for a locally created row so replay is idempotent. */
 export function newClientId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();

@@ -51,7 +51,6 @@ export default function DayClose() {
 
   const existing = closeFor(dayCloses, iso);
   const closed = isClosed(existing);
-  const personality = store.currentStaff?.full_name ?? 'the front desk';
 
   // A day that has been closed shows what was closed, not what the numbers are
   // now — the snapshot is the record.

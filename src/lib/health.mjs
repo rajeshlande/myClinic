@@ -146,12 +146,3 @@ export function readiness(checks) {
           : 'Nothing checked yet';
   return { state, passed, warned, failed, total: list.length, headline };
 }
-
-/** The full checklist a clinic operator must tick before going live. */
-export const GO_LIVE_CHECKLIST = [
-  { id: 'env', label: 'Environment variables set in the Pages build', docs: '#2-connect-supabase' },
-  { id: 'schema', label: 'schema.sql applied, app_schema_version() answers', docs: '#3-create-the-database' },
-  { id: 'redirects', label: 'Site URL + redirect allow-list point at the Pages URL', docs: '#4-authentication-setup' },
-  { id: 'rls', label: 'schema-tests.sql suite passes', docs: '#security' },
-  { id: 'pwa', label: 'Installed from the HTTPS Pages URL, service worker active', docs: '#installable-app-pwa' },
-];

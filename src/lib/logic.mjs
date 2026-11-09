@@ -302,7 +302,6 @@ export function slugify(value = '') {
 // Appointments
 // ---------------------------------------------------------------------------
 export const statusMeta = (id) => APPOINTMENT_STATUS.find((s) => s.id === id) ?? APPOINTMENT_STATUS[0];
-export const isOpenStatus = (id) => ['booked', 'checked-in', 'in-consult'].includes(id);
 
 /** Generates bookable slots for a doctor's working day, skipping taken slots. */
 export function generateSlots({ start = '09:00', end = '13:00', duration = 15, gap = 0 } = {}) {
@@ -312,10 +311,6 @@ export function generateSlots({ start = '09:00', end = '13:00', duration = 15, g
     slots.push(minutesToTime(t));
   }
   return slots;
-}
-
-export function appointmentDateTime(appt) {
-  return new Date(`${appt.scheduled_on}T${appt.scheduled_at || '00:00'}`);
 }
 
 export function sortAppointments(list, dir = 'asc') {
@@ -329,28 +324,12 @@ export function appointmentsForDate(appointments, iso, doctorId = 'all') {
   return sortAppointments(appointments.filter((a) => a.scheduled_on === iso && (doctorId === 'all' || a.doctor_id === doctorId)));
 }
 
-export function queueForDate(appointments, iso, doctorId = 'all') {
-  const live = ['checked-in', 'in-consult'];
-  const booked = appointmentsForDate(appointments, iso, doctorId).filter((a) => isOpenStatus(a.status));
-  return {
-    inClinic: live.flatMap((s) => booked.filter((a) => a.status === s)),
-    upcoming: booked.filter((a) => a.status === 'booked'),
-    done: appointmentsForDate(appointments, iso, doctorId).filter((a) => a.status === 'completed'),
-  };
-}
-
 /** Slot availability for a date: taken slots plus suggested next free slot. */
 export function slotAvailability({ appointments, doctor, iso, duration = 15 }) {
   const taken = new Set(appointments.filter((a) => a.doctor_id === doctor.id && a.scheduled_on === iso && a.status !== 'cancelled').map((a) => a.scheduled_at));
   const all = generateSlots({ start: doctor.day_start || '09:00', end: doctor.day_end || '13:00', duration });
   const free = all.filter((s) => !taken.has(s));
   return { all, taken, free, next: free.find((s) => iso > today() || timeToMinutes(s) >= timeToMinutes(localISO() === iso ? new Date().toTimeString().slice(0, 5) : '00:00')) ?? null };
-}
-
-export function detectConflicts(appointments, draft) {
-  return appointments.filter((a) =>
-    a.id !== draft.id && a.doctor_id === draft.doctor_id && a.scheduled_on === draft.scheduled_on &&
-    a.scheduled_at === draft.scheduled_at && a.status !== 'cancelled');
 }
 
 // ---------------------------------------------------------------------------
@@ -727,12 +706,6 @@ export function profilePatch(profile = {}, prefs = {}, theme = null) {
   if (merged.send_review_request !== undefined) merged.send_review_request = Boolean(merged.send_review_request);
   return pickColumns(merged);
 }
-
-export const DEFAULT_DOCTOR = {
-  full_name: '', specialty: 'General Physician', qualification: 'MBBS', registration_no: '',
-  phone: '', email: '', color: '#0f766e', day_start: '09:00', day_end: '13:00',
-  slot_minutes: 15, fee_paise: 50000, follow_up_fee_paise: 25000, active: true, role: 'doctor',
-};
 
 // ---------------------------------------------------------------------------
 // IDs
