@@ -174,9 +174,11 @@ test('the capability map and the SQL policies cannot drift apart', () => {
 
 test('a role with half the clinic still gets the numbers it can see', () => {
   // The App must not read "no consultation rows" as "no patients came in".
-  const logic = read('../src/lib/logic.mjs');
+  // `monthTotals` moved out of logic.mjs into reporting.mjs in v1.29.0, when that
+  // 852-line module became a barrel over twelve focused ones.
+  const reporting = read('../src/lib/reporting.mjs');
   const daybook = read('../src/lib/daybook.mjs');
-  assert.match(logic, /canSeeConsultations = true/);
+  assert.match(reporting, /canSeeConsultations = true/);
   assert.match(daybook, /canSeeConsultations = true/);
   for (const page of ['../src/pages/Dashboard.jsx', '../src/pages/Reports.jsx', '../src/pages/DayClose.jsx']) {
     assert.match(read(page), /canSeeConsultations: canReadConsults/, `${page} does not pass the flag`);

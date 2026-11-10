@@ -18,7 +18,7 @@ A **functional core with an imperative shell**:
         ↓  (imports)
   lib/store.jsx                the one stateful seam: data, cache, queue, licence
         ↓  (imports)
-  lib/*.mjs                    pure domain: 30 modules, 17 of them import nothing
+  lib/*.mjs                    pure domain: 43 modules, 21 of them import nothing
         ↓  (never called from lib/)
   supabase/                    Postgres is the authority: RLS, triggers, one RPC
 ```
@@ -36,8 +36,8 @@ A **functional core with an imperative shell**:
 
 ```bash
 $ grep -rn "extends " src --include=*.js* | wc -l          # 1
-$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 30
-$ for f in src/lib/*.mjs src/lib/*.js; do [ "$(grep -c '^import ' $f)" -eq 0 ] && echo $f; done | wc -l   # 17
+$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 43
+$ for f in src/lib/*.mjs src/lib/*.js; do [ "$(grep -c '^import ' $f)" -eq 0 ] && echo $f; done | wc -l   # 21
 ```
 
 ---
@@ -55,7 +55,7 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **C+** | 17/30 lib modules are pure leaves — but `store.jsx` 1,030 lines / 13 imports, `Settings.jsx` 965 lines / 10 tabs, `ConsultationForm.jsx` 682, `logic.mjs` 88 exports |
+| Single Responsibility | **B−** | 21/43 lib modules are pure leaves and `logic.mjs` is now a 26-line barrel (v1.29.0) — but `store.jsx` is 1,031 lines / 13 imports, `Settings.jsx` 969 / 10 tabs, `ConsultationForm.jsx` 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
 | Interface Segregation | **C** | Pure modules take narrow arguments; but **32 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
@@ -109,9 +109,11 @@ server must not trust the browser, and the UI must not offer what the server wil
 refuse — but **nothing tests the two sides together**, so drift is silent. That is
 the highest-value gap in the design.
 
-**`logic.mjs` (852 lines, 88 exports) is the "utils" gravity well.** Money, dates,
-tokens, invoices, patients, queue, CSV, validation and constants, cohesive by
-*language* rather than by *responsibility*.
+**`logic.mjs` *was* the "utils" gravity well — fixed in v1.29.0.** 852 lines and 88
+exports, cohesive by language rather than responsibility. It is now twelve modules
+(`money`, `dates`, `text`, `ids`, `appointments`, `invoicing`, `patients`, `queue`,
+`reporting`, `validation`, `constants`, `csv`) behind a 26-line barrel, with tests
+that keep the barrel complete and stop any part growing back past 200 lines.
 
 **The LSP wobble.** An unknown plan silently becomes Growth in the UI while the
 database would refuse it: the mirror is more permissive than the authority.
@@ -195,7 +197,16 @@ database, no new dependency — pure file parsing, like `deploy-config.test.mjs`
 **Risk.** Low, and it retires the biggest architectural gap. **Rollback:** delete
 the test file.
 
-### Step 3 — split `logic.mjs` behind a barrel  · *low risk*
+### Step 3 — split `logic.mjs` behind a barrel  · *low risk* · **DONE v1.29.0**
+
+> **Result.** Twelve modules (largest 126 lines) behind a 26-line barrel; every one
+> of the 88 names is re-exported and a test asserts the re-export is the identical
+> object. No call site and no existing test changed — the one repointed test read
+> `logic.mjs` for `canSeeConsultations`, which now lives in `reporting.mjs`. Seven
+> new tests also forbid a part importing the barrel, cap a part at 200 lines and the
+> barrel at 60, so the file cannot grow back. 552 tests, build green.
+
+
 
 **Problem.** 88 exports and 852 lines, cohesive by language rather than purpose;
 unrelated edits collide.
@@ -293,7 +304,7 @@ change to be worth doing, it is out of scope — stop and re-plan.
 # shape
 grep -rn "extends " src --include=*.js* | wc -l                       # classes: expect 1
 grep -rl "useStore" src | wc -l                                       # ISP: expect 32 → lower
-wc -l src/lib/store.jsx src/pages/Settings.jsx src/lib/logic.mjs     # SRP hotspots
+wc -l src/lib/store.jsx src/pages/Settings.jsx src/lib/logic.mjs     # SRP hotspots (logic is a 26-line barrel since 1.29.0)
 grep -rn "switch (" src | wc -l                                       # OCP: expect 2
 
 # coupling of the plan vocabulary (step 1)

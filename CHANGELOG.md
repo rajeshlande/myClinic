@@ -3,6 +3,47 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.29.0] — 2026-11-09 · schema 18
+
+**Architecture plan, step 3: `logic.mjs` split behind a re-export barrel.**
+
+852 lines, 88 exports — money, dates, tokens, invoices, patients, the queue,
+reporting, validation, CSV and the clinic defaults in one file, cohesive by
+*language* rather than by *responsibility*. A date fix and an invoice fix sat in the
+same file, and unrelated edits collided.
+
+| Module | Lines | Holds |
+| --- | --- | --- |
+| `money.mjs` | 123 | paise in, paise out; formatting, words, payments, `sumBy` |
+| `dates.mjs` | 116 | the clinic's local day, months, ages, slot times |
+| `text.mjs` | 33 | initials, title case, ordinals, slugs |
+| `ids.mjs` | 36 | patient codes, invoice and prescription numbers, `nextId` |
+| `appointments.mjs` | 66 | status vocabulary, slot generation, the day's list |
+| `invoicing.mjs` | 86 | lines, totals, status, balance, outstanding, visit fee |
+| `patients.mjs` | 63 | history, frequency, recalls |
+| `queue.mjs` | 112 | token numbers, waits, the per-doctor board |
+| `reporting.mjs` | 126 | month totals, series, performance tables |
+| `validation.mjs` | 47 | the guards that stop a bad row before Postgres does |
+| `constants.mjs` | 141 | clinic vocabulary and new-workspace defaults |
+| `csv.mjs` | 31 | CSV export and the download shim |
+| **`logic.mjs`** | **26** | **re-exports all 88 names — nothing else** |
+
+- **The move is invisible.** `logic.mjs` re-exports every name from the same module,
+  so no call site changed and no existing test was edited — including the two
+  screens and the store that import it by name.
+- **Seven tests hold the split** (`tests/logic-modules.test.mjs`): every re-export is
+  the *identical object*, not a copy (`barrel.formatMoney === money.formatMoney`);
+  the public surface is still exactly 88 names; the private helpers of
+  `amountInWords` (`trim`, `ONES`, `TENS`, the rupee-group walkers) stayed private;
+  no part imports the barrel, so the split cannot become a cycle; the modules sit in
+  one dependency direction (`money → dates → … → reporting`); no part exceeds 200
+  lines and the barrel must stay under 60 — a ratchet against the file growing back.
+- One test was repointed, not weakened: the RBAC suite read `logic.mjs` for
+  `canSeeConsultations = true`, which now lives in `reporting.mjs`.
+
+**552 tests / 28 suites**, 28/28 contributing checks, 0 warnings. The library is now
+**43 modules, 21 of them pure leaves** (no imports at all).
+
 ## [1.28.0] — 2026-11-09 · schema 18
 
 **Architecture plan, step 2: the client mirror is pinned to the SQL authority —

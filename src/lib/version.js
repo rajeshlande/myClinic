@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.28.0';
+export const APP_VERSION = '1.29.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.29.0', date: '2026-11-09', schema: 18,
+    highlights: [
+      '**`logic.mjs` went from 852 lines and 88 exports to a 26-line barrel.** It held money, dates, tokens, invoices, patients, the queue, reporting, validation, CSV and the clinic defaults — cohesive by language rather than by responsibility, so a date fix and an invoice fix sat in the same file. It is now twelve focused modules: `money`, `dates`, `text`, `ids`, `appointments`, `invoicing`, `patients`, `queue`, `reporting`, `validation`, `constants`, `csv` (largest 126 lines).',
+      'The move is invisible by design: `logic.mjs` re-exports every name from the same module, so no call site and no existing test changed, and a test asserts each re-export is the **identical object** rather than a copy. A second test keeps the split honest — no part may import the barrel, the modules must stay in one dependency direction, and any part that grows past 200 lines fails the suite.',
+      'Seven new tests. 552 tests.',
+    ],
+  },
   {
     version: '1.28.0', date: '2026-11-09', schema: 18,
     highlights: [
