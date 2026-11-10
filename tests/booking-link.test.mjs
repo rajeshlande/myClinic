@@ -18,6 +18,9 @@ import {
  */
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const settings = read('../src/pages/Settings.jsx');
+// Since v1.30.0 the clinic tab's markup lives in its own component while the
+// savedSlug / publicLink derivation stayed on the page; the test reads both.
+const clinicTab = read('../src/components/settings/ClinicTab.jsx');
 const app = read('../src/App.jsx');
 const publicBooking = read('../src/pages/PublicBooking.jsx');
 const store = read('../src/lib/store.jsx');
@@ -95,13 +98,18 @@ test('bookingUrl keeps the hash route and drops nothing', () => {
 
 test('Settings shows the saved link, not a guessed one', () => {
   const body = code(settings);
+  const tab = code(clinicTab);
   assert.doesNotMatch(body, /sunrise-opd/, 'Settings must never fall back to the demo clinic');
+  assert.doesNotMatch(tab, /sunrise-opd/, 'the clinic tab must never fall back to the demo clinic');
   assert.match(body, /const savedSlug = clinicSlug\(store\.clinic\?\.slug/);
   assert.match(body, /const publicLink = savedSlug \? bookingUrl\(savedSlug\) : ''/);
   // Copy and Open follow the saved slug, and are unavailable until there is one
-  assert.match(body, /writeText\(bookingUrl\(savedSlug\)\)/);
-  assert.match(body, /disabled=\{!savedSlug\}[\s\S]{0,200}navigate\(`\/book\/\$\{savedSlug\}`\)/);
-  assert.match(body, /navigate\(`\/book\/\$\{savedSlug\}`\)/);
+  assert.match(tab, /writeText\(bookingUrl\(savedSlug\)\)/);
+  assert.match(tab, /disabled=\{!savedSlug\}[\s\S]{0,200}navigate\(`\/book\/\$\{savedSlug\}`\)/);
+  assert.match(tab, /navigate\(`\/book\/\$\{savedSlug\}`\)/);
+  // and the page has to hand the tab the slug it derived — a prop that goes
+  // missing would silently fall back to a guessed link again
+  assert.match(body, /<ClinicTab[\s\S]{0,400}savedSlug=\{savedSlug\}/);
 });
 
 test('saving the clinic no longer writes a made-up slug into the row', () => {

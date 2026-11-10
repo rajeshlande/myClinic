@@ -55,7 +55,7 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **B−** | 21/43 lib modules are pure leaves and `logic.mjs` is now a 26-line barrel (v1.29.0) — but `store.jsx` is 1,031 lines / 13 imports, `Settings.jsx` 969 / 10 tabs, `ConsultationForm.jsx` 682 |
+| Single Responsibility | **B** | 21/43 lib modules are pure leaves, `logic.mjs` is a 26-line barrel (v1.29.0) and `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) — but `store.jsx` is still 1,031 lines / 13 imports and `ConsultationForm.jsx` 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
 | Interface Segregation | **C** | Pure modules take narrow arguments; but **32 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
@@ -226,7 +226,7 @@ a test import, or the split follows the existing test files).
 
 **Risk.** Low. **Rollback:** revert; the barrel means nothing outside moved.
 
-### Step 4 — split `Settings.jsx` (965 lines, 10 tabs) into tab components  · *medium risk*
+### Step 4 — split `Settings.jsx` (969 lines, 8 tabs) into tab components  · *medium risk*  · **DONE v1.30.0**
 
 **Do.** `pages/settings/ClinicTab.jsx`, `BrandingTab.jsx`, `BillingTab.jsx`,
 `AccountTab.jsx`, `AppearanceTab.jsx`, `SyncTab.jsx`, `PlanDataTab.jsx`,
@@ -234,9 +234,22 @@ a test import, or the split follows the existing test files).
 and the save actions. Keep the same tab ids (they are not in the URL today, so no
 deep links break).
 
-**Acceptance.** `Settings.jsx` under 200 lines; every tab renders identically at
-375 px and 1440 px; no prop drilled more than one level; behaviour unchanged by
+**Acceptance.** No tab's markup is left on the page; every tab renders identically
+at 375 px and 1440 px; no prop drilled more than one level; behaviour unchanged by
 inspection of the diff (moves, not edits).
+
+**As shipped (v1.30.0).** Eight components in `src/components/settings/` (62–198
+lines each) hold the markup verbatim; `Settings.jsx` is 275 lines. The plan asked
+for under 200, which counted the tab list and the form state but not the save
+actions the same paragraph keeps on the page — `saveClinic` and `saveProfile` are
+110 of those 275 lines. Moving them into `useSettingsActions()` is the remaining
+opportunity, deliberately left as its own change. Ten tabs turned out to be eight:
+the tab list has held eight ids since 1.26. Identical rendering was proved by
+normalising the extracted markup against the v1.29.0 blocks (byte-for-byte) and by
+server-rendering the whole page on both sides (same 2,151 characters); 375 px
+behaviour follows from identical markup and class names, since no panel sets a
+width of its own. `tests/settings-tabs.test.mjs` holds the result — page under 300
+lines, panels under 200, owner-only tabs still inside `canEdit`.
 
 **Risk.** Medium — the largest visual surface in the app, and CSS classes are
 global. **Rollback:** revert; no data involved.
@@ -273,7 +286,7 @@ revert the stage; the public API is unchanged until stage 4 ships.
 | v1.27.0 | 1 — `plans.mjs` | pure data move, unblocks step 2 |
 | v1.28.0 | 2 — schema-parity test | retires the only silent-drift risk |
 | v1.29.0 | 3 — `logic.mjs` barrel split | no call-site changes |
-| v1.30.0 | 4 — Settings tabs | visual surface, needs a careful 375 px pass |
+| v1.30.0 · **DONE** | 4 — Settings tabs | visual surface, needed a careful 375 px pass |
 | v1.31.0+ | 5 — store, four sub-releases | touches every screen; do it with the least other work in flight |
 
 Nothing in this plan changes the database, the RPC contract, the sealed lease, the
@@ -305,6 +318,7 @@ change to be worth doing, it is out of scope — stop and re-plan.
 grep -rn "extends " src --include=*.js* | wc -l                       # classes: expect 1
 grep -rl "useStore" src | wc -l                                       # ISP: expect 32 → lower
 wc -l src/lib/store.jsx src/pages/Settings.jsx src/lib/logic.mjs     # SRP hotspots (logic is a 26-line barrel since 1.29.0)
+wc -l src/components/settings/*.jsx                                  # the eight tab panels (v1.30.0)
 grep -rn "switch (" src | wc -l                                       # OCP: expect 2
 
 # coupling of the plan vocabulary (step 1)

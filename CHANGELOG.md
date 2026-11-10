@@ -3,6 +3,66 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.30.0] — 2026-11-02 · schema 18
+
+**Architecture plan, step 4: `Settings.jsx` becomes eight tab components.**
+
+969 lines, ten `{activeTab === …}` blocks interleaved with the page state, the two
+save handlers and three modals. A change to the invoice footer and a change to the
+sync card touched the same file, and every tab's markup sat between the clinic
+form and the plan picker.
+
+| File | Lines | Holds |
+| --- | --- | --- |
+| `src/pages/Settings.jsx` | **275** | tab list, shared form state, save + export actions, the eight panels |
+| `settings/ClinicTab.jsx` | 198 | clinic profile, hours, days off, public booking |
+| `settings/BillingTab.jsx` | 118 | GST, UPI handle and QR, receipt footer |
+| `settings/PlanDataTab.jsx` | 112 | plan, seat meters, export/import, reset — with its two modals |
+| `settings/AppearanceTab.jsx` | 107 | theme, accent, density |
+| `settings/AboutTab.jsx` | 106 | build, schema, changelog, recent errors |
+| `settings/AccountTab.jsx` | 66 | my details, password, sign out |
+| `settings/BrandingTab.jsx` | 65 | the two logo uploads and the preview |
+| `settings/SyncTab.jsx` | 62 | queue, conflicts, the way into sync centre |
+| `settings/MiniStat.jsx` | 10 | the stat tile sync and about share |
+
+- **Moves, not edits.** Every panel is the original block, verbatim: indentation,
+  comments, copy, class names, conditionals. Verified rather than asserted — for
+  all eight tabs the extracted markup is byte-for-byte the v1.29.0 block once
+  whitespace is normalised, and server-rendering the whole page before and after
+  produces the same 2,151 characters of text.
+- **The page still owns the state.** `clinic`, `profile`, `prefs`, `saving`, the
+  password fields, the theme and accent, the three modals' open flags and both save
+  handlers stayed put; panels receive exactly the values they read and nothing else.
+  `clinicState`, `canEdit`, `role`, the toast, the navigate hook and `useStore()` are
+  resolved where they are used, so no tab is handed the whole store as a prop bag.
+- **Nothing was dropped on the way out.** The split was generated from a scan of
+  every page-level binding each block referenced; the two derivations a tab needs
+  but cannot compute itself (`savedSlug`, `typedSlug → publicLink`, `slugPending`)
+  were caught by that scan and are passed explicitly — a missing prop would have
+  put the guessed booking link back.
+- **Eight tabs, not ten.** The plan's step 4 said ten; `visibleTabs` has held eight
+  ids since 1.26 (clinic, branding, billing, account, appearance, sync, about,
+  plan), so eight components is the whole surface. The document is corrected.
+- **`Settings.jsx` is 275 lines, not the planned 200.** The plan's own description
+  of the finished page — "the tab list, the shared form state and the save actions"
+  — is what remains, and `saveClinic` + `saveProfile` alone are 110 of those lines
+  with their explanations. Reaching 200 would mean moving the save actions into a
+  hook, which is a separate, reviewable change (and is noted as the next
+  opportunity in `docs/ARCHITECTURE.md`).
+- **Eight new tests** (`tests/settings-tabs.test.mjs`): every tab id has a panel and
+  no panel exists without a tab; the tab order, the eight ids and the `'clinic'`
+  default are unchanged; the four owner-only tabs are still inside `canEdit`; no
+  panel imports the page back, imports from `src/pages` paths, or reads the store as
+  a module singleton; `MiniStat` has one definition; no panel writes to the database
+  except the plan switch it always made; and the ratchet — page under 300 lines,
+  every panel under 200.
+- **No behaviour change.** 560 tests pass, the build is clean, `check:pages` and
+  `check:contributing` (28/28) are green, and the only test edited is
+  `tests/booking-link.test.mjs`, which read the copy-booking-link markup out of
+  `Settings.jsx` as text: two assertions now read `settings/ClinicTab.jsx`, and a
+  third was added asserting the page passes `savedSlug` to the tab, so the property
+  that test guards is stronger than before.
+
 ## [1.29.0] — 2026-11-09 · schema 18
 
 **Architecture plan, step 3: `logic.mjs` split behind a re-export barrel.**

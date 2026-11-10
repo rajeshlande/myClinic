@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.29.0';
+export const APP_VERSION = '1.30.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.30.0', date: '2026-11-02', schema: 18,
+    highlights: [
+      '**`Settings.jsx` went from 969 lines to 275.** Eight `{activeTab === …}` blocks were interleaved with the page state, both save handlers and three modals, so an invoice-footer change and a sync-card change touched the same file. Each tab now has its own component in `src/components/settings/` — clinic, branding, billing, account, appearance, sync, about, plan (62–198 lines each) — and the page keeps the tab list, the shared form state and the save actions.',
+      'Moves, not edits: every panel is the original markup verbatim, and it was proved rather than asserted — the extracted blocks compare byte-for-byte with v1.29.0 once whitespace is normalised, and server-rendering the whole page before and after produces the same 2,151 characters of text. Nothing a clinic sees, at any width, changes.',
+      'Eight new tests hold the split: every tab id has a panel and no panel exists without a tab, the tab order and the `clinic` default are unchanged, the four owner-only tabs still sit inside `canEdit`, no panel imports the page back or writes to the database apart from the plan switch it always made, `MiniStat` has one definition, and the page may not grow back past 300 lines. 560 tests.',
+    ],
+  },
   {
     version: '1.29.0', date: '2026-11-09', schema: 18,
     highlights: [
@@ -50,7 +58,7 @@ export const CHANGELOG = [
     highlights: [
       '`docs/ARCHITECTURE.md` writes down what this codebase is: a functional core (30 modules under `src/lib`, 17 of which import nothing) behind a thin React shell, with Postgres as the authority and the client as its mirror. Every claim in it carries the command that measured it, so it can be re-measured instead of trusted.',
       'It also records where the design is weak, in public: `store.jsx` is 1,030 lines and publishes 30+ keys to 32 files, the plan vocabulary lives in 8 JS files plus `schema.sql`, and every business rule exists twice — once in JavaScript, once in SQL — with nothing testing the two copies together. Grades: DIP A−, OCP B−, SRP C+, ISP C.',
-      'The refactor plan is ordered by effort and blast radius, not severity, one step per release: a single `plans.mjs` (v1.27.0), a schema-parity test that fails when the JS mirror and the SQL authority disagree (v1.28.0), `logic.mjs` split behind a re-export barrel (v1.29.0), `Settings.jsx` split into its ten tabs (v1.30.0), and `store.jsx` split by capability in four sub-releases (v1.31.0+). No step changes behaviour, the database, the RPC contract or the seal.',
+      'The refactor plan is ordered by effort and blast radius, not severity, one step per release: a single `plans.mjs` (v1.27.0), a schema-parity test that fails when the JS mirror and the SQL authority disagree (v1.28.0), `logic.mjs` split behind a re-export barrel (v1.29.0), `Settings.jsx` split into its eight tab components (v1.30.0), and `store.jsx` split by capability in four sub-releases (v1.31.0+). No step changes behaviour, the database, the RPC contract or the seal.',
     ],
   },
   {
