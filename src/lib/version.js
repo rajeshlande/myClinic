@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.27.0';
+export const APP_VERSION = '1.28.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.28.0', date: '2026-11-09', schema: 18,
+    highlights: [
+      '**The client mirror is now pinned to the SQL authority.** Every business rule in this app exists twice on purpose — once in Postgres, which decides, and once in `src/lib`, so the UI never offers what the server will reject. Seat caps, prices, plan ids and licence statuses were duplicated with **nothing testing the pair**, so drift was silent. `tests/schema-parity.test.mjs` parses `supabase/schema.sql` and compares it with the client: a cap, a price, a plan id or a status changed on one side only now fails the suite and names the offender.',
+      'It found drift on its first run: `plan_price_paise()` quoted the yearly price at **ten times** the monthly-derived figure — ₹95,904 for Solo where the mirror said ₹9,590.40. Nothing called that function, so no invoice was ever wrong, which is exactly why nobody noticed; the constants are corrected and the authority now agrees with the mirror it is supposed to be mirrored by.',
+      'Seven new tests, no network and no database: the file is read as text, the same technique as `function-imports.test.mjs`. Proved to bite by mutation — changing Growth from 5 doctors to 6 in SQL fails the suite with “PLAN_LIMITS in src/lib/plans.mjs has drifted from plan_seat_limit() in schema.sql”. 545 tests.',
+    ],
+  },
   {
     version: '1.27.0', date: '2026-11-09', schema: 18,
     highlights: [

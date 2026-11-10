@@ -100,7 +100,8 @@ $ grep -rn "'solo'\|'growth'\|'chain'" src | grep -v plans.mjs | wc -l   # 0 (wa
 
 The remaining Open/Closed gap is the **JS ↔ SQL** one below, which step 2 closes.
 
-**Every business rule exists twice, once in JS and once in SQL — deliberately.**
+**Every business rule exists twice, once in JS and once in SQL — deliberately, and
+as of v1.28.0 with a test holding the two copies together** (§3 step 2).
 Seat caps (`PLAN_LIMITS` vs the `case p_plan` ladder, `schema.sql:746`), the write
 gate (`canWrite` vs `can_write`), status vocabularies (`licenseState` vs
 `check (status in (...))`, `schema.sql:765`). This is the right architecture — the
@@ -167,7 +168,17 @@ the SQL ladder by eye-check plus step 2's test. Diff touches imports only.
 **Risk.** Low — a data move with no logic change; `npm test` covers pricing and
 seat math already. **Rollback:** revert the commit; no data or schema involved.
 
-### Step 2 — a test that holds the JS mirror against the SQL authority  · *low risk, highest value*
+### Step 2 — a test that holds the JS mirror against the SQL authority  · *low risk, highest value* · **DONE v1.28.0**
+
+> **Result.** `tests/schema-parity.test.mjs` compares `plan_seat_limit()`,
+> `plan_price_paise()`, both plan-id constraints, the column default and the licence
+> status vocabulary against the client, by reading `schema.sql` as text. It found a
+> **10× yearly-price error** in `plan_price_paise()` on its first run (₹95,904 where
+> the mirror says ₹9,590.40 for Solo) — uncalled, so never billed, but wrong. The
+> constants are corrected, and a mutation test proves the suite fails when the two
+> sides disagree.
+
+
 
 **Problem.** The client mirror and the database can drift without a single test
 failing (see §2.2). There is no database in CI, but the *rules* are readable text.

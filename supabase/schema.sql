@@ -752,9 +752,14 @@ begin
   create or replace function public.plan_price_paise(p_plan text, p_interval text default 'monthly')
   returns bigint language sql immutable as $$
     select case
-      when p_plan = 'solo'   then case when p_interval = 'yearly' then 9590400  else 99900 end
-      when p_plan = 'growth' then case when p_interval = 'yearly' then 23990400 else 249900 end
-      when p_plan = 'chain'  then case when p_interval = 'yearly' then 57590400 else 599900 end
+      -- 12 months less 20%. These three constants were a factor of ten too large
+      -- until tests/schema-parity.test.mjs compared them with planPrice() in
+      -- src/lib/plans.mjs: the mirror said ₹9,590.40 and the authority said
+      -- ₹95,904. Nothing called this function, so no invoice was ever wrong — but
+      -- the numbers a future caller would have trusted were wrong.
+      when p_plan = 'solo'   then case when p_interval = 'yearly' then 959040   else 99900 end
+      when p_plan = 'growth' then case when p_interval = 'yearly' then 2399040  else 249900 end
+      when p_plan = 'chain'  then case when p_interval = 'yearly' then 5759040  else 599900 end
     end;
   $$;
 

@@ -3,6 +3,52 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.28.0] — 2026-11-09 · schema 18
+
+**Architecture plan, step 2: the client mirror is pinned to the SQL authority —
+and it caught real drift on its first run.**
+
+Every rule in this app exists twice on purpose: Postgres decides, `src/lib` mirrors
+so the UI never offers what the server would refuse. Nothing tested the pair, so a
+change on one side was silent on the other.
+
+- **`tests/schema-parity.test.mjs`** reads `supabase/schema.sql` as text and compares
+  it with the client vocabulary — no network, no Postgres, no new dependency:
+  - `plan_seat_limit()` ↔ `PLAN_LIMITS` (caps per plan and per seat kind, including
+    `null` = unlimited)
+  - `plan_price_paise()` ↔ `PLAN_PRICE_PAISE` and `planPrice(plan, { interval })`
+    (monthly **and** the 20 % yearly figure)
+  - both `check (plan in (…))` constraints ↔ `PLAN_IDS`, and the column default ↔
+    `DEFAULT_PLAN`
+  - `clinic_subscriptions.status` ↔ the `LicenseStatus` typedef in `license.mjs`
+  - a guard that the two functions still exist, so a rename cannot make every
+    comparison pass vacuously
+
+- **It found drift immediately.** `plan_price_paise()` quoted the yearly price at
+  **ten times** the value the mirror computes:
+
+  | Plan | Monthly | Yearly (mirror) | Yearly (SQL, before) |
+  | --- | --- | --- | --- |
+  | Solo | ₹999 | ₹9,590.40 | **₹95,904** |
+  | Growth | ₹2,499 | ₹23,990.40 | **₹239,904** |
+  | Multi-clinic | ₹5,999 | ₹57,590.40 | **₹575,904** |
+
+  Nothing in `schema.sql` calls that function, so no invoice was ever wrong — which
+  is exactly why nobody noticed, and exactly why the authority must not disagree
+  with its mirror. The three constants are corrected; because the function is
+  defined with `create or replace`, reapplying that block on an existing project
+  replaces it in place (no data is touched, no column changes).
+
+- **Proved to bite, not just to pass.** Mutating Growth's doctor cap from 5 to 6 in
+  SQL fails the suite with *"PLAN_LIMITS in src/lib/plans.mjs has drifted from
+  plan_seat_limit() in schema.sql"*. Reverted, green again.
+
+**545 tests / 27 suites**, 28/28 contributing checks, 0 warnings.
+
+**To pick up the SQL fix on an existing project:** re-run the licensing block of
+`schema.sql` in the Supabase SQL editor (it is `create or replace`, so it is safe to
+re-run); the app does not depend on it.
+
 ## [1.27.0] — 2026-11-09 · schema 18
 
 **Architecture plan, step 1: one source for the plan vocabulary.**
