@@ -1,16 +1,16 @@
 /**
- * Offline & sync: what is queued, what conflicts, and the way into the sync
-centre. Extracted verbatim from Settings.jsx in v1.30.0
- * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
+ * Offline & sync: what is queued, what conflicts, and the way into the sync centre.
+ * Extracted verbatim from Settings.jsx in v1.30.0 (docs/ARCHITECTURE.md §3 step 4) —
+ * markup and copy unchanged.
  */
 
-import {can} from '../../lib/permissions.js';
-import {SyncCenter} from '../SyncCenter.jsx';
-import {Button, Card, CardHead} from '../ui.jsx';
+import { can } from '../../lib/permissions.js';
+import { SyncCenter } from '../SyncCenter.jsx';
+import { Button, Card, CardHead } from '../ui.jsx';
 import MiniStat from './MiniStat.jsx';
-import {Check, CloudOff, RefreshCcw, RefreshCw, Scale, WifiOff} from 'lucide-react';
-import {useStore} from '../../lib/store.jsx';
-import {useAuth} from '../../lib/auth-context.jsx';
+import { Check, CloudOff, RefreshCcw, RefreshCw, Scale, WifiOff } from 'lucide-react';
+import { useStore } from '../../lib/store.jsx';
+import { useAuth } from '../../lib/auth-context.jsx';
 
 export default function SyncTab({ syncOpen, setSyncOpen, clinic }) {
   const store = useStore();

@@ -1,13 +1,14 @@
 /**
- * My account: the signed-in person's details, the password form and sign-out. Extracted verbatim from Settings.jsx in v1.30.0
- * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
+ * My account: the signed-in person's details, the password form and sign-out.
+ * Extracted verbatim from Settings.jsx in v1.30.0 (docs/ARCHITECTURE.md §3 step 4) —
+ * markup and copy unchanged.
  */
 
-import {Button, Card, CardHead, Field, Input} from '../ui.jsx';
-import {ExternalLink, LogOut, Save, ShieldCheck, UserRound} from 'lucide-react';
-import {useNavigate} from 'react-router';
-import {useToast} from '../ui.jsx';
-import {useAuth} from '../../lib/auth-context.jsx';
+import { Button, Card, CardHead, Field, Input } from '../ui.jsx';
+import { ExternalLink, LogOut, Save, ShieldCheck, UserRound } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { useToast } from '../ui.jsx';
+import { useAuth } from '../../lib/auth-context.jsx';
 
 export default function AccountTab({ profile, setProfile, pw, setPw, saveProfile, saving }) {
   const navigate = useNavigate();

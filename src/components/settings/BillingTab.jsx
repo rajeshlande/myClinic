@@ -1,16 +1,16 @@
 /**
- * Billing & invoices: GST rate, the UPI handle that prints on the invoice, and
-the receipt footer. Extracted verbatim from Settings.jsx in v1.30.0
+ * Billing & invoices: GST rate, the UPI handle that prints on the invoice, and the
+ * receipt footer. Extracted verbatim from Settings.jsx in v1.30.0
  * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
  */
 
-import {formatMoney} from '../../lib/logic.mjs';
-import {can} from '../../lib/permissions.js';
-import {UPI_APPS, buildUpiUri, isValidUpiId, normaliseVpa, upiPayeeName} from '../../lib/upi.mjs';
+import { formatMoney } from '../../lib/logic.mjs';
+import { can } from '../../lib/permissions.js';
+import { UPI_APPS, buildUpiUri, isValidUpiId, normaliseVpa, upiPayeeName } from '../../lib/upi.mjs';
 import UpiQr from '../UpiQr.jsx';
-import {Button, Card, CardHead, Field, Input, Select} from '../ui.jsx';
-import {CreditCard, QrCode, Save, ShieldCheck} from 'lucide-react';
-import {useStore} from '../../lib/store.jsx';
+import { Button, Card, CardHead, Field, Input, Select } from '../ui.jsx';
+import { CreditCard, QrCode, Save, ShieldCheck } from 'lucide-react';
+import { useStore } from '../../lib/store.jsx';
 
 export default function BillingTab({ clinic, setClinic, saveClinic, saving }) {
   const store = useStore();

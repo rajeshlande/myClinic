@@ -3,6 +3,62 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.31.0] — 2026-11-02 · schema 18
+
+**Architecture plan, step 5 sub-release 1 of 4: the outbox and the cache leave the
+provider.**
+
+`store.jsx` was 1,031 lines with thirteen imports. `offline.js` already held the
+queue itself — keys, TTL, `enqueue`, `backoffMs`, `classifySyncError`, the pure
+`replayOutbox` — but the three parts that touch React and Supabase were written
+inline inside `StoreProvider`, and nothing could reach them: not a unit test, not a
+fake database, not a private-mode browser.
+
+| File | Lines | Holds |
+| --- | --- | --- |
+| `src/lib/offline-queue.js` | **new** | `FLUSH_INTERVAL_MS`, `flushGuard`, `syncStateAfterFlush`, `supabaseOutboxDb(client)` |
+| `src/lib/offline-cache.js` | **new** | the demo snapshot, `mirrorState`, `mergeRemoteRow`, `clearDemoSnapshot` |
+| `src/lib/store.jsx` | 1,031 → **999** | the provider, now composing those decisions |
+
+- **The four guards became a nameable answer.** `flushGuard({ mode, userId, online,
+  flushing, queued })` returns `{ skip, reason, state }` — `not-live`, `in-flight`,
+  `offline`, `nothing-queued` — so the sync pill's value travels with the decision
+  instead of being a side effect of an early return, and the two guards that must
+  *not* touch the pill return no state at all. `syncStateAfterFlush({ stopped })`
+  keeps the distinction the person reading the screen cares about: a `retry`
+  verdict is *offline*, anything else is *error*.
+- **The adapter is injected, not imported.** `supabaseOutboxDb(client)` is the code
+  that was inline, moved verbatim, with the client as a parameter — so `selectOne`'s
+  id-or-`client_id` lookup, `PGRST116` read as "not there yet", the throw-on-refusal
+  of `insert`/`update` and the idempotent `remove` are all now testable with a fake
+  PostgREST that records the calls it receives.
+- **A regression the build cannot see, caught before release.** Building the
+  adapter in a `useMemo` looked harmless; a demo workspace has **no Supabase client
+  at all** (`supabase` is `null` when no keys are configured), so the first render of
+  the demo build threw. The provider smoke at `tools/store-provider-smoke/` renders
+  `<StoreProvider>` with no keys and fails on exactly that; the adapter is now built
+  only when a client exists, and a test holds it. Proved by mutation: restoring the
+  eager version crashes the smoke, restoring the guard passes it.
+- **The demo key is named once.** The reset button in Settings spelled
+  `'myclinic.demo.v1'` itself; it now calls `clearDemoSnapshot()`, so the key, its
+  read-validate rule (*a snapshot without a clinic is no snapshot*) and its
+  private-mode tolerance have one home.
+- **Nineteen new tests** (`tests/offline-queue.test.mjs`, `tests/offline-cache-mirrors.test.mjs` —
+  *not* `offline-cache.test.mjs`, which has held the cache-TTL suite since v1.19.1; the name
+  collision was caught before commit, so no test was lost):
+  the guard truth table, the pill's transitions, the adapter against a recording fake
+  (by id, by client id, no rows, refusal, idempotent delete, and no client at all),
+  the snapshot round-trip and its five unreadable shapes, the demo/quota failures,
+  and the row merge — existing row, `client_id` match, unknown row to the front, input
+  not mutated. Plus the ratchet: `store.jsx` under 1,000 lines, no insert or
+  `PGRST116` handling left inline, `offline-queue.js` importing neither React nor
+  Supabase nor the store.
+- **No behaviour change and no API change.** `useStore()` returns the same keys; the
+  flush reads the outbox once instead of twice (the guard now consumes the ops it
+  checked), and the retry timer reads its interval from `FLUSH_INTERVAL_MS` instead of
+  a literal `20000`. 579 tests across 32 suites, build clean, `check:pages` ✓,
+  `check:contributing` 28/28, security suite ✓.
+
 ## [1.30.0] — 2026-11-02 · schema 18
 
 **Architecture plan, step 4: `Settings.jsx` becomes eight tab components.**

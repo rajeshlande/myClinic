@@ -1,14 +1,14 @@
 /**
- * Logos & branding: the two uploads, the live preview and the note about where
-the files are stored. Extracted verbatim from Settings.jsx in v1.30.0
+ * Logos & branding: the two uploads, the live preview and the note about where the
+ * files are stored. Extracted verbatim from Settings.jsx in v1.30.0
  * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
  */
 
-import {can} from '../../lib/permissions.js';
-import {BrandMark, BrandingFields} from '../Branding.jsx';
-import {Button, Card, CardHead} from '../ui.jsx';
-import {ImagePlus, Save, ShieldCheck} from 'lucide-react';
-import {useStore} from '../../lib/store.jsx';
+import { can } from '../../lib/permissions.js';
+import { BrandMark, BrandingFields } from '../Branding.jsx';
+import { Button, Card, CardHead } from '../ui.jsx';
+import { ImagePlus, Save, ShieldCheck } from 'lucide-react';
+import { useStore } from '../../lib/store.jsx';
 
 export default function BrandingTab({ clinic, setClinic, saveClinic, saving, profile }) {
   const store = useStore();

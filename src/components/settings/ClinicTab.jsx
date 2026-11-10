@@ -1,19 +1,19 @@
 /**
- * Clinic profile, consulting hours, days off and the public booking switch — one
-tab, one file. Extracted verbatim from Settings.jsx in v1.30.0
- * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
+ * Clinic profile, consulting hours, days off and the public booking switch — one tab,
+ * one file. Extracted verbatim from Settings.jsx in v1.30.0 (docs/ARCHITECTURE.md §3
+ * step 4) — markup and copy unchanged.
  */
 
-import {FOLLOW_UP_MAX_DAYS, FOLLOW_UP_MIN_DAYS} from '../../lib/hours.mjs';
-import {CLINIC_TYPES} from '../../lib/logic.mjs';
-import {can} from '../../lib/permissions.js';
-import {BOOKING_HORIZON_DAYS, bookingUrl, clinicSlug} from '../../lib/public-booking.mjs';
-import {DayOffEditor, SessionEditor} from '../HoursEditor.jsx';
-import {Badge, Button, Card, CardHead, Field, Input, Select} from '../ui.jsx';
-import {Building2, CalendarDays, CalendarOff, Clock, Copy, ExternalLink, Save} from 'lucide-react';
-import {useStore} from '../../lib/store.jsx';
-import {useNavigate} from 'react-router';
-import {useToast} from '../ui.jsx';
+import { FOLLOW_UP_MAX_DAYS, FOLLOW_UP_MIN_DAYS } from '../../lib/hours.mjs';
+import { CLINIC_TYPES } from '../../lib/logic.mjs';
+import { can } from '../../lib/permissions.js';
+import { BOOKING_HORIZON_DAYS, bookingUrl, clinicSlug } from '../../lib/public-booking.mjs';
+import { DayOffEditor, SessionEditor } from '../HoursEditor.jsx';
+import { Badge, Button, Card, CardHead, Field, Input, Select } from '../ui.jsx';
+import { Building2, CalendarDays, CalendarOff, Clock, Copy, ExternalLink, Save } from 'lucide-react';
+import { useStore } from '../../lib/store.jsx';
+import { useNavigate } from 'react-router';
+import { useToast } from '../ui.jsx';
 
 export default function ClinicTab({ clinic, setClinic, saveClinic, saving, followUpError, nextClosedLine, profile, savedSlug, publicLink, slugPending }) {
   const store = useStore();

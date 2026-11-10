@@ -1,4 +1,6 @@
-/** The small stat tile the sync and about tabs both show. */
+/**
+ * The small stat tile the sync and about tabs both show.
+ */
 
 export default function MiniStat({ label, value, tone = 'neutral' }) {
   return (

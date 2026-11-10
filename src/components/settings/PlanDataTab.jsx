@@ -1,15 +1,17 @@
 /**
- * Plan & data: the current plan, the seat meters, and the export/import and demo
-reset actions, with the plan picker and reset confirmation they open. Extracted verbatim from Settings.jsx in v1.30.0
- * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
+ * Plan & data: the current plan, the seat meters, and the export/import and demo reset
+ * actions, with the plan picker and reset confirmation they open. Extracted verbatim
+ * from Settings.jsx in v1.30.0 (docs/ARCHITECTURE.md §3 step 4) — markup and copy
+ * unchanged.
  */
 
-import {PLANS, downloadFile, formatMoney, toCSV, today} from '../../lib/logic.mjs';
-import {planLimits, planRow} from '../../lib/plans.mjs';
-import {Badge, Button, Card, CardHead, Modal} from '../ui.jsx';
-import {Download, Monitor, RefreshCw, ShieldCheck, Sparkles, Trash2} from 'lucide-react';
-import {useStore} from '../../lib/store.jsx';
-import {useToast} from '../ui.jsx';
+import { PLANS, downloadFile, formatMoney, toCSV, today } from '../../lib/logic.mjs';
+import { planLimits, planRow } from '../../lib/plans.mjs';
+import { Badge, Button, Card, CardHead, Modal } from '../ui.jsx';
+import { Download, Monitor, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
+import { useStore } from '../../lib/store.jsx';
+import { clearDemoSnapshot } from '../../lib/offline-cache.js';
+import { useToast } from '../ui.jsx';
 
 /** A null cap is unlimited — printed as ∞, the way the seat meters show it. */
 const cap = (n) => (n === null ? '∞' : n);
@@ -104,7 +106,7 @@ export default function PlanDataTab({ planOpen, setPlanOpen, resetOpen, setReset
       </Modal>
 
       <Modal open={resetOpen} onClose={() => setResetOpen(false)} title="Clear demo data?"
-        footer={<><Button variant="ghost" onClick={() => setResetOpen(false)}>Keep it</Button><Button variant="danger" onClick={() => { localStorage.removeItem('myclinic.demo.v1'); store.resetDemo(); toast.success('Demo cleared and rebuilt.'); setResetOpen(false); }}>Clear and rebuild</Button></>}>
+        footer={<><Button variant="ghost" onClick={() => setResetOpen(false)}>Keep it</Button><Button variant="danger" onClick={() => { clearDemoSnapshot(); store.resetDemo(); toast.success('Demo cleared and rebuilt.'); setResetOpen(false); }}>Clear and rebuild</Button></>}>
         <p className="small muted">This only clears the fictional demo workspace stored in this browser. Nothing is sent or deleted anywhere else.</p>
       </Modal>
     </>

@@ -1,12 +1,13 @@
 /**
- * Appearance & colours: theme, accent and density, applied on this device only. Extracted verbatim from Settings.jsx in v1.30.0
- * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
+ * Appearance & colours: theme, accent and density, applied on this device only.
+ * Extracted verbatim from Settings.jsx in v1.30.0 (docs/ARCHITECTURE.md §3 step 4) —
+ * markup and copy unchanged.
  */
 
-import {ACCENTS} from '../../lib/theme.js';
-import {PWAStatus} from '../PWAWidgets.jsx';
-import {Button, Card, CardHead, Field, Input, Segmented, Select} from '../ui.jsx';
-import {BellRing, Check, Palette, Save, Smartphone, Sun, WifiOff} from 'lucide-react';
+import { ACCENTS } from '../../lib/theme.js';
+import { PWAStatus } from '../PWAWidgets.jsx';
+import { Button, Card, CardHead, Field, Input, Segmented, Select } from '../ui.jsx';
+import { BellRing, Check, Palette, Save, Smartphone, Sun, WifiOff } from 'lucide-react';
 
 export default function AppearanceTab({ theme, setTheme, changeTheme, accent, setAccent, changeAccent, prefs, setPrefs, saveProfile, saving }) {
   return (

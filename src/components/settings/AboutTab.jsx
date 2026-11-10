@@ -1,15 +1,15 @@
 /**
- * About & version: build, schema, changelog and the recent-errors list a clinic
-can paste to support. Extracted verbatim from Settings.jsx in v1.30.0
+ * About & version: build, schema, changelog and the recent-errors list a clinic can
+ * paste to support. Extracted verbatim from Settings.jsx in v1.30.0
  * (docs/ARCHITECTURE.md §3 step 4) — markup and copy unchanged.
  */
 
-import {ROLE_BLURB, ROLE_LABEL, can} from '../../lib/permissions.js';
-import {APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION} from '../../lib/version.js';
-import {Badge, Button, Card, CardHead} from '../ui.jsx';
+import { ROLE_BLURB, ROLE_LABEL, can } from '../../lib/permissions.js';
+import { APP_VERSION, BUILD_LABEL, CHANGELOG, SCHEMA_VERSION } from '../../lib/version.js';
+import { Badge, Button, Card, CardHead } from '../ui.jsx';
 import MiniStat from './MiniStat.jsx';
-import {AlertCircle, Check, Copy, GitBranch, History, RefreshCw, ShieldCheck, Sparkles} from 'lucide-react';
-import {useStore} from '../../lib/store.jsx';
+import { AlertCircle, Check, Copy, GitBranch, History, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import { useStore } from '../../lib/store.jsx';
 
 export default function AboutTab({ problems, copyDiagnostics, clinic }) {
   const store = useStore();

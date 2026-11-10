@@ -6,7 +6,7 @@ import { nextId } from './logic.mjs';
 import { DEFAULT_PLAN, FALLBACK_PLAN } from './plans.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
-import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
+import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod, TRIAL_DAYS } from './license.mjs';
 import {
   CENTRAL_MANAGED_MESSAGE, CENTRAL_SYNC_INTERVAL_MS, centralHostLabel, centralStateFromResult,
   centralSubscriptionRow, centralSyncConfig, getOrCreateCentralDeviceId, maskEmail, probeCentralReadiness,
@@ -14,13 +14,12 @@ import {
 } from './central-sync.mjs';
 import { medicineFromDirectoryRow } from './medicines.mjs';
 import { MIN_QUERY_LENGTH } from './drug-search.mjs';
-import { TRIAL_DAYS } from './license.mjs';
 import {
   TABLES, mergeFields, readCache, writeCache, purgeExpiredCache, readOutbox, writeOutbox, enqueue,
   newClientId, replayOutbox, readSyncMeta, writeSyncMeta, unknownColumn,
 } from './offline.js';
-
-const DEMO_KEY = 'myclinic.demo.v1';
+import { FLUSH_INTERVAL_MS, flushGuard, syncStateAfterFlush, supabaseOutboxDb } from './offline-queue.js';
+import { mergeRemoteRow, mirrorState, readDemoSnapshot } from './offline-cache.js';
 
 /** A project that has not run schema 9 yet answers with this instead of a slug. */
 const missingFunction = (error) => error?.code === 'PGRST202' || error?.code === '42883'
@@ -54,16 +53,6 @@ const emptyState = {
   invoices: [], day_closes: [], reminders: [], invites: [], subscription: null,
 };
 
-function readDemo() {
-  try {
-    const raw = localStorage.getItem(DEMO_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed?.clinic ? parsed : null;
-  } catch { return null; }
-}
-function writeDemo(state) {
-  try { localStorage.setItem(DEMO_KEY, JSON.stringify(state)); } catch { /* quota / private mode */ }
-}
 
 export function StoreProvider({ children, session }) {
   const [mode, setMode] = useState(supabaseConfigured && session ? 'live' : 'demo');
@@ -107,7 +96,7 @@ export function StoreProvider({ children, session }) {
   useEffect(() => { purgeExpiredCache(); }, []);
 
   const bootDemo = useCallback(() => {
-    const cached = readDemo();
+    const cached = readDemoSnapshot();
     const next = cached ?? makeDemoWorkspace();
     if (!next.subscription) {
       const startedAt = new Date();
@@ -122,7 +111,7 @@ export function StoreProvider({ children, session }) {
         collection_ref: 'DEMO-TRIAL',
       };
     }
-    writeDemo(next);          // persist immediately: offline demos survive a reload
+    mirrorState({ mode: 'demo', state: next });   // persist at once: offline demos survive a reload
     setState({ ...next });
     setMode('demo');
     setReady(true);
@@ -308,8 +297,7 @@ export function StoreProvider({ children, session }) {
   const persistLocal = useCallback((updater) => {
     setState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
-      if (mode === 'demo') writeDemo(next);
-      else if (userId && next.clinic?.id) writeCache(userId, next.clinic.id, next);
+      mirrorState({ mode, userId, state: next });
       return next;
     });
     setSavedAt(new Date());
@@ -318,51 +306,33 @@ export function StoreProvider({ children, session }) {
   /* ------------------------------------------------------------------- flushing */
   const applyRemote = useCallback((table, row) => {
     setState((prev) => {
-      const list = prev[table] ?? [];
-      const exists = list.some((r) => r.id === row.id || (row.client_id && r.client_id === row.client_id));
-      const nextList = exists
-        ? list.map((r) => (r.id === row.id || (row.client_id && r.client_id === row.client_id) ? { ...r, ...row } : r))
-        : [row, ...list];
-      const next = { ...prev, [table]: nextList };
+      const next = { ...prev, [table]: mergeRemoteRow(prev[table], row) };
       if (userId && next.clinic?.id) writeCache(userId, next.clinic.id, next);
       return next;
     });
   }, [userId]);
 
+  // Built once — and only when there is a client to build it around. A demo
+  // workspace runs with no Supabase project at all, so `supabase` is null there and
+  // an adapter built eagerly would throw on the first render.
+  const outboxDb = useMemo(() => (supabase ? supabaseOutboxDb(supabase) : null), []);
+
   const flush = useCallback(async () => {
-    if (mode !== 'live' || !userId || flushing.current) return;
-    if (!navigator.onLine) { setSyncState('offline'); return; }
-    const ops = readOutbox(userId);
-    if (!ops.length) { setSyncState('idle'); return; }
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+    // The outbox is read once, and only when a flush could actually happen.
+    const ops = mode === 'live' && userId && online ? readOutbox(userId) : [];
+    // Four guards, one answer, and the pill's value travels with it.
+    const guard = flushGuard({ mode, userId, online, flushing: flushing.current, queued: ops.length });
+    if (guard.skip) { if (guard.state) setSyncState(guard.state); return; }
+    if (!outboxDb) return;                       // demo build: no client, nothing to flush with
 
     flushing.current = true;
     setSyncState('syncing');
 
-    // The replay/marge machinery is a pure module so it is unit-tested; here we
-    // only supply the real database adapter.
-    const db = {
-      async selectOne(table, filter) {
-        let q = supabase.from(table).select('*');
-        q = filter.id ? q.eq('id', filter.id) : q.eq('client_id', filter.client_id);
-        const { data, error: e } = await q.maybeSingle();
-        if (e && e.code !== 'PGRST116') throw e;
-        return data ?? null;
-      },
-      async insert(table, row) {
-        const { data, error: e } = await supabase.from(table).insert(row).select().single();
-        if (e) throw e;
-        return data;
-      },
-      async update(table, id, patch) {
-        const { data, error: e } = await supabase.from(table).update(patch).eq('id', id).select().single();
-        if (e) throw e;
-        return data;
-      },
-      async remove(table, id) {
-        const { error: e } = await supabase.from(table).delete().eq('id', id);
-        if (e && e.code !== 'PGRST116') throw e;
-      },
-    };
+    // The replay/merge machinery is a pure module so it is unit-tested; here we
+    // only supply the database adapter, which now lives beside this decision in
+    // offline-queue.js and takes the client rather than importing it.
+    const db = outboxDb;
 
     try {
       const { remaining, conflicts: found, applied, stopped } = await replayOutbox({ ops, db });
@@ -371,10 +341,8 @@ export function StoreProvider({ children, session }) {
       writeOutbox(userId, remaining);
       setPending(remaining);
 
-      if (stopped) {
-        setSyncState(stopped.verdict === 'retry' ? 'offline' : 'error');
-      } else {
-        setSyncState('idle');
+      setSyncState(syncStateAfterFlush({ stopped }));
+      if (!stopped) {
         setLastSyncedAt(new Date().toISOString());
         writeSyncMeta({ lastSyncedAt: new Date().toISOString() });
         if (applied.length) loadLive({ quiet: true }).catch(() => {});
@@ -384,13 +352,13 @@ export function StoreProvider({ children, session }) {
     } finally {
       flushing.current = false;
     }
-  }, [mode, userId, applyRemote, loadLive]);
+  }, [mode, userId, applyRemote, loadLive, outboxDb]);
 
   // Retry whenever we come back online, on a timer, and after each local write.
   useEffect(() => {
     if (mode !== 'live') return;
     if (online) flush();
-    const t = setInterval(() => { if (navigator.onLine) flush(); }, 20000);
+    const t = setInterval(() => { if (navigator.onLine) flush(); }, FLUSH_INTERVAL_MS);
     return () => clearInterval(t);
   }, [online, mode, flush]);
 
@@ -636,7 +604,7 @@ export function StoreProvider({ children, session }) {
   const resetDemo = useCallback(() => {
     const fresh = makeDemoWorkspace();
     setState(fresh);
-    writeDemo(fresh);
+    mirrorState({ mode: 'demo', state: fresh });
     setMode('demo');
     setReady(true);
   }, []);
@@ -726,7 +694,7 @@ export function StoreProvider({ children, session }) {
     setState((prev) => {
       const next = { ...prev, subscription: row };
       const clinicId = prev.clinic?.id;
-      if (mode === 'demo') writeDemo(next);
+      if (mode === 'demo') mirrorState({ mode, state: next });
       else if (userId && clinicId) writeCache(userId, clinicId, next);
       return next;
     });

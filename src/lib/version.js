@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.30.0';
+export const APP_VERSION = '1.31.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.31.0', date: '2026-11-02', schema: 18,
+    highlights: [
+      '**The outbox flush loop left the provider.** `offline.js` already owned the queue itself — the keys, the TTL, the backoff, the pure `replayOutbox` — but the three things that touch React and Supabase were written inline inside `StoreProvider`, where no test could reach them: the concrete database adapter, the decision of whether a tick should flush at all, and what the sync pill says afterwards. They are now `src/lib/offline-queue.js`, and the adapter takes the client as an argument instead of importing it.',
+      'The cache mirrors went the same way. Reading and writing the demo snapshot, choosing between the demo key and the per-clinic cache, and folding a server row into a list the client already shows are now pure functions in `src/lib/offline-cache.js` that take the storage — so a phone in private mode and a full quota are two assertions instead of two assumptions. The demo key is named in exactly one place.',
+      'A regression the build cannot see was caught by a provider smoke and fixed before release: the adapter was being built in a `useMemo`, and a demo workspace has no Supabase client at all, so the first render of the demo build threw. It is now built only when a client exists, and a test holds that. `store.jsx` is 999 lines, from 1,031. 579 tests.',
+    ],
+  },
   {
     version: '1.30.0', date: '2026-11-02', schema: 18,
     highlights: [
