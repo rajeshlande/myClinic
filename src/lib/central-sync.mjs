@@ -53,6 +53,8 @@ export const CENTRAL_RPC = 'sync_clinic_subscription';
 export const CENTRAL_MANAGED_MESSAGE = 'This clinic subscription is managed centrally.';
 
 /** The two build variables, named once so the UI, the workflow and the docs agree. */
+import { CENTRAL_TIER_TO_PLAN, FALLBACK_PLAN, planForTier } from './plans.mjs';
+
 export const CENTRAL_ENV_URL = 'VITE_CENTRAL_SUPABASE_URL';
 export const CENTRAL_ENV_KEY = 'VITE_CENTRAL_SUPABASE_ANON_KEY';
 
@@ -65,16 +67,11 @@ const SEP = '\u241f';
 /**
  * Central tier → the plan myClinic already understands.
  *
- * The only tier map left in the build: the RS256 licence-authority path it was
- * once a copy of is gone, so this is now the single place a tier becomes a plan.
+ * The map itself now lives in `plans.mjs` with every other plan mapping; it is
+ * re-exported here because this module's public surface is what the app and the
+ * tests import. `planForTier()` is the only place a tier becomes a plan.
  */
-export const CENTRAL_TIER_TO_PLAN = Object.freeze({
-  solo: 'solo',
-  standard: 'growth',
-  growth: 'growth',
-  chain: 'chain',
-  enterprise: 'chain',
-});
+export { CENTRAL_TIER_TO_PLAN };
 
 /** The fields a seal covers — the ones that decide whether a clinic may write. */
 export const CENTRAL_SEAL_FIELDS = Object.freeze([
@@ -688,7 +685,7 @@ export function centralSubscriptionRow(lease, { clinicId } = {}) {
     return {
       clinic_id: clinicId ?? null,
       status: 'expired',
-      plan: 'solo',
+      plan: FALLBACK_PLAN,
       interval: 'yearly',
       current_period_end: lease?.expires_at ?? null,
       collection_ref: String(lease?.code ?? 'CENTRAL-PAUSED'),
@@ -697,7 +694,7 @@ export function centralSubscriptionRow(lease, { clinicId } = {}) {
   return {
     clinic_id: clinicId ?? null,
     status: 'active',
-    plan: CENTRAL_TIER_TO_PLAN[String(lease?.tier ?? '').toLowerCase()] ?? 'solo',
+    plan: planForTier(lease?.tier),
     interval: 'yearly',
     // The contract's own window: `current_period_start` is what `licenseState()`
     // reads as `startsAt`, so the card can print "01 Nov 2026 → 30 Nov 2026"
@@ -746,7 +743,7 @@ export async function syncCentralSubscription({
       ok: false,
       allowed: false,
       status: 'expired',
-      plan: 'solo',
+      plan: FALLBACK_PLAN,
       tier: '',
       expiresAt: null,
       graceUntil: null,
@@ -847,7 +844,7 @@ export async function syncCentralSubscription({
       ok: false,
       allowed: true,
       status: String(lease.status ?? 'active'),
-      plan: CENTRAL_TIER_TO_PLAN[String(lease.tier ?? '').toLowerCase()] ?? 'solo',
+      plan: planForTier(lease.tier),
       tier: String(lease.tier ?? ''),
       expiresAt: lease.expires_at ?? null,
       graceUntil: lease.grace_until ?? null,
@@ -895,7 +892,7 @@ export async function syncCentralSubscription({
       allowed: true,
       status: status || 'active',
       tier,
-      plan: CENTRAL_TIER_TO_PLAN[tier] ?? 'solo',
+      plan: planForTier(tier),
       expires_at: answer.expires_at ?? null,
       grace_until: answer.grace_until ?? null,
       // `started_at` is the column this release asks the central RPC to return;
@@ -944,6 +941,6 @@ export async function syncCentralSubscription({
     status: status || 'expired',
     reason: String(answer.reason ?? ''),
     expiresAt: answer.expires_at ?? null,
-    tier: String(answer.tier ?? 'solo'),
+    tier: String(answer.tier ?? FALLBACK_PLAN),
   });
 }

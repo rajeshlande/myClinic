@@ -87,17 +87,18 @@ usage, drug-directory search, Central sync *and* the context value. It spreads t
 whole dataset into context, so Interface Segregation cannot be enforced: the
 published interface is "everything".
 
-**The plan vocabulary is the clearest Open/Closed failure.**
+**The plan vocabulary *was* the clearest Open/Closed failure — fixed in v1.27.0.**
+It used to live in eight files, so a fourth plan was a nine-file edit (eight JS
+files plus three places in `schema.sql`), and a missed file showed as a price on one
+screen disagreeing with the cap on the next. `src/lib/plans.mjs` now owns it, a test
+fails if a quoted plan id appears anywhere else in `src/`, and every consumer uses
+`planId()` / `planLabel()` / `planLimits()` / `planPrice()` instead of a ternary.
 
 ```bash
-$ grep -rl "'solo'" src | wc -l                             # 8
-$ grep -rl "SEAT_LIMIT_REACHED" src                        # 2 (central-sync, version)
+$ grep -rn "'solo'\|'growth'\|'chain'" src | grep -v plans.mjs | wc -l   # 0 (was 8 files)
 ```
 
-Adding a fourth plan is a nine-file edit (eight JS files plus three places in
-`schema.sql`). Miss one and the symptom is a price or seat cap that disagrees
-between the screen and the trigger. Adding a refusal code is a one-module edit, in
-the same codebase — two different standards of discipline.
+The remaining Open/Closed gap is the **JS ↔ SQL** one below, which step 2 closes.
 
 **Every business rule exists twice, once in JS and once in SQL — deliberately.**
 Seat caps (`PLAN_LIMITS` vs the `case p_plan` ladder, `schema.sql:746`), the write
@@ -142,7 +143,16 @@ behaviour change, no test deleted**, version bumped in lockstep
 and every gate green (`npm test`, `build`, `check:pages`, `check:contributing`,
 `test:security`).
 
-### Step 1 — `src/lib/plans.mjs`: one source for the plan vocabulary  · *lowest risk*
+### Step 1 — `src/lib/plans.mjs`: one source for the plan vocabulary  · *lowest risk* · **DONE v1.27.0**
+
+> **Result.** `plans.mjs` owns the ids, caps, prices, labels, blurbs, seat lines,
+> the catalogue and the Central tier map; nine files consume it; `license.mjs`,
+> `logic.mjs` and `central-sync.mjs` re-export their old names so no call site
+> moved. Acceptance met: **zero** quoted plan ids outside `plans.mjs` (8 files
+> before), enforced by `tests/plans.test.mjs`. One copy change, disclosed: the seat
+> message now reads "1 doctor seat / 5 doctor seats". 538 tests, build green.
+
+
 
 **Problem.** `'solo' | 'growth' | 'chain'` appears in 8 JS files; caps, prices,
 labels and blurbs are each defined somewhere different.
@@ -276,7 +286,7 @@ wc -l src/lib/store.jsx src/pages/Settings.jsx src/lib/logic.mjs     # SRP hotsp
 grep -rn "switch (" src | wc -l                                       # OCP: expect 2
 
 # coupling of the plan vocabulary (step 1)
-grep -rl "'solo'" src | wc -l                                         # expect 8 → 1
+grep -rn "'solo'\|'growth'\|'chain'" src | grep -v plans.mjs | wc -l  # expect 0 (since 1.27.0)
 
 # the mirror vs the authority (step 2)
 grep -n "case p_plan" -A 4 supabase/schema.sql | head

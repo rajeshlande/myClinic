@@ -3,6 +3,7 @@ import { supabase, supabaseConfigured } from './supabase.js';
 import { makeDemoWorkspace } from './demo-data.js';
 import { inviteDefaults, recallInviteToken, rememberInviteError, rememberInviteToken } from './invites.mjs';
 import { nextId } from './logic.mjs';
+import { DEFAULT_PLAN, FALLBACK_PLAN } from './plans.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod } from './license.mjs';
@@ -112,7 +113,7 @@ export function StoreProvider({ children, session }) {
       const startedAt = new Date();
       next.subscription = {
         clinic_id: next.clinic?.id ?? 'demo-clinic',
-        plan: next.clinic?.plan ?? 'growth',
+        plan: next.clinic?.plan ?? DEFAULT_PLAN,
         status: 'trial',
         interval: 'monthly',
         trial_ends_at: new Date(startedAt.getTime() + TRIAL_DAYS * 86400000).toISOString(),
@@ -701,7 +702,7 @@ export function StoreProvider({ children, session }) {
   // clinic's own row, which the clinic could otherwise edit.
   const license = useMemo(() => {
     if (!centralEnabled) return licenseState(state.subscription);
-    return licenseState(centralSubscription ?? { status: 'read_only', plan: 'solo', interval: 'yearly' });
+    return licenseState(centralSubscription ?? { status: 'read_only', plan: FALLBACK_PLAN, interval: 'yearly' });
   }, [centralEnabled, centralSubscription, state.subscription]);
 
   const licenseUsage = useMemo(() => ({
@@ -941,7 +942,7 @@ export function StoreProvider({ children, session }) {
     if (mode === 'demo') {
       return applyLicense({
         ...(stateRef.current.subscription ?? {}),
-        plan: 'growth', status: 'trial',
+        plan: DEFAULT_PLAN, status: 'trial',
         trial_ends_at: new Date(Date.now() + TRIAL_DAYS * 86400000).toISOString(),
       });
     }

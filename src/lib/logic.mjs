@@ -32,35 +32,12 @@ export const PAYMENT_METHODS = [
 
 export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 export const GENDERS = ['Female', 'Male', 'Other'];
-export const CHRONIC_TAGS = ['Diabetes', 'Hypertension', 'Asthma', 'Thyroid', 'Cardiac', 'Pregnancy', 'Allergy', 'Post-surgery'];
+import { PLANS as PLAN_CATALOGUE } from './plans.mjs';
 
-export const PLANS = [
-  {
-    id: 'solo',
-    name: 'Solo',
-    price_paise: 99900,
-    tagline: 'One doctor, one chair, zero paperwork.',
-    limits: '1 doctor · 300 patients',
-    features: ['1 doctor + 1 front desk seat', 'Up to 300 active patients / month', 'Appointments & digital prescriptions', 'GST-ready invoices', 'Daily collection report'],
-  },
-  {
-    id: 'growth',
-    name: 'Growth',
-    price_paise: 249900,
-    tagline: 'The usual pick for a busy multi-doctor OPD.',
-    limits: '5 doctors · unlimited patients',
-    popular: true,
-    features: ['Up to 5 doctors + 3 front desk seats', 'Unlimited patients and visits', 'Follow-up engine & recall reminders', 'Revenue, footfall and payer analytics', 'WhatsApp / SMS reminder templates', 'CSV + spreadsheet export'],
-  },
-  {
-    id: 'chain',
-    name: 'Multi-clinic',
-    price_paise: 599900,
-    tagline: 'For clinic groups and polyclinics.',
-    limits: 'Unlimited doctors · multi-branch',
-    features: ['Unlimited seats and branches', 'Branch-level P&L and doctor payouts', 'Role-based access + audit trail', 'Priority support and onboarding', 'Data residency options'],
-  },
-];
+/** The catalogue is plan vocabulary, so it is defined once, in plans.mjs. */
+export const PLANS = PLAN_CATALOGUE;
+
+export const CHRONIC_TAGS = ['Diabetes', 'Hypertension', 'Asthma', 'Thyroid', 'Cardiac', 'Pregnancy', 'Allergy', 'Post-surgery'];
 
 // ---------------------------------------------------------------------------
 // Money

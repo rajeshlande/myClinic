@@ -7,6 +7,7 @@ import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
 import { ROLES, formatMoney, moneyToPaise, paiseToInput } from '../lib/logic.mjs';
 import { canAddSeat } from '../lib/license.mjs';
+import { PLAN_SEATS, planId } from '../lib/plans.mjs';
 import { can, roleMatrixFor } from '../lib/permissions.js';
 import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
 import {
@@ -213,7 +214,7 @@ export default function Team() {
       <div className="row wrap" style={{ gap: 10 }}>
         <div className="stack" style={{ gap: 1, flex: 1, minWidth: 200 }}>
           <h2>{store.clinic?.name}</h2>
-          <span className="tiny muted">{doctors.length} doctor{doctors.length === 1 ? '' : 's'} · {staff.length} front-desk seat{staff.length === 1 ? '' : 's'} · {store.clinic?.plan ?? 'growth'} plan</span>
+          <span className="tiny muted">{doctors.length} doctor{doctors.length === 1 ? '' : 's'} · {staff.length} front-desk seat{staff.length === 1 ? '' : 's'} · {planId(store.clinic?.plan)} plan</span>
         </div>
         <Button variant="subtle" icon={Mail} onClick={() => setInviteOpen(true)}>Invite staff</Button>
         <Button variant="primary" icon={Plus} onClick={openNew}>Add doctor / staff</Button>
@@ -342,7 +343,7 @@ export default function Team() {
           <span className="kpi-icon"><Users size={15} /></span>
           <div className="stack" style={{ gap: 1, flex: 1, minWidth: 200 }}>
             <strong className="small">Seats on your plan</strong>
-            <span className="tiny muted">{store.clinic?.plan === 'solo' ? '1 doctor + 1 front desk' : store.clinic?.plan === 'chain' ? 'Unlimited seats' : '5 doctors + 3 front desk'}</span>
+            <span className="tiny muted">{PLAN_SEATS[planId(store.clinic?.plan)]}</span>
           </div>
           <Badge tone="brand">{doctors.length + staff.length} in use</Badge>
         </div>

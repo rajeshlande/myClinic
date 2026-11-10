@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 import { DEFAULT_CLINIC, DEFAULT_PREFERENCES, addDays, currentMonth, shiftMonth, today } from './logic.mjs';
 import { closure } from './hours.mjs';
+import { DEFAULT_PLAN } from './plans.mjs';
 
 // Deterministic PRNG so the demo looks the same on every device.
 function rng(seed = 20260101) {
@@ -44,7 +45,7 @@ export function makeDemoWorkspace() {
     id: 'clinic-demo',
     name: 'Sunrise Multispecialty OPD',
     slug: 'sunrise-opd',
-    plan: 'growth',
+    plan: DEFAULT_PLAN,
     // The demo shows what the settings screen actually models: a morning
     // session, an evening session, a closed break between them, and Sunday off.
     sessions: [{ start: '09:00', end: '13:00' }, { start: '16:00', end: '20:00' }],

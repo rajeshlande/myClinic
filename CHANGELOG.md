@@ -3,6 +3,52 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.27.0] — 2026-11-09 · schema 18
+
+**Architecture plan, step 1: one source for the plan vocabulary.**
+
+Before this release the three plan ids were written down in eight files:
+
+| File | What it kept |
+| --- | --- |
+| `lib/license.mjs` | caps, order, price table, seat-message names |
+| `lib/logic.mjs` | the marketing catalogue (names, prices, taglines, features) |
+| `lib/central-sync.mjs` | Central tier → plan |
+| `lib/store.jsx` | two fallbacks (`'growth'`, `'solo'`) |
+| `components/AppLayout.jsx` | the sidebar label, as a nested ternary |
+| `pages/Settings.jsx` | plan name, price and both seat caps, as ternaries |
+| `pages/Subscription.jsx` | its own `PLAN_BLURB` map |
+| `pages/Team.jsx` | the seat line, as a ternary |
+| `pages/Landing.jsx` | `plan.id === 'chain'` for the sales-led plan |
+
+Adding a fourth plan was a nine-file edit, and a missed file showed itself as a
+price on one screen disagreeing with the cap on the next.
+
+- **`src/lib/plans.mjs`** now owns the vocabulary: `PLAN_IDS`, `PLAN_LIMITS`,
+  `PLAN_PRICE_PAISE`, `PLAN_LABEL`, `PLAN_SIDEBAR_LABEL`, `PLAN_BLURB`,
+  `PLAN_SEATS`, the `PLANS` catalogue and `CENTRAL_TIER_TO_PLAN`, plus the lookups
+  that replace the ternaries — `planId()`, `planLabel()`, `planSidebarLabel()`,
+  `planLimits()`, `planRow()`, `planPrice()`, `planForTier()`, `planNeedsSales()`.
+  `DEFAULT_PLAN` is the middle plan (unknown input); `FALLBACK_PLAN` is the
+  smallest (a licence failure must never read as an upgrade).
+- **Public surfaces unchanged.** `license.mjs` re-exports `PLAN_LIMITS` /
+  `PLAN_ORDER` / `planPrice`, `logic.mjs` re-exports `PLANS`, and
+  `central-sync.mjs` re-exports `CENTRAL_TIER_TO_PLAN` — every existing import
+  still resolves to the same object, so no call site and no test had to move.
+- **Two intentional differences, both named.** A quoted plan id can no longer
+  appear outside `plans.mjs` (enforced by a test that scans `src/`), and the seat
+  message reads *"1 doctor seat … 5 doctor seats"* instead of *"1 doctors seat"*
+  (the count now agrees with the noun; one existing assertion updated).
+- **9 new tests** (`tests/plans.test.mjs`): order and defaults, catalogue-vs-map
+  agreement, normalisation of unknown input, monthly/yearly pricing and the `null`
+  for a plan not on sale, the sales-led plan, tier translation, the re-exported
+  names, and the licence rules behaving exactly as before the move.
+
+The database is still the authority for caps and prices; `plans.mjs` is its
+mirror. **Step 2** (`tests/schema-parity.test.mjs`) pins the two together.
+
+**538 tests / 26 suites**, 28/28 contributing checks, 0 warnings.
+
 ## [1.26.1] — 2026-11-09 · schema 18
 
 **`docs/ARCHITECTURE.md`: the design, measured, with the debt written down.**

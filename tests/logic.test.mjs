@@ -677,7 +677,8 @@ test('licence: seat limits match the plan and block one more seat', () => {
   const growth = { plan: 'growth', status: 'active' };
   const usage = { doctors: 5, frontdesk: 1, branches: 1 };
   assert.equal(canAddSeat(growth, usage, 'doctors').allowed, false);
-  assert.match(canAddSeat(growth, usage, 'doctors').message, /5 doctors seats/);
+  // The count agrees with the noun since v1.27.0: "5 doctor seats", not "5 doctors seats".
+  assert.match(canAddSeat(growth, usage, 'doctors').message, /5 doctor seats/);
   assert.equal(canAddSeat(growth, usage, 'frontdesk').allowed, true);
 
   const chain = { plan: 'chain', status: 'active' };

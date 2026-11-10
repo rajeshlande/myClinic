@@ -16,17 +16,14 @@
  * Money is integer paise everywhere, matching the rest of the app.
  */
 
+import { PLAN_LIMITS, PLAN_ORDER, DEFAULT_PLAN, planId, planLabel as labelForPlan, planLimits, planPrice as priceForPlan } from './plans.mjs';
+
+// Re-exported so the licence API is unchanged: the plan vocabulary itself lives in
+// `plans.mjs` (one source), and every existing import of these names still works.
+export { PLAN_LIMITS, PLAN_ORDER };
+
 export const TRIAL_DAYS = 14;
 export const GRACE_DAYS = 7;
-
-/** Seat limits per plan. `null` means unlimited. */
-export const PLAN_LIMITS = {
-  solo: { doctors: 1, frontdesk: 1, branches: 1 },
-  growth: { doctors: 5, frontdesk: 3, branches: 1 },
-  chain: { doctors: null, frontdesk: null, branches: null },
-};
-
-export const PLAN_ORDER = ['solo', 'growth', 'chain'];
 
 /**
  * @typedef {'trial'|'active'|'grace'|'read_only'|'expired'} LicenseStatus
@@ -75,7 +72,7 @@ export function licenseState(sub, now = new Date()) {
   // renew for one month instead of twelve, and lose the payment reference it had
   // just recorded.
   const base = (row = {}) => ({
-    plan: PLAN_ORDER.includes(row.plan) ? row.plan : 'growth',
+    plan: planId(row.plan),
     interval: row.interval === 'yearly' ? 'yearly' : 'monthly',
     collectionRef: String(row.collection_ref ?? ''),
     // When this period began. Central writes it from the contract's own start
@@ -191,8 +188,7 @@ export function licenseTone(license) {
  * @param {{doctors?: number, frontdesk?: number, branches?: number}} usage
  */
 export function seatUsage(license, usage = {}) {
-  const plan = license?.plan ?? 'growth';
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth;
+  const limits = planLimits(license?.plan ?? DEFAULT_PLAN);
   const rows = [
     { id: 'doctors', label: 'Doctors', used: Number(usage.doctors ?? 0), limit: limits.doctors },
     { id: 'frontdesk', label: 'Front desk', used: Number(usage.frontdesk ?? 0), limit: limits.frontdesk },
@@ -220,22 +216,18 @@ export function canAddSeat(license, usage, kind = 'doctors') {
   if (!row) return { allowed: true, message: '' };
   if (row.unlimited) return { allowed: true, message: '' };
   if (row.full) {
-    const planName = license?.plan === 'solo' ? 'Solo' : license?.plan === 'chain' ? 'Multi-clinic' : 'Growth';
+    const planName = labelForPlan(license?.plan);
     return {
       allowed: false,
-      message: `${planName} includes ${row.limit} ${row.label.toLowerCase()} seat${row.limit === 1 ? '' : 's'} and they are all in use. Upgrade the plan to add another.`,
+      // "1 doctors seat" was the old reading: the count agrees with the noun now.
+      message: `${planName} includes ${row.limit} ${row.id === 'frontdesk' ? 'front-desk' : row.id.replace(/s$/, '')} seat${row.limit === 1 ? '' : 's'} and they are all in use. Upgrade the plan to add another.`,
     };
   }
   return { allowed: true, message: '' };
 }
 
-/** Monthly (or yearly) price in paise for a plan, with the yearly discount applied. */
-export function planPrice(plan, { interval = 'monthly' } = {}) {
-  const base = { solo: 99900, growth: 249900, chain: 599900 }[plan];
-  if (!base) return null;
-  if (interval === 'yearly') return Math.round(base * 12 * 0.8); // 20% off, two months free
-  return base;
-}
+/** Monthly (or yearly) price in paise — the price table lives in `plans.mjs`. */
+export const planPrice = priceForPlan;
 
 /** What the clinic would pay to switch from one plan to another. No proration games. */
 export function upgradeCost(fromPlan, toPlan, { interval = 'monthly' } = {}) {

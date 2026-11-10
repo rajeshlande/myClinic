@@ -10,6 +10,7 @@ import { Button, Badge } from '../components/ui.jsx';
 import { APP_VERSION } from '../lib/version.js';
 import { FOOTER_GROUPS, isCompact } from '../lib/responsive.mjs';
 import { useLayout } from '../lib/use-layout.js';
+import { planNeedsSales } from '../lib/plans.mjs';
 
 const FEATURES = [
   { icon: Ticket, title: 'Token queue for walk-ins', body: 'The front desk taps once to issue the next token — no appointment, no patient record needed first. Doctors call numbers in order, and the lounge screen shows who is next.' },
@@ -261,7 +262,7 @@ export default function Landing({ anchor }) {
                 {plan.features.map((f) => <li key={f}><Check size={13} strokeWidth={3} /> {f}</li>)}
               </ul>
               <Button variant={plan.popular ? 'primary' : 'subtle'} className="block" onClick={() => navigate(configured ? '/signup' : '/setup')}>
-                {configured ? (plan.id === 'chain' ? 'Talk to us' : 'Start 14-day trial') : 'Connect a project'}
+                {configured ? (planNeedsSales(plan.id) ? 'Talk to us' : 'Start 14-day trial') : 'Connect a project'}
               </Button>
             </article>
           ))}

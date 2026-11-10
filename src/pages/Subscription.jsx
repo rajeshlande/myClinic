@@ -6,18 +6,13 @@ import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
 import { Badge, Button, Card, CardHead, Modal, useToast } from '../components/ui.jsx';
 import { PLANS, downloadFile, formatMoney, toCSV, today } from '../lib/logic.mjs';
+import { PLAN_BLURB, DEFAULT_PLAN } from '../lib/plans.mjs';
 import {
   GRACE_DAYS, billingPeriod, canWrite, formatExpiry, licenseHeadline, licenseTone,
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
 import { APP_VERSION } from '../lib/version.js';
 import { CENTRAL_GRACE_NOTE, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
-
-const PLAN_BLURB = {
-  solo: 'One doctor, one front desk. The whole clinic on a single screen.',
-  growth: 'The usual pick for a busy multi-doctor OPD.',
-  chain: 'Clinic groups and polyclinics with billing at branch level.',
-};
 
 function money(paise) { return formatMoney(paise ?? 0); }
 
@@ -47,7 +42,7 @@ export default function Subscription() {
   const central = store.centralSync ?? { enabled: false };
   const centrallyManaged = Boolean(central.enabled);
   const centralVerdict = central.verdict ?? null;
-  const centralPlan = centralVerdict?.plan ?? license?.plan ?? 'solo';
+  const centralPlan = centralVerdict?.plan ?? license?.plan ?? DEFAULT_PLAN;
   const centralStatusText = central.state === 'offline'
     ? 'Offline grace'
     : centralStatusLabel(centralVerdict?.status ?? (license?.status === 'expired' ? 'expired' : 'active'));
@@ -61,7 +56,7 @@ export default function Subscription() {
 
   const isOwner = store.role === 'owner';
   const writable = canWrite(license);
-  const plan = license?.plan ?? 'growth';
+  const plan = license?.plan ?? DEFAULT_PLAN;
   const seats = store.licenseSeats ?? [];
 
   /**

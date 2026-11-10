@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.26.1';
+export const APP_VERSION = '1.27.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.27.0', date: '2026-11-09', schema: 18,
+    highlights: [
+      '**The plan vocabulary has one home.** The three plan ids were written down in eight files — caps and prices in `license.mjs`, the catalogue in `logic.mjs`, the tier map in `central-sync.mjs`, two fallbacks in `store.jsx`, and four screens each re-deriving labels and seat caps with their own nested ternary. Adding a plan was a nine-file edit, and a missed file showed up as a price on one screen disagreeing with the cap on the next. `src/lib/plans.mjs` now holds the ids, caps, prices, labels, blurbs, seat lines, the catalogue and the Central tier map; everything else imports it.',
+      'The move is behaviour-preserving, with two named exceptions: a quoted plan id can no longer appear anywhere else in `src/` (a test fails if one does), and the seat message now reads “1 doctor seat / 5 doctor seats” instead of “1 doctors seat”. The database remains the authority for caps and prices; `plans.mjs` is its mirror, and step 2 of the architecture plan pins the two copies together.',
+      'Nine new tests cover the vocabulary itself — order, defaults, normalisation, prices, the sales-led plan, tier translation — plus the re-exported names the old import paths rely on, so `license.mjs`, `logic.mjs` and `central-sync.mjs` keep their public surface. 538 tests.',
+    ],
+  },
   {
     version: '1.26.1', date: '2026-11-09', schema: 18,
     highlights: [

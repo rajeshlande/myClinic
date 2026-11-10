@@ -4,6 +4,7 @@ import {
   BellRing, Building2, Check, CreditCard, Copy, Download, ExternalLink, LogOut, RefreshCw, Save, Sparkles, Sun, Trash2, UserRound, WifiOff, Monitor, ShieldCheck, Smartphone, ImagePlus, CalendarDays, CalendarOff, Clock, AlertCircle,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
+import { planRow, planLimits } from '../lib/plans.mjs';
 import { useAuth } from '../lib/auth-context.jsx';
 import { PWAStatus } from '../components/PWAWidgets.jsx';
 import { useToast, Badge, Button, Card, CardHead, Field, Input, Modal, Segmented, Select, Tabs } from '../components/ui.jsx';
@@ -24,6 +25,9 @@ import { CloudOff, GitBranch, History, Palette, QrCode, RefreshCcw, Scale } from
 import {
   CLINIC_TYPES, DEFAULT_PREFERENCES, PLANS, downloadFile, formatMoney, moneyToPaise, paiseToInput, addDays, profilePatch, today, toCSV,
 } from '../lib/logic.mjs';
+
+/** A null cap is unlimited — printed as ∞, the way the seat meters show it. */
+const cap = (n) => (n === null ? '∞' : n);
 
 export default function Settings() {
   const store = useStore();
@@ -856,20 +860,20 @@ export default function Settings() {
         <div className="stack" style={{ gap: 16 }}>
           <Card>
             <CardHead title="Your plan" sub={store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'} icon={Sparkles}
-              action={<Badge tone="brand">{PLANS.find((p) => p.id === (store.clinic?.plan ?? 'growth'))?.name ?? 'Growth'}</Badge>} />
+              action={<Badge tone="brand">{planRow(store.clinic?.plan).name}</Badge>} />
             <div className="card-body">
               <div className="row wrap" style={{ gap: 14 }}>
                 <div>
                   <span className="eyebrow">Current</span>
-                  <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>{formatMoney(PLANS.find((p) => p.id === (store.clinic?.plan ?? 'growth'))?.price_paise ?? 0)}<span className="tiny faint"> /mo</span></div>
+                  <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>{formatMoney(planRow(store.clinic?.plan).price_paise ?? 0)}<span className="tiny faint"> /mo</span></div>
                 </div>
                 <span className="spacer" />
                 <Button variant="primary" icon={Sparkles} onClick={() => setPlanOpen(true)}>Change plan</Button>
               </div>
               <div className="grid three" style={{ gap: 8, marginTop: 14 }}>
                 {[
-                  ['Doctors', `${store.doctors.length} / ${store.clinic?.plan === 'chain' ? '∞' : store.clinic?.plan === 'solo' ? 1 : 5}`],
-                  ['Front desk', `${store.frontDesk.length} / ${store.clinic?.plan === 'chain' ? '∞' : store.clinic?.plan === 'solo' ? 1 : 3}`],
+                  ['Doctors', `${store.doctors.length} / ${cap(planLimits(store.clinic?.plan).doctors)}`],
+                  ['Front desk', `${store.frontDesk.length} / ${cap(planLimits(store.clinic?.plan).frontdesk)}`],
                   ['Patients', String(store.patients.length)],
                 ].map(([label, value]) => (
                   <div key={label} className="card pad" style={{ padding: 10, background: 'var(--surface-2)', boxShadow: 'none' }}>
