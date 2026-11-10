@@ -150,47 +150,56 @@ export default function Queue() {
                   <Badge tone={row.canCallNext ? 'neutral' : 'warn'} aria-label={`${row.roomCount} of ${row.roomLimit} seats in the room`}>{row.roomCount} / {row.roomLimit}</Badge>
                 </div>
                 {row.seats.length ? (
-                  <div className="stack" style={{ gap: 8 }}>
-                    {row.seats.map((seat) => seat.primary ? (
-                      /* The first token is the one talking — large, so it reads across the desk. */
-                      <div key={seat.appt.id} className="row" style={{ gap: 10 }}>
-                        <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.7rem', fontWeight: 800, letterSpacing: '-0.03em' }}>{tokenLabel(seat.appt.token_no)}</span>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div className="small strong truncate">{patientOf(seat.appt.patient_id)?.full_name}</div>
-                          <div className="tiny muted">with {row.doctor.full_name} · {formatTime(seat.appt.scheduled_at)}</div>
+                  <div className="stack" style={{ gap: 10 }}>
+                    {row.seats.map((seat) => (
+                      /* One seat = one patient's information + that patient's own
+                         Consult and Done. Nothing is shared between the seats. */
+                      <div
+                        key={seat.appt.id}
+                        className="stack"
+                        style={{ gap: 6, ...(seat.primary ? {} : { borderTop: '1px dashed var(--border)', paddingTop: 9 }) }}
+                      >
+                        <div className="row" style={{ gap: seat.primary ? 10 : 8 }}>
+                          {seat.primary ? (
+                            <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.7rem', fontWeight: 800, letterSpacing: '-0.03em' }}>{seat.token}</span>
+                          ) : (
+                            <span className="mono tiny strong">{seat.token}</span>
+                          )}
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div className={seat.primary ? 'small strong truncate' : 'tiny strong truncate'}>{patientOf(seat.appt.patient_id)?.full_name}</div>
+                            <div className="tiny muted">
+                              {seat.primary
+                                ? `with ${row.doctor.full_name} · ${formatTime(seat.appt.scheduled_at)}`
+                                : `${humanWait(waitedMinutes(seat.appt))} waiting · ${formatTime(seat.appt.scheduled_at)}`}
+                            </div>
+                          </div>
+                          <Badge tone={seat.tone}>{seat.label}</Badge>
                         </div>
-                        <Badge tone={seat.tone}>{seat.label}</Badge>
-                      </div>
-                    ) : (
-                      /* The second seat is already inside the room, waiting — small type. */
-                      <div key={seat.appt.id} className="row" style={{ gap: 8, borderTop: '1px dashed var(--border)', paddingTop: 8 }}>
-                        <span className="mono tiny strong">{tokenLabel(seat.appt.token_no)}</span>
-                        <span className="tiny muted truncate" style={{ flex: 1 }}>{patientOf(seat.appt.patient_id)?.full_name}</span>
-                        <span className="tiny faint nowrap">{humanWait(waitedMinutes(seat.appt))}</span>
-                        <Badge tone={seat.tone}>{seat.label}</Badge>
+                        <div className="row no-print" style={{ gap: 6, flexWrap: 'wrap' }}>
+                          <Button
+                            size="sm" variant={seat.primary ? 'primary' : 'subtle'} icon={PlayCircle}
+                            aria-label={`Consult ${seat.token}`}
+                            onClick={() => setConsultFor(seat.appt)}
+                          >{seat.consultLabel}</Button>
+                          <Button
+                            size="sm" variant="subtle" icon={CheckCircle2}
+                            aria-label={`Mark ${seat.token} done`}
+                            onClick={() => markDone(seat.appt)}
+                          >{seat.doneLabel}</Button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="small muted">{row.next ? 'Ready for the next patient.' : 'No one waiting.'}</p>
                 )}
-                <div className="row no-print" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                  {row.seats.length ? <>
-                    <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(row.seats[0].appt)}>Consult</Button>
-                    {row.seats.map((seat) => (
-                      <Button
-                        key={seat.appt.id} size="sm" variant="subtle" icon={CheckCircle2}
-                        aria-label={`Mark ${tokenLabel(seat.appt.token_no)} done`}
-                        onClick={() => markDone(seat.appt)}
-                      >{row.seats.length > 1 ? `Done ${tokenLabel(seat.appt.token_no)}` : 'Done'}</Button>
-                    ))}
-                  </> : null}
-                  {row.next && row.canCallNext ? (
+                {row.next && row.canCallNext ? (
+                  <div className="row no-print" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                     <Button size="sm" variant={row.roomCount ? 'subtle' : 'primary'} icon={Volume2} onClick={() => callIn(row)}>
                       {row.roomCount ? `Call ${tokenLabel(row.next.token_no)} in` : `Call ${tokenLabel(row.next.token_no)}`}
                     </Button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
                 {row.next && !row.canCallNext ? <p className="tiny muted" role="status" style={{ marginTop: 8 }}>{row.roomFull}</p> : null}
               </div>
 

@@ -46,15 +46,27 @@ export function roomFullMessage(inRoom = []) {
  * The two seats as the desk sees them: the first is talking, everyone after is
  * waiting inside the room (shown smaller). Kept pure so the labels and the
  * ordering cannot drift between the board, the display and the dashboard.
+ *
+ * Each seat owns its own Consult / Done. When two people are in the room those
+ * buttons name their token, so "Consult" can never be ambiguous about which
+ * patient's consultation it opens — and the labelling stays here, not in JSX.
  */
 export function roomSeats(inRoom = []) {
-  return (Array.isArray(inRoom) ? inRoom : []).filter(Boolean).map((appt, index) => ({
-    appt,
-    index,
-    primary: index === 0,
-    label: index === 0 ? 'Talking' : 'Waiting in room',
-    tone: index === 0 ? 'accent' : 'warn',
-  }));
+  const people = (Array.isArray(inRoom) ? inRoom : []).filter(Boolean);
+  return people.map((appt, index) => {
+    const token = tokenLabel(appt.token_no);
+    const named = people.length > 1;
+    return {
+      appt,
+      index,
+      primary: index === 0,
+      token,
+      label: index === 0 ? 'Talking' : 'Waiting in room',
+      tone: index === 0 ? 'accent' : 'warn',
+      consultLabel: named ? `Consult ${token}` : 'Consult',
+      doneLabel: named ? `Done ${token}` : 'Done',
+    };
+  });
 }
 
 /** Minutes a patient has been waiting, from their issue/check-in time. */

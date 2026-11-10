@@ -3,6 +3,50 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.1] — 2026-11-02 · schema 19
+
+**Separate Consult / Done for each token in the room.**
+
+Asked for after v1.35.0 shipped: *"Now in the room need saparate info like
+Consult/Done for each token in room talking and Waiting in room"*. v1.35.0 showed
+both people but kept a **shared** action row at the bottom of the card — one
+**Consult** that only ever opened the first patient (`row.seats[0]`) and a row of
+**Done** buttons detached from the person they completed. With two patients in the
+room, "Consult" was ambiguous and the second patient had no consultation control
+at all.
+
+| Change | File | Why |
+| --- | --- | --- |
+| each seat is a self-contained block: token, name, wait, status badge, **Consult**, **Done** | `Queue.jsx` | the actions belonged to the card, not to the patient |
+| `consultLabel` / `doneLabel` / `token` on every seat | `queue.mjs` (`roomSeats()`) | two identical "Consult" buttons are indistinguishable; the naming rule must not be written inline in JSX |
+| `Consult` opens `seat.appt`; `Done` completes `seat.appt` | `Queue.jsx` | v1.35.0's Consult was hard-wired to `row.seats[0]` |
+
+- **Both seats get both buttons.** The Talking token (T-09, large) and the Waiting
+  in room token (T-10, small type) each render their own information and their own
+  two actions. With two people in the room the labels name their token —
+  **Consult T-09 / Done T-09** and **Consult T-10 / Done T-10** — with matching
+  accessible names (`aria-label="Consult T-09"`, `aria-label="Mark T-09 done"`),
+  so the desk can never open or finish the wrong patient by mistake. With one
+  person the labels stay plain **Consult / Done**.
+- **The second seat's information is richer too**: it now shows the patient's name
+  in bold small type, their wait (`humanWait(waitedMinutes(appt))`) and their
+  appointment time, alongside the **Waiting in room** badge — not just a token.
+- **"Call … in" stays a card-level action.** It is the only button left outside a
+  seat, because it acts on the *next* patient at the desk rather than on anyone in
+  the room. The `2 / 2` badge, the disabled "Call next" and the on-screen refusal
+  are unchanged.
+- **Rules stayed pure.** `roomSeats()` now returns `token`, `consultLabel` and
+  `doneLabel` computed from the number of people in the room; the page only renders
+  them. `tests/queue-room.test.mjs` gains 2 tests (the labels for one, two and
+  three seats, and a ratchet that both buttons are bound to `seat.appt` inside the
+  seats map rather than a shared row). The SSR smoke gains 9 checks: each token's
+  own Consult and Done by accessible name, exactly two of each, no unlabelled
+  shared button, and a one-seat board with exactly one plain pair that still offers
+  the second call.
+- **No change** to the room limit, the board's shape, the schema, any RPC, the
+  store, the display or the dashboard. Recorded in `docs/PLAN-v1.33.md` §5 and
+  `docs/ARCHITECTURE.md` §4.1.
+
 ## [1.35.0] — 2026-11-02 · schema 19
 
 **"Now in the room" shows everyone in the room — both of them.**

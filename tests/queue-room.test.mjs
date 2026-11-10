@@ -82,6 +82,22 @@ test('roomSeats labels the first as Talking and the rest as Waiting in room', ()
   assert.equal(roomSeats('nonsense').length, 0);
 });
 
+test('every seat owns its own Consult and Done, named when two are in the room', () => {
+  const one = roomSeats([{ token_no: 9 }]);
+  assert.equal(one[0].token, 'T-09');
+  assert.equal(one[0].consultLabel, 'Consult', 'a lone seat needs no token in the label');
+  assert.equal(one[0].doneLabel, 'Done');
+
+  const two = roomSeats([{ token_no: 9 }, { token_no: 10 }]);
+  assert.deepEqual(two.map((x) => x.consultLabel), ['Consult T-09', 'Consult T-10']);
+  assert.deepEqual(two.map((x) => x.doneLabel), ['Done T-09', 'Done T-10']);
+  assert.equal(new Set(two.map((x) => x.consultLabel)).size, 2, 'two Consult buttons must be distinguishable');
+
+  const three = roomSeats([{ token_no: 9 }, { token_no: 10 }, { token_no: 11 }]);
+  assert.deepEqual(three.map((x) => x.consultLabel), ['Consult T-09', 'Consult T-10', 'Consult T-11']);
+  assert.deepEqual(three.map((x) => x.appt.token_no), [9, 10, 11], 'labels follow the appointment, not the slot');
+});
+
 test('queueBoard reports both people in the room, in token order', () => {
   const row = boardOf(twoInRoom).rows[0];
   assert.equal(row.inRoom.length, 2);
@@ -182,6 +198,22 @@ test('the queue card renders the seats, not one hard-coded serving row', () => {
   assert.match(q, /row\.roomFull/, 'the inline reason when the room is full');
   assert.match(q, /seat\.primary \?/, 'the first seat is the large one');
   assert.doesNotMatch(q, /row\.serving \?/, 'no single-serving room card is left');
+});
+
+test('each seat renders its own Consult and Done on its own appointment', () => {
+  const q = code('src/pages/Queue.jsx');
+  assert.match(q, /seat\.consultLabel/, 'Consult labels come from roomSeats()');
+  assert.match(q, /seat\.doneLabel/, 'Done labels come from roomSeats()');
+  assert.match(q, /setConsultFor\(seat\.appt\)/, 'Consult opens this seat, not seats[0]');
+  assert.match(q, /markDone\(seat\.appt\)/, 'Done completes this seat, not seats[0]');
+  assert.doesNotMatch(q, /setConsultFor\(row\.seats\[0\]\)/, 'no shared Consult for the first seat only');
+  assert.doesNotMatch(q, /row\.seats\.length > 1 \? `Done/, 'no token-naming rule left inline in JSX');
+  // Both buttons live inside the seat map, not in a row beneath it.
+  const mapAt = q.indexOf('row.seats.map((seat) => (');
+  const callAt = q.indexOf('onClick={() => callIn(row)}');
+  assert.ok(mapAt > -1 && callAt > mapAt, 'the seats map comes before the shared call-in button');
+  assert.ok(q.indexOf('setConsultFor(seat.appt)') > mapAt && q.indexOf('setConsultFor(seat.appt)') < callAt,
+    'the per-seat Consult is inside the seats block');
 });
 
 test('every control that calls a patient in goes through the guarded callIn', () => {

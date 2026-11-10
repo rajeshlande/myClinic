@@ -360,6 +360,17 @@ names (`ROOM_LIMIT`, `canCallNext`, `roomFullMessage`, `roomSeats`), taking its
 public surface from 88 to 92; `tests/logic-modules.test.mjs` still pins the exact
 count and every re-export by identity.
 
+**v1.35.1 — a follow-up to the same item, not a new deviation.** The queue card in
+v1.35.0 showed both seats but kept a shared action row: one Consult bound to
+`row.seats[0]` and a row of Done buttons detached from the patients. Each seat now
+owns its own information and its own Consult/Done, with token-named labels
+(`Consult T-09`, `Done T-10`) supplied by `roomSeats()` so no display rule sits in
+JSX. The board, the limit, the schema and every other screen are untouched; §5 of
+the plan records the refinement. This is the reason the per-seat labels live in
+`lib/`: a rule written twice in a render — once for the first seat, once for the
+second — is exactly the kind of copy this document's rule 5 asks a test to hold
+together.
+
 ---
 
 ## 5. How to re-measure

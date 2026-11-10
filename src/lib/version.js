@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.0';
+export const APP_VERSION = '1.35.1';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.35.1', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**Each person in the room now has their own Consult and Done.** v1.35.0 put one shared **Consult** (which only opened the first patient) and a row of **Done** buttons at the bottom of the card. Both seats now carry their own token, name, wait and status badge together with their own **Consult** and **Done**, and every button acts on that patient alone — the Talking token and the Waiting in room token alike.',
+      'With two people in the room the buttons name their token — **Consult T-09 / Done T-09** beside **Consult T-10 / Done T-10** — so two identical buttons can never be confused. The labels come from `roomSeats()` in `src/lib/queue.mjs`, not from an inline rule in the page. With one person the labels stay plain **Consult / Done** as before.',
+      'No change to the room limit, the board shape, the schema or any other screen. 2 new tests and 9 new server-render checks pin the per-seat buttons.',
+    ],
+  },
   {
     version: '1.35.0', date: '2026-11-02', schema: 19,
     highlights: [

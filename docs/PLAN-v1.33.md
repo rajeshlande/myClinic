@@ -10,9 +10,10 @@ Written before any code changed, from the code as it stands at **v1.32.0**.
 **Status.** Items 1 and 2 shipped in **v1.33.0**; item 10 (onboarding) shipped in
 **v1.34.0** (schema 19), ahead of the rest because it was asked for last — see §10
 for the plan and the deviation that discovery forced. Item 5 (the token queue)
-shipped in **v1.35.0**, ahead of the rest because it was asked for next — see §5.
-Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 waits
-on the three decisions at the end of this document.
+shipped in **v1.35.0**, ahead of the rest because it was asked for next — see §5, and
+refined in **v1.35.1** so each seat has its own Consult / Done. Items 3 and 4 move to
+v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 waits on the three decisions
+at the end of this document.
 
 ---
 
@@ -156,12 +157,22 @@ shows only the first. The board's "Now in the room" card, the waiting-room displ
   once cannot make three.
 - Display screen: the "In the room" block lists both tokens.
 - Dashboard: "N in the room" counts them all.
+- **v1.35.1 follow-up, asked for after v1.35.0 shipped:** *"Now in the room need
+  saparate info like Consult/Done for each token in room talking and Waiting in
+  room"*. v1.35.0 put one shared **Consult** (for the first seat only) and a row of
+  **Done** buttons at the bottom of the card. Each seat now carries **its own info
+  and its own two actions**: the Talking token and the Waiting in room token each
+  render their token, name, wait/status badge, **Consult** and **Done**, and every
+  button acts on that seat's appointment only. `roomSeats()` supplies the per-seat
+  action labels (naming the token when two people are in the room), so two identical
+  "Consult" buttons cannot be confused; no display rule is written inline in JSX.
 
 **Acceptance.** Never more than two `in-consult` per doctor per day; the third attempt
 shows the message and writes nothing; completing one frees a slot; with two in the room
 the card shows **both** tokens — the first large as Talking, the second in small type as
-Waiting in room — and the `2 / 2` badge; the display and the dashboard show the same two
-people the board does; seeds and existing data unaffected.
+Waiting in room — and the `2 / 2` badge; **each seat has its own Consult and Done that
+act on that token only**; the display and the dashboard show the same two people the
+board does; seeds and existing data unaffected.
 
 ---
 
