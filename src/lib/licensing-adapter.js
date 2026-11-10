@@ -38,13 +38,19 @@ export function resolveLicense({ subscription = null, central = { enabled: false
   return licenseState(central.subscription ?? { ...CENTRAL_UNAVAILABLE_SUBSCRIPTION });
 }
 
-/** How many seats are in use. A branch is the clinic itself, and there is one. */
-export function seatUsageCounts(staff = []) {
+/**
+ * How many seats are in use. Before schema 20 there was one implicit branch;
+ * now `branches` counts the active child rows, with that same one as the floor
+ * for a cached snapshot that predates the table.
+ */
+export function seatUsageCounts(staff = [], branches = []) {
   const rows = staff ?? [];
+  const activeBranches = (Array.isArray(branches) ? branches : [])
+    .filter((b) => b?.active !== false).length;
   return {
     doctors: rows.filter((s) => s.active !== false && s.role !== 'frontdesk').length,
     frontdesk: rows.filter((s) => s.active !== false && s.role === 'frontdesk').length,
-    branches: 1,
+    branches: Math.max(1, activeBranches),
   };
 }
 

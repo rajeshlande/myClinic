@@ -22,19 +22,20 @@
 --   H. sessions          — two sessions a day, days off, the 3–45 day follow-up
 --   I. the profile row   — every account has one, and only its owner writes it
 --   J. drug directory    — brands, compositions, typo tolerance, read-only rules
---   K–L. later schemas     — drug search at scale, investigations, audit fixes,
---                          licence authority and what set-up collects
---   M. branch config     — one clinic, many branches; owners multi, seats one;
---                          front desk reads only its own branch
+--   K. drug search       — ranking at directory scale (schema 15)
+--   L. investigations    — the advised tests on a prescription (schema 16)
+--   M. audit fixes       — booking, licence, counters and writes (schema 17)
+--   N. licence authority — a signed verdict, recorded server-side (schema 18)
+--   O. set-up            — hours, GSTIN and the follow-up window (schema 19)
+--   P. branch config     — one clinic, many branches; owners multi, seats one;
+--                          front desk reads only its own branch (schema 20)
+--   Q. branch views      — owner switcher state, branch invitations, a day close
+--                          per branch and front-desk isolation (schema 21)
 --
--- Every assertion raises on failure, so a clean run is the proof. Success lines:
---   "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED",
---   "ALL BOOKING CHECKS COMPLETED", "ALL SLUG CHECKS COMPLETED",
---   "ALL BOOKING LINK CHECKS COMPLETED", "ALL ROLE SPLIT CHECKS COMPLETED",
---   "ALL WHATSAPP CHECKS COMPLETED", "ALL HOURS CHECKS COMPLETED",
---   "ALL PROFILE CHECKS COMPLETED", "ALL DRUG DIRECTORY CHECKS COMPLETED",
---   "ALL SET-UP CHECKS COMPLETED" and "ALL BRANCH CONFIGURATION CHECKS
---   COMPLETED" (plus the drug-search, investigations, audit and authority lines).
+-- Every assertion raises on failure, so a clean run is the proof. Each of the
+-- seventeen rolled-back suites ends in its own `ALL … CHECKS COMPLETED` line,
+-- from "ALL RLS CHECKS COMPLETED" through "ALL BRANCH VIEWS CHECKS
+-- COMPLETED". The last overall marker is "ALL SQL OK".
 --
 -- This file is not part of the schema. `supabase/schema.sql` is the single
 -- source of truth for the database; this is the test that it behaves.
@@ -1884,7 +1885,7 @@ end $$;
 rollback;   -- nothing above survives; safe to re-run
 
 -- =============================================================================
--- SUITE K · THE AUDIT FIXES (schema 17)
+-- SUITE M · THE AUDIT FIXES (schema 17)
 -- =============================================================================
 -- Five findings from the first full security audit run. Each assertion here is
 -- the attack, run again, expected to fail — the booking reference is not handed
@@ -2097,7 +2098,7 @@ end $$;
 rollback;   -- nothing above survives; safe to re-run
 
 -- =============================================================================
--- SUITE L · THE LICENCE AUTHORITY (schema 18)
+-- SUITE N · THE LICENCE AUTHORITY (schema 18)
 -- =============================================================================
 -- The clinic can hand its subscription over to an external authority that signs
 -- an RS256 capability token. From that moment the clinic must stop being able to
@@ -2244,7 +2245,7 @@ end $$;
 rollback;   -- nothing above survives; safe to re-run
 
 -- =============================================================================
--- SUITE M · WHAT THE SET-UP SCREEN COLLECTS (schema 19)
+-- SUITE O · WHAT THE SET-UP SCREEN COLLECTS (schema 19)
 -- =============================================================================
 -- Onboarding has always asked for the clinic's hours, its days off, the follow-up
 -- window, the slot length and the doctor's registration number. Until schema 19
@@ -2420,7 +2421,7 @@ end $$;
 rollback;   -- nothing above survives; safe to re-run
 
 -- =============================================================================
--- SUITE M · BRANCH CONFIGURATION (schema 20 / v1.41.0)
+-- SUITE P · BRANCH CONFIGURATION (schema 20 / v1.41.0)
 -- =============================================================================
 -- One parent clinic, many child branches. Patients stay shared; visits and
 -- invoices are branch-tagged. Only owners hold several assignments, and a
@@ -2467,7 +2468,7 @@ begin
          (v_desk, 'Branch Desk'), (v_growth_owner, 'Growth Owner')
   on conflict (id) do nothing;
 
-  if public.app_schema_version() <> 20 then
+  if public.app_schema_version() < 20 then
     raise exception 'FAIL: schema 20 was not applied' using errcode = 'P0002';
   end if;
   if not exists (select 1 from public.schema_migrations
@@ -2745,3 +2746,142 @@ begin
 end $branch$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE Q · BRANCH VIEWS, SCOPED DAY CLOSE AND BRANCH INVITATIONS (schema 21)
+-- =============================================================================
+-- An owner may look at all branches together while new rows still land on one
+-- real active branch. A front-desk invitation carries its branch into the
+-- assignment the moment the seat is claimed; its day close and data stay there.
+begin;
+
+do $branchviews$
+declare
+  v_owner uuid := gen_random_uuid();
+  v_desk uuid := gen_random_uuid();
+  v_clinic uuid;
+  v_main uuid;
+  v_west uuid;
+  v_invite uuid;
+  v_desk_staff uuid;
+  v_branch uuid;
+  v_scope text;
+  v_n integer;
+  v_refused boolean;
+begin
+  if public.app_schema_version() <> 21 then
+    raise exception 'FAIL: schema 21 was not applied' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from public.schema_migrations
+                  where version = 21 and app_version = '1.42.0') then
+    raise exception 'FAIL: schema 21 migration row is missing' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'day_closes' and column_name = 'branch_id')
+     or not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'invites' and column_name = 'branch_id')
+     or not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'profiles' and column_name = 'branch_scope') then
+    raise exception 'FAIL: schema 21 columns are missing' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from pg_proc f join pg_namespace ns on ns.oid = f.pronamespace
+                  where ns.nspname = 'public' and f.proname = 'set_branch_scope' and f.pronargs = 1)
+     or not exists (select 1 from pg_proc f join pg_namespace ns on ns.oid = f.pronamespace
+                  where ns.nspname = 'public' and f.proname = 'invite_staff' and f.pronargs = 5) then
+    raise exception 'FAIL: the schema-21 RPCs are missing' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: schema 21 is registered with its columns and RPCs';
+
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values
+    (v_owner, 'branch-view-owner@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (v_desk, 'branch-view-desk@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+  insert into public.profiles (id, full_name)
+  values (v_owner, 'View Owner'), (v_desk, 'West Desk')
+  on conflict (id) do nothing;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated', 'email', 'branch-view-owner@test.local')::text, true);
+  set local role authenticated;
+  v_clinic := public.create_clinic(
+    jsonb_build_object('name', 'Branch View Clinic', 'plan', 'chain'),
+    jsonb_build_object('full_name', 'Dr View Owner'));
+  select id into v_main from public.branches
+   where clinic_id = v_clinic and code = 'MAIN' and active;
+  select id into v_west from public.create_branch(v_clinic, 'Bandra West');
+  if v_main is null or v_west is null then
+    raise exception 'FAIL: the branch-view fixture has no two branches' using errcode = 'P0002';
+  end if;
+
+  -- Selecting one branch persists a real write branch, then the owner can
+  -- return to the combined view without losing that real branch.
+  perform public.set_active_branch(v_west);
+  perform public.set_branch_scope('all');
+  select branch_scope, active_branch_id into v_scope, v_branch from public.profiles where id = v_owner;
+  if v_scope <> 'all' or v_branch <> v_west then
+    raise exception 'FAIL: the all-branches view lost the active write branch' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the owner keeps one real write branch while viewing all branches';
+
+  -- Two physical cash drawers may close the same calendar day.
+  insert into public.day_closes (clinic_id, branch_id, closed_on)
+  values (v_clinic, v_main, current_date), (v_clinic, v_west, current_date);
+  select count(*) into v_n from public.day_closes
+   where clinic_id = v_clinic and closed_on = current_date;
+  if v_n <> 2 then
+    raise exception 'FAIL: two branches could not close the same day' using errcode = 'P0002';
+  end if;
+
+  -- The invitation carries the West branch; accepting it must retire the
+  -- implicit Main assignment the staff trigger creates first.
+  select id into v_invite from public.invite_staff(
+    v_clinic, 'branch-view-desk@test.local', 'frontdesk', 'West Desk', v_west);
+  if v_invite is null then
+    raise exception 'FAIL: the branch invitation was not created' using errcode = 'P0002';
+  end if;
+  select branch_id into v_branch from public.invites where id = v_invite;
+  if v_branch is distinct from v_west then
+    raise exception 'FAIL: invitation branch %, expected %', v_branch, v_west using errcode = 'P0002';
+  end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_desk, 'role', 'authenticated', 'email', 'branch-view-desk@test.local')::text, true);
+  if public.accept_invite(null) is distinct from v_clinic then
+    raise exception 'FAIL: the invited front desk did not land in the clinic' using errcode = 'P0002';
+  end if;
+  select id into v_desk_staff from public.staff
+   where clinic_id = v_clinic and user_id = v_desk and role = 'frontdesk';
+  select count(*), min(branch_id::text)::uuid into v_n, v_branch from public.staff_branches
+   where staff_id = v_desk_staff and active;
+  if v_n <> 1 or v_branch <> v_west then
+    raise exception 'FAIL: invited seat has % active assignment(s) on %, expected only West %', v_n, v_branch, v_west using errcode = 'P0002';
+  end if;
+  select branch_scope, active_branch_id into v_scope, v_branch from public.profiles where id = v_desk;
+  if v_scope <> 'branch' or v_branch <> v_west then
+    raise exception 'FAIL: the invited seat did not start on its invited branch' using errcode = 'P0002';
+  end if;
+
+  -- A front desk sees only its own branch's day sheet, and cannot widen the view.
+  select count(*), min(branch_id::text)::uuid into v_n, v_branch from public.day_closes
+   where clinic_id = v_clinic and closed_on = current_date;
+  if v_n <> 1 or v_branch <> v_west then
+    raise exception 'FAIL: front desk read % day sheets, expected only West', v_n using errcode = 'P0002';
+  end if;
+  v_refused := false;
+  begin
+    perform public.set_branch_scope('all');
+  exception when insufficient_privilege then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'FAIL: front desk widened its branch scope' using errcode = 'P0002';
+  end if;
+  reset role;
+  raise notice 'PASS: a branch invitation assigns the seat, its day close and its read scope to one branch';
+
+  raise notice 'ALL BRANCH VIEWS CHECKS COMPLETED';
+end $branchviews$;
+
+rollback;   -- nothing above survives; safe to re-run
+do $$
+begin
+  raise notice 'ALL SQL OK';
+end $$;

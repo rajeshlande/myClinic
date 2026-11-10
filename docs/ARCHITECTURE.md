@@ -18,7 +18,7 @@ A **functional core with an imperative shell**:
         ↓  (imports)
   lib/store.jsx                the one stateful seam: data, cache, queue, licence
         ↓  (imports)
-  lib/*.mjs                    pure domain: 54 modules, 22 of them import nothing
+  lib/*.mjs                    pure domain: 55 modules, 22 of them import nothing
         ↓  (never called from lib/)
   supabase/                    Postgres is the authority: RLS, triggers, one RPC
 ```
@@ -55,10 +55,10 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **B** | 22/54 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with nine tab components (v1.30.0–v1.41.0) and `store.jsx` is 1,131 lines after three branch methods (the outbox, caches and licence composition remain injected modules, v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
+| Single Responsibility | **B** | 22/55 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with nine tab components (v1.30.0–v1.41.0) and `store.jsx` is 1,239 lines after the branch view and four branch methods (the outbox, caches and licence composition remain injected modules, v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
-| Interface Segregation | **C** | Pure modules take narrow arguments; but **38 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
+| Interface Segregation | **C** | Pure modules take narrow arguments; but **39 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
 | Dependency Inversion | **A−** | Only **3 files** import the concrete Supabase client; `central-sync.mjs` takes `fetch`/`storage`/`now` as parameters. One deliberate exception: `import.meta.env` is read at module scope in `supabase.js` |
 
 ### 2.1 Where it is solid
@@ -453,9 +453,23 @@ the anti-regression line ceilings in the licensing-adapter and offline-queue tes
 move to 1150. Settings gains a ninth tab, and Team shares one assignment dialog
 with it. Real PostgreSQL 17 verification applies `schema.sql` twice: schema-2
 policies, `create_clinic()` and the two counter helpers are now guarded /
-hardened so a re-run cannot downgrade schema 17/19/20. v1.42.0 keeps the sidebar
-switcher, scoped lists and reports; this release is additive schema +
-configuration only.
+hardened so a re-run cannot downgrade schema 17/19/20.
+
+
+**v1.42.0 — item 9, the second branch release.** `src/lib/branch-scope.mjs` is a
+pure 55th lib module (still **22 importing nothing**): the owner may view all
+branches together or one branch, while a non-owner's stored `all` can never
+widen beyond its one assignment. `StoreProvider` filters every branch-tagged
+list once and gives Day close a separate, explicitly named cash-drawer scope;
+`BranchSwitcher` is shared by the sidebar, mobile drawer and desktop topbar.
+Schema 21 tags `day_closes` and `invites`, stores `profiles.branch_scope`, adds
+`set_branch_scope()` and a five-argument `invite_staff()`, and makes
+`accept_invite()` honour the invited branch. The top-level legacy
+`accept_invite()` is guarded by schema 21 so a second paste cannot downgrade it.
+The provider line ceilings move to 1300. The branch count in the licence seat meters is now the active `branches`
+rows, not the old hard-coded one. Seventeen rolled-back PostgreSQL suites cover
+the two branch releases, including a real front-desk invitation and two day
+sheets on the same date at different branches.
 
 
 Two new lib files take the census to 50, still 22 importing nothing:

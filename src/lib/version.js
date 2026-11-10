@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.41.0';
-export const SCHEMA_VERSION = 20;
+export const APP_VERSION = '1.42.0';
+export const SCHEMA_VERSION = 21;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -22,6 +22,17 @@ export const BUILD = (() => {
 /** What changed, newest first. Kept as the in-app version history; the
  *  Settings → What's new card was hidden in v1.35.5 at the clinic's request. */
 export const CHANGELOG = [
+  {
+    version: '1.42.0', date: '2026-11-10', schema: 21,
+    highlights: [
+      '**Item 9 is complete.** The second confirmed branch release turns schema 20 into a working branch workspace. A new pure `src/lib/branch-scope.mjs` owns the view rule: an owner sees **All branches** or one branch, while a doctor or front-desk seat is always resolved to its single assignment.',
+      '**One switcher, one answer.** `BranchSwitcher` sits in the sidebar (and the mobile drawer that shares it) and the desktop topbar. A front desk gets a static branch label and no switcher. `All branches` keeps one real `activeBranchId` for new rows, so a combined view never writes an `all` branch.',
+      '**Lists, reports and day close follow the view.** The provider filters appointments, consultations, invoices and day closes in one place. Day close is deliberately scoped to the real cash-drawer branch even when an owner views all branches; reports and billing name the branch being shown.',
+      '**Seat meters and invitations are real.** `seatUsageCounts()` counts active `branches` rows instead of hard-coding one. Invite staff now carries `branch_id`; `accept_invite()` retires the implicit Main assignment and starts an invited seat on the chosen branch.',
+      '**Schema 21 is additive.** `day_closes.branch_id`, `invites.branch_id` and `profiles.branch_scope` join the tables; day-close uniqueness becomes clinic + branch + day, policies call `can_access_branch()`, and `set_branch_scope()` / a five-argument `invite_staff()` join the RPCs. The top-level legacy `accept_invite()` is guarded so a re-run cannot restore the old body. `create_clinic()` keeps its signature; no table, column or clinical row is dropped.',
+      'Plan-first item 9 (§9), release 2 of 2. 5 branch-view tests, 1 schema ratchet and 4 new wiring ratchets: **729 tests / 43 files**, 17 rolled-back PostgreSQL suites, all gates green. Lib census 55 modules (22 import nothing); clean clone verified.',
+    ],
+  },
   {
     version: '1.41.0', date: '2026-11-10', schema: 20,
     highlights: [

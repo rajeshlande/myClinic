@@ -192,3 +192,24 @@ test('schema 20 adds branches without changing create_clinic() or destructive SQ
   assert.match(createClinic, /public\.next_clinic_slug\(clinic_name\)/);
   assert.doesNotMatch(createClinic, /public\.branches/, 'create_clinic() keeps its schema-19 body');
 });
+
+
+test('schema 21 scopes day close and carries a branch on invitations', () => {
+  const block = sql.slice(sql.indexOf('§21 ·'));
+  assert.match(block, /migration 21 · app v1\.42\.0/);
+  assert.match(block, /set schema_version = 21/);
+  assert.match(sql, /do \$keep_accept_invite\$[\s\S]*app_schema_version\(\) >= 21/, 'a re-run must not restore the old accept_invite body');
+  assert.match(block, /\(21, 'branch-views', '1\.42\.0'/);
+  assert.match(block, /alter table public\.profiles add column if not exists branch_scope text not null default 'all'/);
+  assert.match(block, /alter table public\.day_closes alter column branch_id set not null/);
+  assert.match(block, /create policy day_closes_write[\s\S]{0,260}can_access_branch/);
+  assert.match(block, /create policy day_closes_update[\s\S]{0,360}can_access_branch/);
+  assert.match(block, /create or replace function public\.set_branch_scope\(p_scope text\)/);
+  assert.match(block, /only a clinic owner can view all branches/);
+  assert.match(block, /create or replace function public\.invite_staff\([\s\S]{0,320}p_branch uuid\s*\)/);
+  assert.match(block, /update public\.staff_branches[\s\S]{0,220}active = false/);
+  assert.match(block, /set active_branch_id = inv\.branch_id, branch_scope = 'branch'/);
+  assert.doesNotMatch(block, /\bdelete\s+from\b/i, 'schema 21 stays additive');
+  assert.doesNotMatch(block, /\bdrop\s+column\b/i, 'no column is dropped');
+  assert.doesNotMatch(block, /\bdrop\s+table\b/i, 'no table is dropped');
+});

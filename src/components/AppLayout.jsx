@@ -17,6 +17,7 @@ import { planSidebarLabel } from '../lib/plans.mjs';
 import { currentPlan } from '../lib/current-plan.mjs';
 import { Avatar, Button, IconButton, Modal, SearchInput } from './ui.jsx';
 import { BrandMark } from './Branding.jsx';
+import BranchSwitcher from './BranchSwitcher.jsx';
 
 const NAV = [
   { group: 'Clinic', items: [
@@ -128,6 +129,8 @@ export default function AppLayout() {
         </div>
       </div>
 
+      <BranchSwitcher />
+
       {/* Only the links scroll. The brand above and the plan card + account row
           below stay put, so on a short screen the last link is reachable and the
           way out is always on screen. */}
@@ -212,6 +215,7 @@ export default function AppLayout() {
           </div>
           <div className="topbar-spacer" />
           <div className="topbar-actions">
+            <BranchSwitcher compact />
             <button className="searchbox" style={{ width: 260, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 11, padding: 0 }} onClick={() => setPaletteOpen(true)} aria-label="Search">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ position: 'static', marginLeft: 11, color: 'var(--faint)' }}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
               <span className="small faint" style={{ textAlign: 'left', flex: 1, padding: '10px 8px' }}>Search patients, invoices…</span>

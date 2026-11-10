@@ -3,6 +3,27 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.42.0] — 2026-11-10 · schema 21
+
+**Branch Configuration is now a working branch workspace.** This is the second and final release of confirmed item 9 (`docs/PLAN-v1.33.md` §9). v1.41.0 created child branches, real assignments and branch-tagged rows; v1.42.0 makes every list, report and day sheet answer the branch view, and gives a new front-desk seat its branch at invitation time.
+
+| Change | File | Why |
+| --- | --- | --- |
+| pure view rules | `src/lib/branch-scope.mjs` (new) | owner all-or-one branch, non-owner one branch, legacy null rows stay on Main, new rows keep a real branch id |
+| one owner switcher | `src/components/BranchSwitcher.jsx` (new), `src/components/AppLayout.jsx` | sidebar / drawer and desktop topbar share one selector; front desk sees a static label and no switcher |
+| scoped provider | `src/lib/store.jsx` | `branchScope`, scoped lists, `dayCloseData`, `setBranchScope()`, branch-aware invitations and real branch seat counts |
+| branch-scoped day close | `src/pages/DayClose.jsx`, `supabase/schema.sql` §21 | one cash drawer per branch per day, explicitly named on the page |
+| branch-aware reports | `src/pages/Billing.jsx`, `src/pages/Reports.jsx` | the active branch view is printed beside the figures |
+| real seat meters | `src/lib/licensing-adapter.js` | active `branches` rows replace the hard-coded `branches: 1` |
+| branch invitations | `src/pages/Team.jsx`, `src/lib/store.jsx`, `supabase/schema.sql` §21 | the invited seat starts on the chosen branch, not the implicit Main one |
+| verification | `tests/branch-scope.test.mjs` (new), `tests/branch-wiring.test.mjs`, `tests/schema.test.mjs`, `supabase/schema-tests.sql` suite Q | pure rules, screen wiring, static schema guards and real PostgreSQL 17 behaviour stay together |
+
+**What changed for a clinic.** An owner can view every assigned branch together or switch to one; the sidebar, topbar and mobile drawer use the same control. Appointments, consultations, invoices, reports and the day book all follow that view. A front-desk seat still sees only its own branch and has no switcher. Day close remains per physical cash drawer even in the combined view, and two branches can close the same calendar day. The Subscription / Plan & data seat meter now counts real active branches, and an invitation can name the branch its new doctor or front-desk seat will join.
+
+**Database.** Schema 21 is additive: `day_closes.branch_id`, `invites.branch_id` and `profiles.branch_scope`; branch-scoped `day_closes` RLS; a `day_closes(clinic_id, branch_id, closed_on)` uniqueness; `set_branch_scope()`; a five-argument `invite_staff()`; and a branch-aware `accept_invite()`. Existing day sheets are backfilled to Main. A `branch_row_guard()` rejects a branch from another clinic. `create_clinic(jsonb, jsonb)` is unchanged; there is no `DELETE`, no dropped table and no dropped column. The top-level legacy `accept_invite()` is guarded by `app_schema_version() < 21`, so a second paste cannot overwrite the branch-aware schema-21 definition. Paste `supabase/schema.sql` once in the Supabase SQL editor to move from schema 20 to 21.
+
+**Gates.** 729/729 unit tests across 43 files, `vite build`, `check:pages`, `check:contributing` 28/28 (version 1.42.0 / 1.42.0 / 1.42.0 · schema 21), `test:security`, clean-clone verification and the real PostgreSQL 17 schema-test suite all green. Lib census 55 modules, 22 import nothing. `SCHEMA_VERSION` 21 is an intentional change; `package.json`, root `package-lock.json` and both changelogs agree.
+
 ## [1.41.0] — 2026-11-10 · schema 20
 
 **Branch Configuration is real now.** Item 9 of `docs/PLAN-v1.33.md` (§9) is the first of two confirmed releases. A branch is a child row of one parent clinic — one licence, one bill — not a second `clinics` row. Patients stay shared; appointments, consultations and invoices carry `branch_id`; the drug directory, formulary and plan stay shared. The six answers (child table, mixed data, owner-only multi-assignment, owner-all visibility, full scope, two releases) were confirmed on 2026-11-10 and are recorded in §9.
@@ -25,7 +46,7 @@ Supabase migration level this release expects (`app_schema_version()`).
 
 **Gates.** 720/720 unit tests across 42 suites, `vite build`, `check:pages`, `check:contributing` 28/28 (version 1.41.0 / 1.41.0 / 1.41.0 · schema 20), `test:security`, clean-clone verification and the real PostgreSQL 17 schema-test suite all green. Lib census 54 modules, 22 import nothing. `SCHEMA_VERSION` 20 is an intentional change; `package.json`, root `package-lock.json` and both changelogs agree.
 
-**Still to come.** v1.42.0 adds the sidebar branch switcher, branch-scoped list queries and reports / day-close, real branch counts in seat meters, and front-desk invitations that carry a branch. v1.41.0 is schema + configuration only, exactly the two-release sequence confirmed in §9.
+**Followed by v1.42.0.** The sidebar branch switcher, branch-scoped list queries and reports / day-close, real branch counts in seat meters, and front-desk invitations that carry a branch are shipped in the next entry — exactly the two-release sequence confirmed in §9.
 
 ## [1.35.6] — 2026-11-02 · schema 19
 

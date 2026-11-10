@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 
 const checks = [];
 const suite = 'supabase/schema-tests.sql';
-checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (single source of truth, schema 1-20)']);
+checks.push([existsSync('supabase/schema.sql'), 'supabase/schema.sql present (single source of truth, schema 1-21)']);
 checks.push([existsSync(suite), `${suite} present (role matrix + licensing regression suites)`]);
 checks.push([existsSync('src/lib/permissions.js'), 'client role matrix mirrors the policies']);
 checks.push([existsSync('src/lib/offline.js'), 'offline engine (scoped cache, TTL, outbox)']);
@@ -21,7 +21,7 @@ Database checks (run against a SCRATCH project, never production):
 
   1. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
      -> one file. Idempotent: re-running it upgrades any older database in place,
-        straight to schema 20 (see public.app_schema_version()).
+        straight to schema 21 (see public.app_schema_version()).
   2. set role anon;   -- the public booking surface, seen from outside
      select public.public_clinic_profile('sunrise-opd');       -- profile and doctors only
      select public.public_booking_busy('sunrise-opd',
@@ -33,8 +33,9 @@ Database checks (run against a SCRATCH project, never production):
 
   3. psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/schema-tests.sql
      -> every assertion prints PASS, ending in
-        "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED" and
-        "ALL BRANCH CONFIGURATION CHECKS COMPLETED"; the whole fixture set is
+        "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED",
+        "ALL BRANCH CONFIGURATION CHECKS COMPLETED",
+        "ALL BRANCH VIEWS CHECKS COMPLETED" and "ALL SQL OK"; the whole fixture set is
         rolled back, so a run leaves no trace.
 
 What the suites prove:
@@ -47,7 +48,10 @@ What the suites prove:
   · one parent clinic can hold many child branches; owners hold several assignments
   · doctors and front-desk seats hold exactly one branch each
   · patients stay shared; a front-desk seat cannot read another branch's visits or invoices
-  · a second application of schema.sql leaves the hardened rules at schema 20
+  · a second application of schema.sql leaves the hardened rules at schema 21
+  · day close is scoped to one cash-drawer branch even when an owner views all branches
+  · a branch invitation starts a front-desk seat on that branch, not implicit Main
+  · set_branch_scope('all') is refused for a doctor or front-desk seat
   · a front-desk user cannot enrol themselves in another clinic
   · a member cannot promote themselves to owner (policy + staff_guard trigger)
   · clinic A cannot read clinic B's patients or invoices

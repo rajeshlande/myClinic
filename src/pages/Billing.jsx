@@ -90,7 +90,7 @@ export default function Billing() {
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 200 }}>
           <h2>Billing &amp; collections</h2>
-          <div className="sub">{monthLabel(month)} · {store.invoices.length} invoices issued in this clinic</div>
+          <div className="sub">{monthLabel(month)} · {store.branchScopeLabel ?? 'Main branch'} · {store.invoices.length} invoices in this view</div>
         </div>
         <Button variant="subtle" icon={Download} onClick={exportCsv}>Export</Button>
         <Button variant="primary" icon={Plus} onClick={() => { setEditing(null); setFormOpen(true); }}>New invoice</Button>

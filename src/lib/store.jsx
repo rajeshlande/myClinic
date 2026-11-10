@@ -9,6 +9,10 @@ import {
   ROLE_OWNER, ensureBranchState, normaliseBranchName, uniqueBranchCode,
   validateAssignments, visibleBranchIds,
 } from './branch-config.mjs';
+import {
+  ALL_BRANCH_SCOPE, BRANCH_SCOPE_TABLES, branchScopeLabel, branchScopeOptions,
+  canSwitchBranches, resolveBranchScope, rowsForBranchScope, visibleBranches,
+} from './branch-scope.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { TRIAL_DAYS, seatUsage } from './license.mjs';
@@ -60,11 +64,11 @@ const StoreContext = createContext(null);
 const emptyState = {
   clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [],
   invoices: [], day_closes: [], reminders: [], invites: [], subscription: null,
-  branches: [], staffBranches: [], activeBranchId: null,
+  branches: [], staffBranches: [], activeBranchId: null, branchScope: null,
 };
 
-/** Tables whose rows are tagged with the active branch (schema 20). */
-const BRANCH_TABLES = new Set(['appointments', 'consultations', 'invoices']);
+/** Tables whose rows are tagged with the active branch (schema 20 + day close in 21). */
+const BRANCH_TABLES = new Set(BRANCH_SCOPE_TABLES);
 
 
 export function StoreProvider({ children, session }) {
@@ -116,10 +120,17 @@ export function StoreProvider({ children, session }) {
     const healed = ensureBranchState(next, {
       makeId: () => `branch-${nextId()}`, now: () => new Date().toISOString(),
     });
+    const demoMember = (next.staff ?? []).find((member) => member.role === ROLE_OWNER && member.active !== false)
+      ?? (next.staff ?? []).find((member) => member.active !== false) ?? null;
+    const demoVisible = visibleBranchIds(demoMember?.role, demoMember?.id, healed.staffBranches, healed.branches);
     Object.assign(next, {
       branches: healed.branches,
       staffBranches: healed.staffBranches,
       activeBranchId: healed.activeBranchId,
+      branchScope: resolveBranchScope({
+        role: demoMember?.role, scope: next.branchScope, activeBranchId: healed.activeBranchId,
+        allowedBranchIds: demoVisible,
+      }),
       profile: healed.profile,
     });
     if (!next.subscription) {
@@ -251,6 +262,13 @@ export function StoreProvider({ children, session }) {
       const visible = visibleBranchIds(currentStaff?.role, currentStaff?.id, assignmentRows, branchRows);
       const requested = profile?.active_branch_id;
       const activeBranchId = requested && visible.includes(requested) ? requested : (visible[0] ?? null);
+      const branchScope = resolveBranchScope({
+        role: currentStaff?.role,
+        scope: profile?.branch_scope === 'all' ? ALL_BRANCH_SCOPE
+          : profile?.branch_scope === 'branch' ? activeBranchId : null,
+        activeBranchId,
+        allowedBranchIds: visible,
+      });
 
       const next = {
         clinic,
@@ -266,6 +284,7 @@ export function StoreProvider({ children, session }) {
         branches: branchRows,
         staffBranches: assignmentRows,
         activeBranchId,
+        branchScope,
         // schema 7 is what day close and the reminder log need; without it the
         // pages explain themselves instead of failing a write.
         schemaReady: !(results[5].missing || results[6].missing),
@@ -612,14 +631,17 @@ export function StoreProvider({ children, session }) {
    * insert policy (`is_clinic_owner(clinic_id) and invited_by = auth.uid()`) is the
    * gate — the same gate the RPC uses — so nothing is weakened by it.
    */
-  const inviteStaff = useCallback(async ({ email, role = 'frontdesk', name = '', specialty = '', qualification = '' }) => {
+  const inviteStaff = useCallback(async ({ email, role = 'frontdesk', name = '', specialty = '', qualification = '', branchId = null }) => {
     if (mode === 'demo') return null;
-    const clinic = stateRef.current.clinic;
+    const current = stateRef.current;
+    const clinic = current.clinic;
     if (!clinic?.id) throw new Error('Open a clinic before inviting anyone.');
     if (!userId) throw new Error('Sign in again to invite someone.');
-    const seat = inviteDefaults({ role, email, name, clinic, staff: stateRef.current.staff ?? [] });
-
-    const { data, error: e } = await supabase.from('invites').insert({
+    const seat = inviteDefaults({ role, email, name, clinic, staff: current.staff ?? [] });
+    const wanted = branchId || current.activeBranchId;
+    const chosenBranch = (current.branches ?? []).some((b) => b?.id === wanted && b.active !== false)
+      ? wanted : null;
+    const payload = {
       clinic_id: clinic.id,
       email: seat.email,
       role: role === 'owner' ? 'doctor' : role,
@@ -627,7 +649,18 @@ export function StoreProvider({ children, session }) {
       specialty: specialty || '',
       qualification: qualification || '',
       invited_by: userId,
-    }).select().maybeSingle();
+      branch_id: chosenBranch,
+    };
+
+    let result = await supabase.from('invites').insert(payload).select().maybeSingle();
+    // A database still on schema 20 has no invites.branch_id. The invitation is
+    // still worth sending: accept_invite() assigns its implicit Main branch.
+    if (result.error && unknownColumn(result.error) === 'branch_id') {
+      const legacyPayload = { ...payload };
+      delete legacyPayload.branch_id;
+      result = await supabase.from('invites').insert(legacyPayload).select().maybeSingle();
+    }
+    const { data, error: e } = result;
 
     if (e) {
       // 23505 = this email already has a pending invitation for this clinic. Hand
@@ -749,9 +782,38 @@ export function StoreProvider({ children, session }) {
     persistLocal((prev) => ({
       ...prev,
       activeBranchId: branchId,
-      profile: { ...(prev.profile ?? {}), active_branch_id: branchId },
+      branchScope: branchId,
+      profile: { ...(prev.profile ?? {}), active_branch_id: branchId, branch_scope: 'branch' },
     }));
   }, [mode, persistLocal, session]);
+
+  /** Switch the owner's view without changing the real branch new rows use. */
+  const setBranchScope = useCallback(async (scope) => {
+    const current = stateRef.current;
+    const member = (current.staff ?? []).find((row) => row.user_id && row.user_id === session?.user?.id)
+      ?? (current.staff ?? []).find((row) => row.role === ROLE_OWNER)
+      ?? (current.staff ?? [])[0] ?? null;
+    const allowed = visibleBranchIds(member?.role, member?.id, current.staffBranches, current.branches);
+    const resolved = resolveBranchScope({
+      role: member?.role, scope, activeBranchId: current.activeBranchId, allowedBranchIds: allowed,
+    });
+    if (!resolved) throw new Error('No branch is available for this account.');
+    if (resolved === ALL_BRANCH_SCOPE) {
+      if (!canSwitchBranches(member?.role, allowed)) throw new Error('Only an owner can view all branches.');
+      if (mode !== 'demo') {
+        const { error } = await supabase.rpc('set_branch_scope', { p_scope: ALL_BRANCH_SCOPE });
+        if (error) throw error;
+      }
+      persistLocal((prev) => ({
+        ...prev,
+        branchScope: ALL_BRANCH_SCOPE,
+        profile: { ...(prev.profile ?? {}), branch_scope: ALL_BRANCH_SCOPE },
+      }));
+      return resolved;
+    }
+    await setActiveBranch(resolved);
+    return resolved;
+  }, [mode, persistLocal, setActiveBranch, session]);
 
   const resetDemo = useCallback(() => {
     const fresh = makeDemoWorkspace();
@@ -825,7 +887,7 @@ export function StoreProvider({ children, session }) {
     central: { enabled: centralEnabled, subscription: centralSubscription },
   }), [centralEnabled, centralSubscription, state.subscription]);
 
-  const licenseUsage = useMemo(() => seatUsageCounts(state.staff), [state.staff]);
+  const licenseUsage = useMemo(() => seatUsageCounts(state.staff, state.branches), [state.staff, state.branches]);
 
   const licenseSeats = useMemo(() => seatUsage(license, licenseUsage), [license, licenseUsage]);
   // `writable` is what a screen shows; `readOnly` is what the write path enforces.
@@ -1084,24 +1146,68 @@ export function StoreProvider({ children, session }) {
     }
   }, [mode]);
 
+  // Branch visibility is derived from the same assignment table the database
+  // reads. Lists are filtered in one place, so reports, dashboards, billing,
+  // appointments, consultations and the day book cannot drift apart.
+  const currentStaff = useMemo(() => (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id)
+    ?? (state.staff ?? []).find((s) => s.role === ROLE_OWNER) ?? (state.staff ?? [])[0] ?? null,
+  [state.staff, session]);
+  const role = currentStaff?.role ?? 'owner';
+  const allowedBranchIds = useMemo(
+    () => visibleBranchIds(role, currentStaff?.id, state.staffBranches, state.branches),
+    [role, currentStaff, state.staffBranches, state.branches],
+  );
+  const availableBranches = useMemo(() => visibleBranches(state.branches, allowedBranchIds),
+    [state.branches, allowedBranchIds]);
+  const branchScope = useMemo(() => resolveBranchScope({
+    role, scope: state.branchScope, activeBranchId: state.activeBranchId, allowedBranchIds,
+  }), [role, state.branchScope, state.activeBranchId, allowedBranchIds]);
+  const legacyBranchId = availableBranches[0]?.id ?? (state.branches ?? []).find((b) => b.active !== false)?.id ?? null;
+  const scopedRows = useMemo(() => ({
+    appointments: rowsForBranchScope(state.appointments, branchScope, { legacyBranchId }),
+    consultations: rowsForBranchScope(state.consultations, branchScope, { legacyBranchId }),
+    invoices: rowsForBranchScope(state.invoices, branchScope, { legacyBranchId }),
+    day_closes: rowsForBranchScope(state.day_closes, branchScope, { legacyBranchId }),
+  }), [state.appointments, state.consultations, state.invoices, state.day_closes, branchScope, legacyBranchId]);
+  // A cash drawer belongs to one physical branch even when an owner is looking
+  // at the combined report. New day-close rows carry the real active branch id.
+  const dayCloseScope = state.activeBranchId ?? allowedBranchIds[0] ?? null;
+  const dayCloseData = useMemo(() => ({
+    appointments: rowsForBranchScope(state.appointments, dayCloseScope, { legacyBranchId }),
+    consultations: rowsForBranchScope(state.consultations, dayCloseScope, { legacyBranchId }),
+    invoices: rowsForBranchScope(state.invoices, dayCloseScope, { legacyBranchId }),
+    day_closes: rowsForBranchScope(state.day_closes, dayCloseScope, { legacyBranchId }),
+    patients: state.patients,
+  }), [state.appointments, state.consultations, state.invoices, state.day_closes, state.patients,
+    dayCloseScope, legacyBranchId]);
+  const branchOptions = useMemo(() => branchScopeOptions({ role, branches: state.branches, allowedBranchIds }),
+    [role, state.branches, allowedBranchIds]);
+  const switchable = canSwitchBranches(role, allowedBranchIds);
+
   const value = useMemo(() => ({
     ready, error, savedAt, mode, needsOnboarding,
     ...state,
+    ...scopedRows,
+    branchScope,
+    branchScopeLabel: branchScopeLabel(state.branches, branchScope),
+    activeBranchLabel: branchScopeLabel(state.branches, state.activeBranchId),
+    visibleBranchIds: allowedBranchIds,
+    branchOptions,
+    canSwitchBranches: switchable,
+    dayCloseData,
+    dayCloseBranchLabel: branchScopeLabel(state.branches, dayCloseScope),
     doctors: (state.staff ?? []).filter((s) => s.role !== 'frontdesk'),
     frontDesk: (state.staff ?? []).filter((s) => s.role === 'frontdesk'),
-    currentStaff: (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id)
-      ?? (state.staff ?? []).find((s) => s.role === 'owner') ?? (state.staff ?? [])[0] ?? null,
+    currentStaff,
     // The signed-in member's own role; in the demo workspace nobody is signed in, so
     // fall back to the owner row — never to staff[0], which is whichever person was
     // added most recently (inviting a doctor used to demote the demo user).
-    role: (state.staff ?? []).find((s) => s.user_id && s.user_id === session?.user?.id)?.role
-      ?? (state.staff ?? []).find((s) => s.role === 'owner')?.role
-      ?? (state.staff ?? [])[0]?.role ?? 'owner',
+    role,
     // sync surface
     online, pending, conflicts, syncState, lastSyncedAt, usingCache,
     flushNow: flush, resolveConflict, dismissConflict,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
-    createBranch, assignStaffBranches, setActiveBranch,
+    createBranch, assignStaffBranches, setActiveBranch, setBranchScope,
     refresh, resetDemo, enterDemo: bootDemo,
     // drug directory (schema 14) — searched on the server, always optional
     searchDrugDirectory,
@@ -1115,8 +1221,10 @@ export function StoreProvider({ children, session }) {
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
-    createBranch, assignStaffBranches, setActiveBranch,
+    createBranch, assignStaffBranches, setActiveBranch, setBranchScope,
     resetDemo, bootDemo, refresh, searchDrugDirectory,
+    currentStaff, role, allowedBranchIds, scopedRows, branchScope, branchOptions, switchable,
+    dayCloseData, dayCloseScope, legacyBranchId,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, startTrial,
     centralEnabled, centralState, centralDiagnostics, syncCentralNow, probeCentral]);

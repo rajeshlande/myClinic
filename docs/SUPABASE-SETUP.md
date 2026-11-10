@@ -99,6 +99,7 @@ rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`, `5 upi`, `6 
 | 18 | §18 | licence authority: `authority_*` columns, `apply_authority_license()` (`service_role` only), renewal/plan/trial refused once bound, the `authority` block in `license_state()` |
 | 19 | §19 | set-up collects: `create_clinic()` writes hours, days off, sessions, GSTIN, the follow-up window and the doctor's registration number, each range-checked and defaulted when absent |
 | 20 | §20 | branches: child `branches` table, `staff_branches` assignments, `branch_id` on visits/invoices, a default **Main branch** for every clinic, owner-only `create_branch()` / `set_staff_branches()` / `set_active_branch()` RPCs, and branch-scoped RLS |
+| 21 | §21 | branch views: `profiles.branch_scope`, `day_closes.branch_id` and `invites.branch_id`, one day sheet per branch per day, `set_branch_scope()`, a five-argument `invite_staff()`, branch-aware `accept_invite()` and branch-scoped day-close RLS |
 
 Confirm the licensing and branding objects exist:
 
@@ -206,7 +207,7 @@ Visit `https://rajeshlande.github.io/myClinic/#/setup` and press **Run test** in
 | Project URL is HTTPS | the URL starts with `https://` |
 | Base path matches deployment | assets are relative (`./`) or the base equals the Pages sub-path |
 | REST API reachable with this key | `GET /rest/v1/` with the key returns 2xx (not 401/403) |
-| Database schema version | `app_schema_version()` equals the version this build needs (20) |
+| Database schema version | `app_schema_version()` equals the version this build needs (21) |
 
 All green means: sign-up, sign-in, tenant isolation and cloud sync are wired.
 Any red check names the exact thing to fix — no key material is ever displayed.
@@ -217,16 +218,20 @@ Any red check names the exact thing to fix — no key material is ever displayed
 npm run test:security    # operator instructions for the RLS suite
 ```
 
-Then run `supabase/schema-tests.sql` in the SQL Editor. Sixteen rolled-back suites
+Then run `supabase/schema-tests.sql` in the SQL Editor. Seventeen rolled-back suites
 assert the role matrix, tenant isolation, token issuance, invoice guards, seat
-limits, grace/read-only licensing, plan changes and schema-20 branch configuration
-— ending in `ALL RLS CHECKS COMPLETED`,
-`ALL LICENSING CHECKS COMPLETED` and
-`ALL BRANCH CONFIGURATION CHECKS COMPLETED`. Suite M proves owners can hold several
-branches, seats hold one, patients stay shared and front desk cannot read another
-branch's appointments or invoices. **Development projects only**; it rolls itself
-back, but never point it at real patient data. See [`docs/SECURITY.md`](SECURITY.md)
-for the full audit summary.
+limits, grace/read-only licensing, plan changes and the schema-20/21 branch
+releases — ending in `ALL RLS CHECKS COMPLETED`,
+`ALL LICENSING CHECKS COMPLETED`,
+`ALL BRANCH CONFIGURATION CHECKS COMPLETED`,
+`ALL BRANCH VIEWS CHECKS COMPLETED` and `ALL SQL OK`. Suite P proves owners can
+hold several branches, seats hold one, patients stay shared and front desk cannot
+read another branch's appointments or invoices. Suite Q proves the owner's
+all-branches view keeps one real write branch, an invitation assigns its chosen
+branch, two branches can close the same day and a front desk reads only its own
+day sheet. **Development projects only**; it rolls itself back, but never point it
+at real patient data. See [`docs/SECURITY.md`](SECURITY.md) for the full audit
+summary.
 
 ## Troubleshooting
 

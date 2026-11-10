@@ -33,21 +33,27 @@ export default function DayClose() {
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const dayCloses = store.day_closes ?? [];
+  // A cash drawer is one physical branch, even when an owner's lists are
+  // showing all branches together. The store scopes this page to the real
+  // active branch; patients remain shared clinic records.
+  const dayScope = store.dayCloseData ?? {
+    appointments: [], consultations: [], invoices: [], day_closes: [], patients: [],
+  };
+  const dayCloses = dayScope.day_closes ?? [];
   const canClose = can(store.role ?? 'owner', 'day:close');
 
   const canReadConsults = can(store.role ?? 'owner', 'consultation:read');
   const totals = useMemo(() => dayTotals({
-    invoices: store.invoices, consultations: store.consultations,
-    patients: store.patients, appointments: store.appointments, iso,
+    invoices: dayScope.invoices, consultations: dayScope.consultations,
+    patients: dayScope.patients, appointments: dayScope.appointments, iso,
     canSeeConsultations: canReadConsults,
-  }), [store.invoices, store.consultations, store.patients, store.appointments, iso, canReadConsults]);
+  }), [dayScope, iso, canReadConsults]);
 
   const leaks = useMemo(() => missedCharges({
-    appointments: store.appointments, consultations: store.consultations,
-    invoices: store.invoices, patients: store.patients, doctors: store.doctors,
+    appointments: dayScope.appointments, consultations: dayScope.consultations,
+    invoices: dayScope.invoices, patients: dayScope.patients, doctors: store.doctors,
     clinic: store.clinic, iso,
-  }), [store.appointments, store.consultations, store.invoices, store.patients, store.doctors, store.clinic, iso]);
+  }), [dayScope, store.doctors, store.clinic, iso]);
 
   const existing = closeFor(dayCloses, iso);
   const closed = isClosed(existing);
@@ -72,7 +78,7 @@ export default function DayClose() {
   const variance = closeVariance({ expectedPaise: totals.cash, countedPaise });
 
   const visibleLeaks = showAll ? leaks.items : leaks.items.slice(0, 6);
-  const money = collectionsFor({ invoices: store.invoices, iso });
+  const money = collectionsFor({ invoices: dayScope.invoices, iso });
 
   async function closeDay() {
     if (!canClose) return;
@@ -161,6 +167,7 @@ export default function DayClose() {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h2>Day close</h2>
           <div className="sub">
+            {store.dayCloseBranchLabel ? `${store.dayCloseBranchLabel} · ` : ''}
             {relativeDay(iso) === 'Today' ? 'Today' : formatDate(iso, { weekday: true })} ·{' '}
             {closed ? `closed at ${new Date(existing.closed_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}` : 'counting the drawer'}
           </div>

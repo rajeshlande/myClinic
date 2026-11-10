@@ -11,6 +11,7 @@ import { PLAN_SEATS, planLabel } from '../lib/plans.mjs';
 import { currentPlan } from '../lib/current-plan.mjs';
 import { branchForPlan, branchTone, staffBranchLabel } from '../lib/staff-branch.mjs';
 import { ROLE_OWNER, branchesForStaff, staffBranchBadge } from '../lib/branch-config.mjs';
+import { branchScopeLabel } from '../lib/branch-scope.mjs';
 import BranchAssignmentModal from '../components/BranchAssignmentModal.jsx';
 import { can, roleMatrixFor } from '../lib/permissions.js';
 import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
@@ -35,7 +36,12 @@ export default function Team() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [invite, setInvite] = useState({ email: '', role: 'frontdesk', name: '', specialty: '', qualification: '' });
+  const activeBranchRows = (store.branches ?? []).filter((b) => b?.id && b.active !== false);
+  const blankInvite = () => ({
+    email: '', role: 'frontdesk', name: '', specialty: '', qualification: '',
+    branchId: store.activeBranchId ?? activeBranchRows[0]?.id ?? '',
+  });
+  const [invite, setInvite] = useState(blankInvite);
   const [saving, setSaving] = useState(false);
   const [sentInvite, setSentInvite] = useState(null);
   const [branchMember, setBranchMember] = useState(null);
@@ -127,7 +133,10 @@ export default function Team() {
         // Live: membership is granted through a SECURITY DEFINER function, never a
         // direct staff insert (the RLS policy refuses self-enrolment).
         if (!payload.email) { toast.error('An email address is needed so the person can claim the seat.'); setSaving(false); return; }
-        await store.inviteStaff({ email: payload.email, role: payload.role === 'owner' ? 'doctor' : payload.role, name: payload.full_name });
+        await store.inviteStaff({
+          email: payload.email, role: payload.role === 'owner' ? 'doctor' : payload.role,
+          name: payload.full_name, branchId: store.activeBranchId,
+        });
         toast.success(`Invitation sent to ${payload.email}. They appear here once they sign in.`);
       }
       setFormOpen(false);
@@ -167,7 +176,8 @@ export default function Team() {
           role: invite.role, email: invite.email, name: invite.name,
           clinic: store.clinic ?? {}, staff: store.staff ?? [],
         });
-        await store.create('staff', seat);
+        const seatRow = await store.create('staff', seat);
+        if (invite.branchId && seatRow?.id) await store.assignStaffBranches(seatRow.id, [invite.branchId]);
         toast.success(invite.role === 'frontdesk'
           ? `${seat.full_name} has the front desk.`
           : `${seat.full_name} is on the rota with the clinic's hours — set their own in Doctors & staff.`);
@@ -175,13 +185,14 @@ export default function Team() {
         const row = await store.inviteStaff({
           email: invite.email, role: invite.role, name: invite.name,
           specialty: invite.specialty, qualification: invite.qualification,
+          branchId: invite.branchId || store.activeBranchId,
         });
         setSentInvite(row);
         toast.success(row?.alreadyPending
           ? `An invitation for ${invite.email} is already open — copy the link again.`
           : `Invitation for ${invite.email} is ready. Send them the link.`);
       }
-      setInvite({ email: '', role: 'frontdesk', name: '', specialty: '', qualification: '' });
+      setInvite(blankInvite());
       setInviteOpen(false);
     } catch (e) {
       const message = String(e.message ?? '');
@@ -342,6 +353,9 @@ export default function Team() {
                     {row.specialty || row.qualification ? (
                       <span className="tiny faint">{[row.specialty, row.qualification].filter(Boolean).join(' · ')}</span>
                     ) : null}
+                    {row.branch_id ? (
+                      <span className="tiny faint">{branchScopeLabel(branchRows, row.branch_id)}</span>
+                    ) : null}
                   </div>
                   <div className="row" style={{ gap: 4 }}>
                     <Button size="sm" variant="subtle" icon={Copy} onClick={() => copyInvite(row)}>Link</Button>
@@ -464,6 +478,11 @@ export default function Team() {
             </Field>
             <Field label="Name" hint="Optional — otherwise we use the part before the @" className="span-2">
               <Input value={invite.name} onChange={(e) => setInvite((i) => ({ ...i, name: e.target.value }))} placeholder={invite.role === 'doctor' ? 'Dr. Priya Kamble' : 'Priya Kamble'} />
+            </Field>
+            <Field label="Branch" hint="The seat starts here" className="span-2">
+              <Select value={invite.branchId} onChange={(e) => setInvite((i) => ({ ...i, branchId: e.target.value }))}>
+                {activeBranchRows.map((b) => <option key={b.id} value={b.id}>{branchScopeLabel(activeBranchRows, b.id)}</option>)}
+              </Select>
             </Field>
             {invite.role !== 'frontdesk' ? (
               <>

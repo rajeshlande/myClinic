@@ -96,6 +96,7 @@ export default function Reports() {
         <div className="stack" style={{ gap: 1, flex: 1, minWidth: 180 }}>
           <span className="eyebrow">Reporting period</span>
           <strong style={{ fontSize: '0.95rem' }}>{monthLabel(month)}</strong>
+          <span className="tiny faint">{store.branchScopeLabel ?? 'Main branch'}</span>
         </div>
         <Select value={month} onChange={(e) => setMonth(e.target.value)} style={{ maxWidth: 170 }} aria-label="Month">
           {[...recentMonths(currentMonth(), 12)].reverse().map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}

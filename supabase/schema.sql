@@ -30,6 +30,9 @@
 --  §16  investigations advised          its own list on the prescription
 --  §17  the audit fixes                 booking, licence, counters, writes
 --  §18  the licence authority           a signed verdict, recorded server-side
+--  §19  what set-up collects             hours, GSTIN, follow-up window
+--  §20  branches + assignments           child branches, branch-tagged rows
+--  §21  branch views + invitations       switcher state, scoped day close, branch invites
 --
 -- ── Versioning ───────────────────────────────────────────────────────────────
 --   `public.app_schema_version()` reports this schema. The app compares it with
@@ -61,6 +64,7 @@
 --    18  the licence authority          v1.20.0
 --    19  what set-up collects             v1.34.0
 --    20  branches + assignments           v1.41.0
+--    21  branch views + invitations       v1.42.0
 --
 -- To add a migration: append a numbered block at the end of the file, inside its
 -- own `do $migration$ … $migration$` guard (it returns early when
@@ -322,8 +326,17 @@ begin
 end $$;
 
 -- The signed-in user claims any pending invite addressed to their verified email.
+-- Schema 21 replaces this function with a branch-aware version. Because this
+-- definition sits at the top level, a second paste of schema.sql must not put
+-- the old body back after the migration has run.
+do $keep_accept_invite$
+begin
+  if public.app_schema_version() >= 21 then
+    return;
+  end if;
+  execute $legacy_accept$
 create or replace function public.accept_invite(p_token uuid default null)
-returns uuid language plpgsql security definer set search_path = public as $$
+returns uuid language plpgsql security definer set search_path = public as $fn$
 declare inv public.invites; email_now text;
 begin
   email_now := lower(coalesce(auth.jwt() ->> 'email', ''));
@@ -348,7 +361,9 @@ begin
   update public.invites set accepted_at = now() where id = inv.id;
   update public.profiles set default_clinic_id = inv.clinic_id where id = auth.uid() and default_clinic_id is null;
   return inv.clinic_id;
-end $$;
+end $fn$;
+$legacy_accept$;
+end $keep_accept_invite$;
 
 grant execute on function public.invite_staff(uuid, text, text, text) to authenticated;
 grant execute on function public.accept_invite(uuid) to authenticated;
@@ -4924,6 +4939,225 @@ begin
          notes = 'branches: one parent clinic, many child branches, owners see all, staff see assigned, visits and invoices tagged by branch'
    where schema_version < 20;
 end $migration$;
+
+
+
+-- =============================================================================
+-- §21 · BRANCH VIEWS, SCOPED DAY CLOSE AND BRANCH INVITATIONS
+--                                      migration 21 · app v1.42.0 · 2026-11-10
+-- =============================================================================
+-- v1.41.0 made branches real and tagged visits/invoices. v1.42.0 makes the
+-- workspace behave like a branch: an owner may view all branches together or
+-- switch to one, while a front-desk seat remains on its single assignment.
+-- A day sheet belongs to one physical cash drawer, so day_closes is tagged and
+-- its uniqueness becomes (clinic, branch, day). Invitations carry a branch so
+-- accept_invite() can give the new seat the right assignment immediately.
+-- Everything remains additive: no table, column or clinical row is dropped.
+-- =============================================================================
+do $migration21$
+begin
+  if public.app_schema_version() >= 21 then
+    raise notice 'schema 21 (branch views) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 21 (branch views, day-close scope and branch invitations)';
+
+  execute $sql21$
+  --------------------------------------------------------------- additive columns
+  alter table public.day_closes add column if not exists branch_id uuid
+    references public.branches(id) on delete set null;
+  alter table public.invites add column if not exists branch_id uuid
+    references public.branches(id) on delete set null;
+  alter table public.profiles add column if not exists branch_scope text not null default 'all'
+    check (branch_scope in ('all','branch'));
+  create index if not exists day_closes_branch_idx on public.day_closes(branch_id, closed_on desc);
+  create index if not exists invites_branch_idx on public.invites(branch_id);
+
+  ------------------------------------------------------------- same-clinic guard
+  create or replace function public.branch_row_guard()
+  returns trigger language plpgsql security definer set search_path = public as $$
+  begin
+    -- A null value is filled by tag_branch() (day close) or means the old
+    -- implicit Main branch (an invitation written by a pre-schema-21 client).
+    if new.branch_id is null then return new; end if;
+    if not exists (
+      select 1 from public.branches b
+       where b.id = new.branch_id and b.clinic_id = new.clinic_id and b.active
+    ) then
+      raise exception 'branch belongs to another clinic or is closed' using errcode = '23503';
+    end if;
+    return new;
+  end $$;
+
+  drop trigger if exists day_closes_branch_guard on public.day_closes;
+  create trigger day_closes_branch_guard before insert or update on public.day_closes
+    for each row execute function public.branch_row_guard();
+  drop trigger if exists invites_branch_guard on public.invites;
+  create trigger invites_branch_guard before insert or update on public.invites
+    for each row execute function public.branch_row_guard();
+
+  ----------------------------------------------------------------- day close
+  -- Existing day sheets were one-per-clinic-per-day under the implicit Main
+  -- branch. Backfill them, then allow one sheet per physical branch per day.
+  update public.day_closes d
+     set branch_id = (select b.id from public.branches b
+                       where b.clinic_id = d.clinic_id and b.active
+                       order by b.created_at, b.id limit 1)
+   where d.branch_id is null;
+  alter table public.day_closes alter column branch_id set not null;
+  alter table public.day_closes drop constraint if exists day_closes_clinic_id_closed_on_key;
+  alter table public.day_closes add constraint day_closes_clinic_branch_day_key
+    unique (clinic_id, branch_id, closed_on);
+
+  drop trigger if exists day_closes_tag_branch on public.day_closes;
+  create trigger day_closes_tag_branch before insert on public.day_closes
+    for each row execute function public.tag_branch();
+
+  drop policy if exists day_closes_read on public.day_closes;
+  create policy day_closes_read on public.day_closes for select to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+  drop policy if exists day_closes_write on public.day_closes;
+  create policy day_closes_write on public.day_closes for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+  drop policy if exists day_closes_update on public.day_closes;
+  create policy day_closes_update on public.day_closes for update to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id))
+    with check (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+
+  ------------------------------------------------------------- branch view RPCs
+  create or replace function public.set_active_branch(p_branch uuid)
+  returns void language plpgsql security definer set search_path = public as $$
+  declare v_clinic uuid;
+  begin
+    select clinic_id into v_clinic from public.branches
+     where id = p_branch and active;
+    if v_clinic is null then raise exception 'unknown branch' using errcode = '22023'; end if;
+    if not public.can_access_branch(v_clinic, p_branch) then
+      raise exception 'you are not assigned to this branch' using errcode = '42501';
+    end if;
+    update public.profiles
+       set active_branch_id = p_branch, branch_scope = 'branch'
+     where id = auth.uid();
+  end $$;
+
+  create or replace function public.set_branch_scope(p_scope text)
+  returns void language plpgsql security definer set search_path = public as $$
+  begin
+    if p_scope not in ('all','branch') then
+      raise exception 'unknown branch scope' using errcode = '22023';
+    end if;
+    if p_scope = 'all' and not exists (
+      select 1 from public.staff s
+       where s.user_id = auth.uid() and s.role = 'owner' and s.active
+    ) then
+      raise exception 'only a clinic owner can view all branches' using errcode = '42501';
+    end if;
+    update public.profiles set branch_scope = p_scope where id = auth.uid();
+  end $$;
+  revoke all on function public.set_branch_scope(text) from public, anon;
+  grant execute on function public.set_branch_scope(text) to authenticated;
+
+  -- `all` is the column default: a new clinic owner starts with every branch
+  -- in view. The client resolves a doctor or front-desk `all` to that seat's
+  -- one assignment; only an owner can call the RPC that writes `all`.
+
+  --------------------------------------------------------- branch invitations
+  -- The original four-argument invite_staff() remains for older clients. The
+  -- five-argument overload is what the branch-aware Team screen calls.
+  -- No defaults on this overload: the original four-argument function must stay
+  -- unambiguous for older clients and the existing role-matrix SQL suite.
+  create or replace function public.invite_staff(
+    p_clinic uuid, p_email text, p_role text, p_name text, p_branch uuid
+  ) returns public.invites
+  language plpgsql security definer set search_path = public as $$
+  declare row_out public.invites;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can invite staff' using errcode = '42501';
+    end if;
+    if p_role not in ('doctor','frontdesk') then
+      raise exception 'invalid role' using errcode = '22023';
+    end if;
+    insert into public.invites (clinic_id, email, role, full_name, invited_by, branch_id)
+    values (p_clinic, lower(trim(p_email)), p_role, coalesce(p_name, ''), auth.uid(), p_branch)
+    on conflict do nothing
+    returning * into row_out;
+    if row_out.id is null then
+      select * into row_out from public.invites
+       where clinic_id = p_clinic and lower(email) = lower(trim(p_email))
+         and accepted_at is null
+       order by created_at desc
+       limit 1;
+    end if;
+    return row_out;
+  end $$;
+  revoke all on function public.invite_staff(uuid, text, text, text, uuid) from public, anon;
+  grant execute on function public.invite_staff(uuid, text, text, text, uuid) to authenticated;
+
+  -- A seat claimed from a branch invitation lands on that branch, not on the
+  -- implicit Main assignment the staff insert trigger creates first.
+  create or replace function public.accept_invite(p_token uuid default null)
+  returns uuid language plpgsql security definer set search_path = public as $$
+  declare inv public.invites; email_now text; v_staff uuid;
+  begin
+    email_now := lower(coalesce(auth.jwt() ->> 'email', ''));
+    if email_now = '' then raise exception 'not authenticated' using errcode = '42501'; end if;
+
+    select * into inv from public.invites
+      where lower(email) = email_now
+        and accepted_at is null
+        and expires_at > now()
+        and (p_token is null or token = p_token)
+      order by created_at desc
+      limit 1;
+    if inv.id is null then raise exception 'no pending invitation for this email' using errcode = '42501'; end if;
+
+    insert into public.staff (clinic_id, user_id, full_name, role, specialty, qualification, phone, email)
+    values (inv.clinic_id, auth.uid(),
+            coalesce(nullif(inv.full_name, ''), split_part(email_now, '@', 1)),
+            inv.role, inv.specialty, inv.qualification, inv.phone, email_now)
+    on conflict do nothing
+    returning id into v_staff;
+    if v_staff is null then
+      select id into v_staff from public.staff
+       where clinic_id = inv.clinic_id and user_id = auth.uid()
+       limit 1;
+    end if;
+
+    if inv.branch_id is not null and v_staff is not null then
+      update public.staff_branches
+         set active = false, updated_at = now()
+       where staff_id = v_staff and branch_id <> inv.branch_id and active;
+      insert into public.staff_branches (staff_id, branch_id, active)
+      values (v_staff, inv.branch_id, true)
+      on conflict (staff_id, branch_id) do update set active = true, updated_at = now();
+      update public.profiles
+         set active_branch_id = inv.branch_id, branch_scope = 'branch'
+       where id = auth.uid();
+    end if;
+
+    update public.invites set accepted_at = now() where id = inv.id;
+    update public.profiles set default_clinic_id = inv.clinic_id
+     where id = auth.uid() and default_clinic_id is null;
+    return inv.clinic_id;
+  end $$;
+
+  --------------------------------------------------------------- migration row
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (21, 'branch-views', '1.42.0',
+          'branch scope on profiles, branch-tagged day close, branch invitations, switcher RPCs and scoped day-close RLS')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 21, applied_at = now(),
+         notes = 'branch views: owner all or one branch, front desk one branch, scoped day close, invitations carry a branch'
+   where schema_version < 21;
+  $sql21$;
+end $migration21$;
 
 
 commit;

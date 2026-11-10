@@ -21,8 +21,8 @@ not-arrived / no-show / arrived-late tokens — is item 13 and shipped as **v1.3
 Doctors & staff — is item 14 and shipped as **v1.35.5** (§14). A fifth — the
 same clinic reading **Growth** on Doctors & staff but **Multi-clinic** on
 Subscription — is item 15 and shipped as **v1.35.6** (§15). Items 3 and 4 move to
-v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 no longer waits: its
-decisions were confirmed on 2026-11-10 (see §9) and it ships as
+v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 has shipped: its
+decisions were confirmed on 2026-11-10 (see §9) and it was delivered as
 **v1.41.0** (schema + configuration) and **v1.42.0** (switcher + scoped lists).
 §§14–15 were labels and a plan-source fix, not that schema release.
 
@@ -40,7 +40,7 @@ decisions were confirmed on 2026-11-10 (see §9) and it ships as
 | 6 | v1.38.0 | "Visit saved" → Collect payment: recorded once, never twice | medium | — | flow state + screen |
 | 7 | v1.39.0 | Only the owner can cancel an invoice | low | — (already enforced) | UI + guard test |
 | 8 | v1.40.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
-| 9 | **v1.41.0 + v1.42.0** | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** (schema 20) | schema + RPC + screens |
+| 9 | **v1.41.0 + v1.42.0** | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** (schemas 20 + 21) | schema + RPC + screens · **shipped** |
 | 10 | **v1.34.0** | Onboarding / "Set up your clinic": clinic details, lead doctor, hours & fees | medium | **yes** (schema 19) | page + pure module + `create_clinic()` |
 | 11 | **v1.35.2** | Patient records: add a date filter to the All list | low | — | one pure module + `Patients.jsx` |
 | 12 | **v1.35.3** | Token issued: WhatsApp send, redesign the print slip, send the slip image with the message | medium | — | one pure module + slip component + composer |
@@ -269,7 +269,7 @@ prints; nothing migrates.
 
 ---
 
-## 9 · v1.41.0+ — branches, each with its own front desk
+## 9 · v1.41.0 + v1.42.0 — branches, each with its own front desk
 
 **Before v1.41.0.** "Branch" was only a **licence seat** (`plans.mjs:52–54`,
 `license.mjs:195`, `licensing-adapter.js:47` — `branches: 1`, hard-coded). There was
@@ -289,7 +289,7 @@ sequence were confirmed before any code changed; do not ask them again.
 | 5 | Scope | **Full release**, not display-only labels. |
 | 6 | Sequence | **Two releases**: v1.41.0 schema + configuration, then v1.42.0 switcher + scoped lists. |
 
-**Two-release shape, confirmed.** The owner chose sequence over one large release.
+**Two-release shape, delivered.** The owner chose sequence over one large release; both halves are now shipped.
 
 - **v1.41.0 — schema 20 + Branch Configuration.** `branches`,
   `staff_branches`, `branch_id` on visits and invoices, a default **Main branch**
@@ -298,9 +298,17 @@ sequence were confirmed before any code changed; do not ask them again.
   **Settings → Branches** tab, and branch assignment controls on Doctors & staff.
   New visits and invoices are tagged with the active branch through a database
   trigger, so no existing RPC signature changes. `SCHEMA_VERSION` becomes 20.
-- **v1.42.0 — switcher + scoped data.** Active branch in the sidebar/store,
-  every list query scoped by it, branch-aware reporting/day-close, real branch
-  counts in seat meters, and front-desk invitations that carry a branch.
+- **v1.42.0 — schema 21 + switcher + scoped data. Shipped.** A pure
+  `src/lib/branch-scope.mjs` resolves an owner's **All branches** / one-branch
+  view while keeping a real active branch for writes; `BranchSwitcher` sits in the
+  sidebar, mobile drawer and desktop topbar, and a front desk gets a static label
+  and no switcher. The provider scopes appointments, consultations, invoices and
+  day closes in one place; Billing and Reports name the view; Day close uses its
+  own physical cash-drawer branch. `seatUsageCounts()` counts real active
+  branches. Invitations carry `branch_id`, and `accept_invite()` starts the seat on
+  that branch. `day_closes.branch_id`, `invites.branch_id`,
+  `profiles.branch_scope`, `set_branch_scope()`, scoped day-close RLS and a
+  five-argument `invite_staff()` are additive. `SCHEMA_VERSION` becomes 21.
 
 **v1.41.0 acceptance.** One owner can create several branches under one clinic;
 owners can be assigned several branches, doctors/front desk exactly one; the
@@ -309,6 +317,15 @@ read another branch's appointments or invoices; existing single-branch clinics
 keep working with a generated Main branch; `create_clinic()` keeps its signature
 and creates that branch; all gates and clean clones stay green. No change to the
 `clinics` row shape beyond the additive branch tables.
+
+**v1.42.0 acceptance.** One owner can view all assigned branches together or
+switch to one branch; a front desk sees a static branch label and no switcher.
+Appointments, consultations, invoices, reports, billing and day-close figures
+follow the view; new rows still land on one real branch. Two branches can close
+the same calendar day and a front desk reads only its own day sheet. Seat meters
+count active `branches` rows, and an invited front desk starts on the branch named
+on its invitation. `create_clinic()` keeps its signature; schema 21 is additive
+and idempotent; all gates and clean clones stay green.
 
 ---
 
@@ -586,9 +603,9 @@ limit, waiting list, next-token and every other screen keep their behaviour.
    one is present, otherwise **Multi-clinic · branch-capable**. It reads the plan
    through `planLimits()` / `planId()` — no quoted plan id outside `plans.mjs` —
    and it introduces **no** `branches` table, `staff.branch_id` column, RPC, store
-   field or `SCHEMA_VERSION` change. Real multi-branch data remains item 9 and
-   was delivered as schema 20 and Branch Configuration in v1.41.0; the
-   switcher and scoped lists are v1.42.0 (§9).
+   field or `SCHEMA_VERSION` change. Real multi-branch data is item 9: schema 20
+   and Branch Configuration shipped in v1.41.0, and the switcher and scoped
+   lists shipped in v1.42.0 (§9).
 4. **Mobile drawer** shows two sign-outs and three shortcuts the user does not
    want. Keep the small sign-out icon beside the account row, remove the second
    **Sign out** button at the bottom of the drawer, and remove **Issue token** /

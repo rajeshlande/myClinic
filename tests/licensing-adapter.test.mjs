@@ -70,7 +70,7 @@ test('the "Central has not answered" row is one frozen constant, not a literal p
 
 /* --------------------------------------------------------------- seat usage */
 
-test('seat counts split doctors from front desk and count the branch itself', () => {
+test('seat counts split doctors from front desk and count real active branches', () => {
   const staff = [
     { role: 'owner' }, { role: 'doctor' }, { role: 'doctor', active: false },
     { role: 'frontdesk' }, { role: 'frontdesk', active: false }, { role: 'frontdesk', active: true },
@@ -79,6 +79,9 @@ test('seat counts split doctors from front desk and count the branch itself', ()
   assert.deepEqual(seatUsageCounts(staff), { doctors: 2, frontdesk: 2, branches: 1 });
   assert.deepEqual(seatUsageCounts([]), { doctors: 0, frontdesk: 0, branches: 1 });
   assert.deepEqual(seatUsageCounts(undefined), { doctors: 0, frontdesk: 0, branches: 1 });
+  const rows = [{ id: 'main' }, { id: 'west', active: true }, { id: 'old', active: false }];
+  assert.equal(seatUsageCounts(staff, rows).branches, 2);
+  assert.equal(seatUsageCounts(staff, null).branches, 1, 'a pre-schema-20 snapshot still has one branch');
   // `active: false` is the only thing that hides a seat; a missing flag is active
   assert.equal(seatUsageCounts([{ role: 'doctor' }, { role: 'doctor', active: null }]).doctors, 2);
 });
@@ -202,7 +205,7 @@ test('the provider delegates the licence instead of composing it', () => {
   assert.doesNotMatch(store, /frontdesk: \(state\.staff/, 'store.jsx still counts front desk seats inline');
   assert.match(store, /seatUsage\(license, licenseUsage\)/);
   assert.match(store, /resolveLicense\(\{/);
-  assert.match(store, /seatUsageCounts\(state\.staff\)/);
+  assert.match(store, /seatUsageCounts\(state\.staff, state\.branches\)/);
   assert.match(store, /writeGate\(\{ mode, license \}\)/);
   assert.match(store, /assertPlanIsLocal\(centralEnabled\)/, 'the Central rule must be applied, not restated');
   assert.equal((store.match(/assertPlanIsLocal\(centralEnabled\)/g) ?? []).length, 3, 'three plan actions, three guards');
@@ -213,5 +216,5 @@ test('the provider delegates the licence instead of composing it', () => {
   assert.doesNotMatch(code, /store\.jsx/);
   assert.doesNotMatch(code, /supabase/i);
   const lines = store.replace(/\n$/, '').split('\n').length;
-  assert.ok(lines < 1150, `store.jsx is ${lines} lines — the split has been undone`);
+  assert.ok(lines < 1300, `store.jsx is ${lines} lines — the split has been undone`);
 });

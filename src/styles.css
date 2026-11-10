@@ -158,6 +158,23 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: #eafaf6; box-shadow: 0 6px 18px -8px var(--brand-500);
 }
 .brand-name { font-family: var(--font-display); font-weight: 800; font-size: 1.06rem; letter-spacing: -0.03em; }
+
+/* v1.42.0 · one branch view for the whole workspace. Owners get a selector;
+   a non-owner gets a plain label and no way to widen the view. */
+.branch-switcher {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  margin: 0 8px 10px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface-2); color: var(--text-2);
+  font-size: 0.78rem; line-height: 1.2;
+}
+.branch-switcher svg { color: var(--brand-500); flex: none; }
+.branch-switcher select {
+  flex: 1 1 auto; min-width: 0; border: 0; outline: 0; background: transparent;
+  color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
+}
+.branch-switcher select:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; border-radius: 4px; }
+.branch-switcher .branch-static { flex: 1 1 auto; font-weight: 700; color: var(--text); }
+.branch-switcher.compact { margin: 0; padding: 8px 10px; max-width: 215px; }
 .brand-sub { font-size: 0.68rem; color: var(--faint); letter-spacing: 0.09em; text-transform: uppercase; font-weight: 600; }
 
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
@@ -230,6 +247,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tabbar { display: none; }
 
 @media (max-width: 1080px) {
+  .topbar-actions .branch-switcher.compact { display: none; } /* the drawer carries the branch switcher */
+
   /* v1.35.5 — a mobile page taller than the viewport used to scroll onto an
      unpainted canvas: html/body were locked to height:100% and the body's tint
      was background-attachment:fixed. Grow the document, paint html, and let the
