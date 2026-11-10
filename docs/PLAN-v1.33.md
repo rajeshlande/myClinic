@@ -1,0 +1,279 @@
+# Plan — queue, billing, patients and branches
+
+Nine requests came in together. This is the plan they become: one release per item,
+ordered lowest risk first, each ending with `npm test` + `npm run build` +
+`check:pages` + `check:contributing` + `test:security` before it is reported, committed
+or tagged — the same discipline as `docs/ARCHITECTURE.md` §3.
+
+Written before any code changed, from the code as it stands at **v1.32.0**.
+
+**Status.** Items 1 and 2 shipped in **v1.33.0**. Items 3–8 are scheduled as above;
+item 9 waits on the three decisions at the end of this document.
+
+---
+
+## What was asked, and what it costs
+
+| # | Release | Request | Risk | Schema | Size |
+| --- | --- | --- | --- | --- | --- |
+| 1 | v1.33.0 | Sidebar must scroll on short desktop screens | low | — | CSS + layout |
+| 2 | v1.33.0 | A sign-out / logout button | low | — | layout + auth call |
+| 3 | v1.34.0 | Follow-ups: the recall list is wrong — find it and fix it | medium | — | one lib rule + screen |
+| 4 | v1.35.0 | Consultation notes: a drug line may not be empty | low | — | one validator |
+| 5 | v1.36.0 | Token queue: at most 2 patients in the room, per doctor | medium | — | `queue.mjs` + 3 screens |
+| 6 | v1.37.0 | "Visit saved" → Collect payment: recorded once, never twice | medium | — | flow state + screen |
+| 7 | v1.38.0 | Only the owner can cancel an invoice | low | — (already enforced) | UI + guard test |
+| 8 | v1.39.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
+| 9 | v1.40.0+ | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** | schema + RPC + screens |
+
+Items 1 and 2 are the same release because both are the sidebar and nothing else.
+Everything else stays one item per release.
+
+---
+
+## 1 + 2 · v1.33.0 — the sidebar scrolls, and it has a way out
+
+**Today.** `.sidebar` is `height: 100dvh`, `display: flex; flex-direction: column`
+with **no `overflow-y`** (`src/styles.css:123`). Its children are the brand, every nav
+group, then `.sidebar-foot` with `margin-top: auto` (plan card, user chip). On a
+1280×720 laptop the nav plus the plan card is taller than the viewport, so the last
+items and the user chip fall off the bottom edge and **cannot be reached** — there is
+no scroll container anywhere in the column. The mobile drawer is fine (it sets
+`overflowY: 'auto'` inline, `AppLayout.jsx:216`).
+
+Signing out exists only in **Settings → My account** (`AccountTab.jsx`, "Sign out").
+A front-desk machine shared by three people has no way out of the app from where they
+work.
+
+**Change.**
+- `.sidebar`: `min-height: 0`, and the nav region becomes the scroller —
+  `.sidebar-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }`
+  with the brand and `.sidebar-foot` outside it, so the plan card and the account
+  row stay pinned and the *links* scroll. A thin scrollbar that only shows on hover,
+  and `scrollbar-gutter: stable` so the labels do not shift when it appears.
+- The same region on the mobile drawer, so both paths behave identically.
+- `.sidebar-foot` gets a **Sign out** row: the existing `user-chip` keeps opening
+  Settings, and a new 28 px icon button beside it calls `signOut()` from
+  `useAuth()` and `navigate('/')` — the same call `AccountTab` makes, so there is one
+  way to sign out, not two implementations. Hidden when `configured` is false (a demo
+  workspace has no session to end) and disabled while signing out.
+- Keyboard and screen-reader: the sign-out control is a real `<button>` with
+  `aria-label="Sign out"` and a `title`, reachable by tab from the user chip.
+
+**Acceptance.** At 720 px and 600 px viewport height every nav item and the account
+row are reachable by scroll; the plan card and account row never scroll away; no
+horizontal scrollbar appears; `Sign out` appears for a live session and not in demo
+mode; sign-out lands on `/`.
+
+**Tests.** `tests/sidebar-layout.test.mjs`: the sidebar declares a scroll container
+with `min-height: 0`; the foot is outside it; the sign-out control is a button wired
+to `signOut`, gated on `configured`, and calls `navigate('/')`; the matrix still says
+a front-desk seat may sign out (no capability gate on it).
+
+---
+
+## 3 · v1.34.0 — the follow-ups recall list
+
+**Today.** `FollowUps.jsx:30` builds the list with
+`followUpDue(store.consultations, { withinDays })` (`src/lib/patients.mjs:53`), which
+keeps rows where `follow_up_on && follow_up_on <= horizon && !follow_up_done`, and the
+screen then splits them into overdue / today / upcoming at `:31–33`.
+
+**This one is a diagnosis before it is a fix.** The named suspects, to be checked in
+order against real data — each is a different bug with a different repair:
+
+1. **Duplicate rows for one person.** A patient seen four times in the window has four
+   consultations, so the recall list shows them four times. The recall is about the
+   *patient*, not the visit.
+2. **Closed recalls coming back.** `follow_up_done` is truthy-only in the filter; a row
+   saved as `follow_up_done: null` (or `0`) is treated as open. Check the shape the
+   column actually arrives in.
+3. **The count and the list disagree.** The header's `queue.counts['follow-up']`
+   (`:216`) comes from the reminders queue, not from `followUpDue`, so the badge can
+   say 3 above a list of 0.
+4. **A consultation whose patient was deleted** rendering as "Patient" with no chart
+   to open (`nameOf` falls back to the literal `'Patient'`).
+5. **The window control** (`window_`) changing the KPIs but not the sections.
+
+The release fixes whichever of these the investigation proves, and adds a regression
+test per proven cause. If it turns out to be (1), the fix is a `recallList()` in
+`patients.mjs` that groups by `patient_id` (latest open follow-up wins, earliest date
+shown) — a pure function, tested directly.
+
+**Acceptance.** One row per patient; no closed or cancelled recall ever listed; the
+badge equals the number of rows below it; opening a row lands on that patient's chart.
+
+---
+
+## 4 · v1.35.0 — a drug line cannot be empty
+
+**Today.** `ConsultationForm.jsx:143` validates the *pattern* of a drug that has a name
+(`rx.drug.trim() && …`), and `:171` filters named drugs before the safety check.
+Nothing requires the prescription to contain one: a note can be saved with an empty
+drug row, or with no drugs at all, and the slip then prints "Rx (0)".
+
+**Change.** `validateConsultation` gains the rule — at least one drug line with a
+name — and the form stops treating a blank row as a row: a row with no name and no
+pattern is ignored on save rather than saved empty; a row with a pattern but no name is
+refused with "Drug 2: pick the medicine or remove the row."
+
+**Acceptance.** Saving with no drug shows a field error and does not create the
+consultation; a half-filled row is refused with the row number; the safety check still
+runs only on named drugs; existing consultations render unchanged.
+
+---
+
+## 5 · v1.36.0 — two in the room, per doctor
+
+**Today.** `queueBoard()` (`src/lib/queue.mjs:37`) returns exactly one `serving` per
+doctor (`status === 'in-consult'`, first by token) plus a `next` (`checked-in`, first by
+token). "Call next" (`Queue.jsx:62`) flips `row.next` to `in-consult` unconditionally —
+so a second call silently makes a **second** patient `in-consult` while the board still
+shows only the first. The board's "Now in the room" card, the waiting-room display
+(`:345–365`) and the Dashboard's "in the room" count all read that single value.
+
+**Change.**
+- `queueBoard` returns `inRoom` (array, in token order), `roomCount`, and
+  `roomLimit` (2, one constant `ROOM_LIMIT`), keeping `serving` as `inRoom[0]` so
+  nothing that reads it breaks.
+- `canCallNext = inRoom.length < ROOM_LIMIT`.
+- Queue: the room card lists up to two people with their token and wait; "Call next"
+  is disabled with an inline reason when the room is full; pressing it anyway (the row
+  buttons, or a stale tab) shows a toast — *"Room is full — T-04 and T-05 are already in
+  the room. Mark one as seen before calling another."* — and does not change any row.
+- `callIn()` re-checks the limit against fresh state, so two receptionists clicking at
+  once cannot make three.
+- Display screen: the "In the room" block lists both tokens.
+- Dashboard: "N in the room" counts them all.
+
+**Acceptance.** Never more than two `in-consult` per doctor per day; the third attempt
+shows the message and writes nothing; completing one frees a slot; the display and the
+dashboard show the same two people the board does; seeds and existing data unaffected.
+
+---
+
+## 6 · v1.37.0 — a payment is recorded once
+
+**Today.** `VisitNextSteps` opens `CollectPayment` and, on success, only closes the
+sheet (`onDone={() => setPayFor(null)}`-style) — the `invoice` prop it was given is
+**the pre-payment object**, so the "Collect ₹X" button and the "…due" line stay on
+screen after the money is in. Pressing it again opens the collector on a settled
+invoice, where the amount due still reads as the old balance. `CollectPayment.submit`
+has `saving` and disables the button, but two fast clicks across the close/animate
+window can still enqueue a second write, and nothing in the write path refuses a
+payment on an already-settled invoice.
+
+**Change.** One rule, three places:
+- `CollectPayment` refuses to submit when the invoice is settled **or already paid in
+  full** (`invoiceBalance(invoice) <= 0`), not only when a local `settled` flag says
+  so, and keeps the in-flight guard.
+- `VisitNextSteps` holds the invoice in state and replaces it with the `onDone`
+  payload, so the sheet switches to "Payment recorded ✓" with no Collect button.
+- `visitNextActions()` (`visit-flow.mjs`) drops `collect` when the balance is zero —
+  the pure function already receives `balancePaise`, so this is a one-line rule plus a
+  test.
+
+**Acceptance.** After recording, the sheet and the invoice screen show settled with no
+Collect control; a second submit does nothing and says so; part payments still work and
+still leave the button, for the remaining balance.
+
+---
+
+## 7 · v1.38.0 — only the owner can cancel an invoice
+
+**Today.** `MATRIX['invoice:void'] = ['owner']` (`permissions.js:51`) and the security
+suite proves the database refuses a non-owner void — but **no screen offers the
+action at all**, so an invoice raised with the wrong patient cannot be cancelled from
+the app.
+
+**Change.** A "Cancel invoice" action on `InvoiceView` and in the Billing row menu,
+rendered only for `can(role, 'invoice:void')`, behind a confirmation that names the
+invoice, the amount and the patient, asks for a short reason, and writes
+`status: 'void'` with `void_reason`. A front-desk seat never sees it (not disabled —
+absent), and the void path re-checks the capability before writing, so a stale render
+cannot perform it.
+
+**Acceptance.** Owner sees the action on an unvoided invoice and a voided invoice shows
+"Void" with its reason; a front-desk session has no control and a forged call is
+refused by the capability check *and* by Postgres; voided invoices stay out of
+outstanding and revenue totals (already true) and keep their number (already true).
+
+---
+
+## 8 · v1.39.0 — registering a patient
+
+**Today.** One `Full name *` field (`PatientForm.jsx:86`), phone and email validated by
+`validatePatient` (format only), and **no duplicate check at all** — the same person
+registered twice gets two codes, two histories and two sets of recalls.
+
+**Change.**
+- **Two fields.** `First name *` and `Last name` — the database keeps `full_name`
+  (composed `first + ' ' + last`), so no migration and no schema release; printouts,
+  slips and search keep working from one column.
+- **Phone and email validated as typed.** Indian mobile in any of the shapes the desk
+  actually sees (`98200 00000`, `+91 98200 00000`, `098200 00000`) normalised to ten
+  digits; email lower-cased and format-checked; both validated on blur and on submit,
+  with the error under the field. A phone is optional but, when given, must be valid.
+- **A duplicate guard.** Before creating, `findPatientMatch()` compares the draft with
+  every patient on the clinic: **same phone** (normalised) or **same name + same date
+  of birth** (when both are known). On a match the form shows the existing patient
+  (code, age, last visit) and offers *Open chart* — and "Register anyway" only after a
+  reason is typed, which is recorded on the new row as `duplicate_ok_reason`. This is a
+  pure function, tested against the awkward cases (same name, no DOB; siblings sharing
+  a parent's phone; a blank phone).
+
+**Acceptance.** The same phone cannot create a second patient without an explicit
+override; name + DOB catches the twin case; siblings are not blocked when only the
+parent's phone is shared and a DOB differs; every existing patient still opens and
+prints; nothing migrates.
+
+---
+
+## 9 · v1.40.0+ — branches, each with its own front desk
+
+**Today.** "Branch" exists only as a **licence seat** (`plans.mjs:52–54`,
+`license.mjs:195`, `licensing-adapter.js:47` — `branches: 1`, hard-coded). There is no
+`branches` table, no branch switcher, no branch-scoped data, and no way to create a
+second one. A multi-clinic group on the `chain` plan cannot use the thing it is paying
+for.
+
+**This needs a schema release and, before that, three decisions from you** — they change
+the data model, so I will not guess:
+
+1. **Is a branch a second row in `clinics`, or a child of the first?** A child
+   (`clinics.parent_id`, one owner, one licence, branch-scoped staff and data) is the
+   smaller change and keeps one bill; a second `clinics` row is a separate licence and
+   a separate set of seats. *My recommendation: `parent_id`.*
+2. **What is shared and what is separate?** Patients and invoices are almost certainly
+   per branch; the drug directory, the formulary and the plan are almost certainly
+   shared. A patient seen at two branches is the interesting case — one record with
+   visits tagged by branch, or two records?
+3. **Who can see across branches?** Does the owner of two branches see a combined
+   today's-collection, and does a front-desk seat of branch A see branch B at all?
+   *My recommendation: owner sees both; a front-desk seat is scoped to its own branch
+   and does not even see the switcher.*
+
+**Shape of the release, once those are answered.** Schema: a `branches` table (or
+`parent_id`) + `staff.branch_id` + RLS per branch + a `create_branch()` RPC that
+enforces the plan's branch cap. Client: a branch switcher in the sidebar, the active
+branch in the store, every list query scoped by it, "Add a branch" in Settings gated on
+`planLimits(plan).branches`, seat meters reading real branches instead of `1`, and
+front-desk invitations scoped to a branch. It will be at least two releases
+(schema + client), and it is the only item here that touches the database.
+
+---
+
+## Assumptions I am building against
+
+Say the word if any is wrong; the ones before item 9 do not depend on each other.
+
+1. **Two in the room is per doctor**, not per clinic — the board is already per doctor.
+2. **"A drug should not be empty"** means at least one named drug per consultation, and
+   blank rows are ignored rather than blocking the save.
+3. **The duplicate rule is phone-first**, with name + DOB as the second signal, and an
+   override with a reason rather than a hard block (a parent registering two children
+   on one phone number is real).
+4. **"Cancel invoice"** is the existing `void` (number kept, kept out of totals), not a
+   delete.
+5. **Sign out** ends the session and lands on the landing page, exactly as Settings →
+   My account already does.

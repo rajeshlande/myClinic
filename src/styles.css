@@ -127,7 +127,30 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: color-mix(in srgb, var(--surface) 78%, transparent);
   backdrop-filter: blur(18px) saturate(140%);
   z-index: 40;
+  /* The column itself never scrolls: the brand stays at the top and the plan card
+     and account row stay pinned at the bottom. Only the links scroll. */
+  min-height: 0; overflow: hidden;
 }
+
+/*
+ * The nav links are the scroll region, and it needs `min-height: 0` to be allowed to
+ * shrink at all — without it a flex child refuses to go below its content height and
+ * the sidebar silently overflows the viewport instead of scrolling (which is what
+ * happened on a 1280×720 laptop: the last links and the account row were unreachable).
+ */
+.sidebar-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 6px;
+  /* a gutter keeps the labels still when the scrollbar appears; the bar itself is
+     quiet until the pointer is over the sidebar */
+  scrollbar-gutter: stable; padding-right: 2px;
+  scrollbar-width: thin; scrollbar-color: transparent transparent;
+}
+.sidebar:hover .sidebar-scroll { scrollbar-color: var(--border) transparent; }
+.sidebar-scroll::-webkit-scrollbar { width: 8px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+.sidebar:hover .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); background-clip: content-box; }
+.sidebar-scroll:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; flex: none;
@@ -151,7 +174,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .nav-item svg { flex: none; color: var(--muted); }
 .nav-item .nav-badge { margin-left: auto; font-size: 0.7rem; background: var(--brand-500); color: #fff; padding: 1px 7px; border-radius: 999px; font-weight: 700; }
 
-.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.sidebar-foot { margin-top: auto; flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+/* The account row and its sign-out button share one line. */
+.sidebar-account { display: flex; align-items: center; gap: 6px; }
+.sidebar-account .user-chip { flex: 1 1 auto; min-width: 0; }
 .plan-card {
   border: 1px solid var(--border); border-radius: var(--radius); padding: 12px;
   background: linear-gradient(160deg, var(--brand-50), var(--surface) 70%);

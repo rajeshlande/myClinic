@@ -3,6 +3,48 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.33.0] — 2026-11-02 · schema 18
+
+**Nine requests → one plan, and the first two shipped.**
+
+`docs/PLAN-v1.33.md` turns the batch into eight releases, lowest risk first, each
+ending with the full gate set: the follow-ups recall diagnosis, empty drug lines,
+two patients in the room, a payment recorded once, owner-only invoice cancellation,
+patient registration, and branches (which needs a schema release and three decisions
+from the owner). This release is the plan plus its first item.
+
+| Change | File | Why |
+| --- | --- | --- |
+| the **links** scroll, the rest is pinned | `styles.css`, `AppLayout.jsx` | `.sidebar` was a `100dvh` flex column with **no overflow**, so on a 1280×720 laptop the last links and the account row fell off the bottom and could not be reached |
+| **Sign out** beside the account row | `AppLayout.jsx` | signing out existed only in Settings → My account and the mobile drawer; a shared front-desk machine had no way out of the sidebar |
+
+- **The bug, precisely.** A flex child refuses to shrink below its content height
+  unless it is told it may, so the column silently overflowed the viewport instead of
+  scrolling. `.sidebar-scroll` wraps only the nav groups and carries
+  `flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-gutter: stable` — the gutter so the labels do not shift when the scrollbar
+  appears, and `contain` so scrolling the menu never scrolls the page behind it. The
+  brand stays at the top, `.sidebar-foot` (plan card, account row) is `flex: 0 0 auto`
+  at the bottom, and `.sidebar` itself is `overflow: hidden` so nothing can leak past
+  the edge. The mobile drawer renders the same fragment, so both paths agree.
+- **One way out, two doors.** `handleSignOut()` replaces the drawer's inline lambda and
+  is used by both the drawer and the new sidebar icon button: one call to `signOut()`,
+  one `navigate('/')`, a `signingOut` guard so a double click cannot sign out twice,
+  `aria-label`/`title` for keyboard and screen-reader users, `disabled` while it runs,
+  and **absent** in a demo workspace rather than dead.
+- **Six new tests** (`tests/sidebar-nav.test.mjs`): the sidebar does not scroll and the
+  links do, with `min-height: 0` present; the foot is outside the scroller and cannot
+  shrink; all twelve destinations are still inside the region (the wrapper dropped
+  none); sign-out is one implementation used by two controls, with the guard,
+  the configured gate and the accessible name; and the drawer still carries its own.
+- **Proved by rendering, not only by reading.** A shell smoke (kept at
+  `tools/nav-smoke/`, not shipped) server-renders `<AppLayout>` inside the real store
+  and auth providers: the scroll region is in the markup, all twelve destinations
+  render inside it, and the sign-out control is **absent** in the demo build and
+  **present** when a session is stubbed — the two runs differ exactly as they should.
+- 600 tests across 34 suites, build clean, `check:pages` ✓, `check:contributing` 28/28,
+  security suite ✓.
+
 ## [1.32.0] — 2026-11-02 · schema 18
 
 **Architecture plan, step 5 sub-release 2 of 4: the licence composition leaves the

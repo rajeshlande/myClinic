@@ -68,6 +68,7 @@ function pageTitle(pathname) {
 export default function AppLayout() {
   const store = useStore();
   const { user, signOut, configured } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const [theme, setTheme] = useState(readTheme());
@@ -105,6 +106,17 @@ export default function AppLayout() {
 
   const brand = store.clinic?.name ?? 'myClinic';
 
+  async function handleSignOut() {
+    if (signingOut) return;                  // a second click must not sign out twice
+    setSigningOut(true);
+    try {
+      await signOut();
+      navigate('/');
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   const nav = (
     <>
       <div className="brand">
@@ -115,6 +127,10 @@ export default function AppLayout() {
         </div>
       </div>
 
+      {/* Only the links scroll. The brand above and the plan card + account row
+          below stay put, so on a short screen the last link is reachable and the
+          way out is always on screen. */}
+      <div className="sidebar-scroll">
       {NAV.map((section) => ({ ...section, items: section.items.filter((i) => !i.capability || can(role, i.capability)) }))
         .filter((section) => section.items.length)
         .map((section) => (
@@ -129,6 +145,7 @@ export default function AppLayout() {
           ))}
         </div>
       ))}
+      </div>
 
       <div className="sidebar-foot">
         {/* The plan panel belongs to whoever can act on it. A doctor or a front-desk
@@ -142,14 +159,29 @@ export default function AppLayout() {
             <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/subscription')}>Manage subscription</Button>
           </div>
         ) : null}
-        <button className="user-chip" onClick={() => navigate('/app/settings')}>
-          <Avatar name={store.profile?.full_name || user?.email || 'Clinic owner'} size="sm" />
-          <span style={{ minWidth: 0, flex: 1 }}>
-            <span className="small strong truncate" style={{ display: 'block' }}>{store.profile?.full_name || 'Clinic owner'}</span>
-            <span className="tiny faint truncate" style={{ display: 'block' }}>{store.currentStaff?.role === 'owner' ? 'Owner' : store.currentStaff?.role ?? 'Member'}</span>
-          </span>
-          <SettingsIcon size={14} className="faint" />
-        </button>
+        <div className="sidebar-account">
+          <button className="user-chip" onClick={() => navigate('/app/settings')}>
+            <Avatar name={store.profile?.full_name || user?.email || 'Clinic owner'} size="sm" />
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span className="small strong truncate" style={{ display: 'block' }}>{store.profile?.full_name || 'Clinic owner'}</span>
+              <span className="tiny faint truncate" style={{ display: 'block' }}>{store.currentStaff?.role === 'owner' ? 'Owner' : store.currentStaff?.role ?? 'Member'}</span>
+            </span>
+            <SettingsIcon size={14} className="faint" />
+          </button>
+          {/* A shared front-desk machine needs a way out from where people work. The
+              call is the same one Settings → My account makes; this is the second
+              door to it, not a second implementation. A demo workspace has no
+              session to end, so the control is absent rather than dead. */}
+          {configured ? (
+            <IconButton
+              icon={LogOut}
+              label="Sign out"
+              className="plain"
+              onClick={handleSignOut}
+              disabled={signingOut}
+            />
+          ) : null}
+        </div>
       </div>
     </>
   );
@@ -224,7 +256,7 @@ export default function AppLayout() {
               <Button icon={Ticket} variant="primary" onClick={() => { setMenuOpen(false); navigate('/app/queue'); }}>Issue token</Button>
               <Button icon={CalendarDays} variant="subtle" onClick={() => { setMenuOpen(false); navigate('/app/appointments?new=1'); }}>New appointment</Button>
               <Button icon={UserRound} variant="ghost" onClick={() => { setMenuOpen(false); navigate('/app/patients?new=1'); }}>Register patient</Button>
-              {configured ? <Button icon={LogOut} variant="ghost" onClick={async () => { await signOut(); navigate('/'); }}>Sign out</Button> : null}
+              {configured ? <Button icon={LogOut} variant="ghost" onClick={handleSignOut} loading={signingOut}>Sign out</Button> : null}
             </div>
           </div>
         </div>

@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.32.0';
+export const APP_VERSION = '1.33.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.33.0', date: '2026-11-02', schema: 18,
+    highlights: [
+      '**The sidebar scrolls on a short screen.** On a 1280×720 laptop the links plus the plan card were taller than the window, and nothing could scroll: `.sidebar` was a 100dvh flex column with no overflow, and a flex child only shrinks if it is told it may. The last links and the account row were simply unreachable. The *links* are now the scroll region — with the `min-height: 0` that makes shrinking possible — while the brand, the plan card and the account row stay pinned. Quiet scrollbar, a stable gutter so labels do not shift, and `overscroll-behavior: contain` so scrolling the menu never scrolls the page behind it.',
+      '**A sign-out button where people actually work.** Signing out existed only in Settings → My account and in the mobile drawer; a shared front-desk machine had no way out from the sidebar. The account row now has one, next to the name: same call as Settings makes, absent in a demo workspace (no session to end), disabled while it runs, with an accessible name and a double-click guard.',
+      'A plan for the eight remaining requests — the follow-ups recall bug, empty drug lines, two patients in the room, payments recorded once, owner-only invoice cancellation, patient registration and branches — is committed as `docs/PLAN-v1.33.md`, one release per item, lowest risk first, with the diagnosis and the acceptance test for each. 600 tests.',
+    ],
+  },
   {
     version: '1.32.0', date: '2026-11-02', schema: 18,
     highlights: [
