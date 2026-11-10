@@ -18,7 +18,7 @@ A **functional core with an imperative shell**:
         ↓  (imports)
   lib/store.jsx                the one stateful seam: data, cache, queue, licence
         ↓  (imports)
-  lib/*.mjs                    pure domain: 46 modules, 22 of them import nothing
+  lib/*.mjs                    pure domain: 47 modules, 22 of them import nothing
         ↓  (never called from lib/)
   supabase/                    Postgres is the authority: RLS, triggers, one RPC
 ```
@@ -36,8 +36,8 @@ A **functional core with an imperative shell**:
 
 ```bash
 $ grep -rn "extends " src --include=*.js* | wc -l          # 1
-$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 43
-$ for f in src/lib/*.mjs src/lib/*.js; do [ "$(grep -c '^import ' $f)" -eq 0 ] && echo $f; done | wc -l   # 21
+$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 47
+$ for f in src/lib/*.mjs src/lib/*.js; do [ "$(grep -c '^import ' $f)" -eq 0 ] && echo $f; done | wc -l   # 22
 ```
 
 ---
@@ -55,7 +55,7 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **B** | 22/46 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
+| Single Responsibility | **B** | 22/47 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
 | Interface Segregation | **C** | Pure modules take narrow arguments; but **32 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
@@ -310,6 +310,43 @@ change to be worth doing, it is out of scope — stop and re-plan.
 6. **Clinical safety is not refactorable**: the prescription safety checks, the dose
    pattern parser, the read-only gate and the seal are behaviour-frozen by tests. A
    move may change where code lives, never what it decides.
+
+
+### 4.1 Deviations from a release plan, recorded
+
+The batch plan (`docs/PLAN-v1.33.md`, item 10) was written on the assumption that
+the set-up screen needed **no schema change**: the three steps only had to stop
+losing what they already collected. Discovery during implementation disproved that,
+and **v1.34.0 shipped a bounded schema 19** anyway. It is recorded here because a
+plan that quietly stops being true is worse than one that is corrected in public.
+
+- **What was found.** `Onboarding.jsx` had always sent `open_time`, `close_time`,
+  `follow_up_days`, `sessions`, `closed_weekdays`, `gstin`, `registration_no` and
+  the doctor's day window to `create_clinic()`. The function inserted *none* of
+  them. A clinic set up as 10:00–19:00 with Sunday closed was created at
+  09:00–20:00, open every day — silently, because the created clinic looked correct.
+  No amount of client-side validation can fix a value the server never reads.
+- **Why the fix belongs in the database (rule 1).** A client-side second write
+  after creation would leave a window in which the clinic exists with the wrong
+  hours, and would not repair the doctor's row at all. The single write that creates
+  a clinic is `create_clinic()`; schema 19 replaces **one function body**, keeping
+  its signature, adding only optional keys to the existing jsonb payloads, changing
+  no column and no default. Every incoming value is checked against the constraint
+  that already governs its column and falls back to the pre-v1.34.0 default when it
+  does not fit — so a name-only payload from an older client creates exactly the
+  clinic it created before. Four cases are pinned in `SUITE M` of
+  `supabase/schema-tests.sql` and were run against PostgreSQL 17 before release.
+- **The mirror stays in `lib/`.** The client re-states nothing new; it only builds
+  the payload (`clinicPayload`/`ownerPayload` in `src/lib/onboarding.mjs`). Two
+  tests hold the two copies together: the payload's key set must be a subset of what
+  `create_clinic()` reads, and the SQL's `greatest(3, least(45, …))` follow-up clamp
+  must equal `FOLLOW_UP_MIN_DAYS`/`FOLLOW_UP_MAX_DAYS` from `hours.mjs` — the same
+  mirror-vs-authority check introduced in step 2 (§3).
+- **Two additions beyond the three requested steps.** A fourth **Review** step and a
+  `localStorage` draft were added: the former because the button that creates a
+  clinic had no summary in front of it, the latter because a reload cost a
+  half-filled address. Both are in the plan's §10 and the release CHANGELOG; neither
+  changes the RPC signature or `store.createClinic({ clinic, owner })`.
 
 ---
 

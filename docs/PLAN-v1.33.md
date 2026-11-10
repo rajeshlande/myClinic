@@ -7,8 +7,10 @@ or tagged — the same discipline as `docs/ARCHITECTURE.md` §3.
 
 Written before any code changed, from the code as it stands at **v1.32.0**.
 
-**Status.** Items 1 and 2 shipped in **v1.33.0**. Items 3–8 are scheduled as above;
-item 9 waits on the three decisions at the end of this document.
+**Status.** Items 1 and 2 shipped in **v1.33.0**; item 10 (onboarding) shipped in
+**v1.34.0** (schema 19), ahead of the rest because it was asked for last — see §10
+for the plan and the deviation that discovery forced. Items 3–8 are scheduled as
+above; item 9 waits on the three decisions at the end of this document.
 
 ---
 
@@ -18,13 +20,14 @@ item 9 waits on the three decisions at the end of this document.
 | --- | --- | --- | --- | --- | --- |
 | 1 | v1.33.0 | Sidebar must scroll on short desktop screens | low | — | CSS + layout |
 | 2 | v1.33.0 | A sign-out / logout button | low | — | layout + auth call |
-| 3 | v1.34.0 | Follow-ups: the recall list is wrong — find it and fix it | medium | — | one lib rule + screen |
-| 4 | v1.35.0 | Consultation notes: a drug line may not be empty | low | — | one validator |
-| 5 | v1.36.0 | Token queue: at most 2 patients in the room, per doctor | medium | — | `queue.mjs` + 3 screens |
-| 6 | v1.37.0 | "Visit saved" → Collect payment: recorded once, never twice | medium | — | flow state + screen |
-| 7 | v1.38.0 | Only the owner can cancel an invoice | low | — (already enforced) | UI + guard test |
-| 8 | v1.39.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
-| 9 | v1.40.0+ | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** | schema + RPC + screens |
+| 3 | v1.35.0 | Follow-ups: the recall list is wrong — find it and fix it | medium | — | one lib rule + screen |
+| 4 | v1.36.0 | Consultation notes: a drug line may not be empty | low | — | one validator |
+| 5 | v1.37.0 | Token queue: at most 2 patients in the room, per doctor | medium | — | `queue.mjs` + 3 screens |
+| 6 | v1.38.0 | "Visit saved" → Collect payment: recorded once, never twice | medium | — | flow state + screen |
+| 7 | v1.39.0 | Only the owner can cancel an invoice | low | — (already enforced) | UI + guard test |
+| 8 | v1.40.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
+| 9 | v1.41.0+ | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** | schema + RPC + screens |
+| 10 | **v1.34.0** | Onboarding / "Set up your clinic": clinic details, lead doctor, hours & fees | medium | **yes** (schema 19) | page + pure module + `create_clinic()` |
 
 Items 1 and 2 are the same release because both are the sidebar and nothing else.
 Everything else stays one item per release.
@@ -72,7 +75,7 @@ a front-desk seat may sign out (no capability gate on it).
 
 ---
 
-## 3 · v1.34.0 — the follow-ups recall list
+## 3 · v1.35.0 — the follow-ups recall list
 
 **Today.** `FollowUps.jsx:30` builds the list with
 `followUpDue(store.consultations, { withinDays })` (`src/lib/patients.mjs:53`), which
@@ -105,7 +108,7 @@ badge equals the number of rows below it; opening a row lands on that patient's 
 
 ---
 
-## 4 · v1.35.0 — a drug line cannot be empty
+## 4 · v1.36.0 — a drug line cannot be empty
 
 **Today.** `ConsultationForm.jsx:143` validates the *pattern* of a drug that has a name
 (`rx.drug.trim() && …`), and `:171` filters named drugs before the safety check.
@@ -123,7 +126,7 @@ runs only on named drugs; existing consultations render unchanged.
 
 ---
 
-## 5 · v1.36.0 — two in the room, per doctor
+## 5 · v1.37.0 — two in the room, per doctor
 
 **Today.** `queueBoard()` (`src/lib/queue.mjs:37`) returns exactly one `serving` per
 doctor (`status === 'in-consult'`, first by token) plus a `next` (`checked-in`, first by
@@ -152,7 +155,7 @@ dashboard show the same two people the board does; seeds and existing data unaff
 
 ---
 
-## 6 · v1.37.0 — a payment is recorded once
+## 6 · v1.38.0 — a payment is recorded once
 
 **Today.** `VisitNextSteps` opens `CollectPayment` and, on success, only closes the
 sheet (`onDone={() => setPayFor(null)}`-style) — the `invoice` prop it was given is
@@ -179,7 +182,7 @@ still leave the button, for the remaining balance.
 
 ---
 
-## 7 · v1.38.0 — only the owner can cancel an invoice
+## 7 · v1.39.0 — only the owner can cancel an invoice
 
 **Today.** `MATRIX['invoice:void'] = ['owner']` (`permissions.js:51`) and the security
 suite proves the database refuses a non-owner void — but **no screen offers the
@@ -200,7 +203,7 @@ outstanding and revenue totals (already true) and keep their number (already tru
 
 ---
 
-## 8 · v1.39.0 — registering a patient
+## 8 · v1.40.0 — registering a patient
 
 **Today.** One `Full name *` field (`PatientForm.jsx:86`), phone and email validated by
 `validatePatient` (format only), and **no duplicate check at all** — the same person
@@ -229,7 +232,7 @@ prints; nothing migrates.
 
 ---
 
-## 9 · v1.40.0+ — branches, each with its own front desk
+## 9 · v1.41.0+ — branches, each with its own front desk
 
 **Today.** "Branch" exists only as a **licence seat** (`plans.mjs:52–54`,
 `license.mjs:195`, `licensing-adapter.js:47` — `branches: 1`, hard-coded). There is no
@@ -277,3 +280,64 @@ Say the word if any is wrong; the ones before item 9 do not depend on each other
    delete.
 5. **Sign out** ends the session and lands on the landing page, exactly as Settings →
    My account already does.
+
+
+---
+
+## 10 · v1.34.0 — onboarding, "Set up your clinic"
+
+**Today.** `Onboarding.jsx` is 170 lines and three steps: clinic details, lead doctor,
+hours & fees. The shape is right; the details are not.
+
+- **The two phone fields are the same field.** Step 1's "Clinic phone" and step 2's
+  "Doctor's phone" both bind `form.phone` (`:31`, `:132`, `:134`), so typing the
+  doctor's mobile silently rewrites the clinic's number, and the clinic row receives
+  whatever was typed last.
+- **Hours are collected and thrown away.** The page sends `open_time`, `close_time`
+  and `follow_up_days` to `store.createClinic()`, but `create_clinic()` in
+  `schema.sql` inserts only name, type, phone, email, address, the two fees and
+  `slot_minutes`. A clinic set up as "10:00–19:00, follow-up 21 days" is created at
+  the defaults, every time. The staff row is written the same way: `registration_no`,
+  the day window and the doctor's fees are in the payload and not in the insert.
+- **Nothing is validated before the last click.** Only a name and a doctor's name are
+  checked, at `finish()`, which then jumps the person back to the offending step. A
+  malformed phone, a bad fee or a reversed time window are accepted and either stored
+  or silently replaced by a default (`moneyToPaise` is wrapped in a `try` that keeps
+  500/250 — `:40`).
+- **A reload loses everything**, including a half-filled address and fee.
+- **The clinic's week is not offered at all**, though the app has supported closed
+  weekdays and two sessions since schema 12 — the very settings a clinic sets once
+  and never revisits.
+
+**Change.**
+1. **`src/lib/onboarding.mjs`** (pure, tested): `emptyForm(prefill)`, per-step
+   validators (`validateClinicStep`, `validateDoctorStep`, `validateHoursStep`), the
+   two payload builders (`clinicPayload`, `ownerPayload`), the draft helpers
+   (save/load/clear with injected storage), and `summaryRows(form)` for the review
+   step. Nothing in the page computes a payload any more.
+2. **The page** keeps its three steps and gains a fourth: **Review** — what will be
+   created, in one card, with an *Edit* link back to each step, then "Create clinic".
+   Per-step validation with inline field errors, an `aria-live` error line, Enter to
+   continue, and a draft in `localStorage` that survives a reload and is cleared on
+   success.
+3. **Separate phones** (`clinic_phone`, `doctor_phone`), a validated mobile and email,
+   fees validated through `moneyToPaise` with the message shown instead of a silent
+   default, and a time window that must end after it starts.
+4. **Working days and an optional second session** in step 3, written as
+   `closed_weekdays` and `sessions` — the two things the rest of the app already reads.
+5. **`create_clinic()` (schema 19)** persists what the page collects: `gstin`,
+   `follow_up_days`, `open_time`/`close_time`, `sessions`, `closed_weekdays`, and on
+   the staff row `registration_no`, `day_start`/`day_end`, `slot_minutes` and the two
+   fees. Additive only — new keys in the existing jsonb, existing rows untouched,
+   defaults unchanged when a key is absent, so an older client keeps working.
+6. **"You can change all of this later"** stated once, with the exact places
+   (Settings → Clinic, Doctors & staff), because a first-run screen should not feel
+   like a contract.
+
+**Acceptance.** A clinic created with 10:00–19:00, Sunday closed and a 21-day
+follow-up reads back with exactly those values (proved against the function body, the
+way `tests/schema-parity.test.mjs` already pins the mirror to the authority); the
+clinic phone and the doctor's phone are independent; a bad phone, email, fee or
+reversed hours cannot advance a step; a reload resumes at the step it was left on with
+the values typed; the review step names what will be created; and a payload with only
+a name still creates a working clinic with every default (the old behaviour).

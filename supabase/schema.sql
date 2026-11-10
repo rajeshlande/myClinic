@@ -59,6 +59,7 @@
 --    16  investigations advised        v1.16.0
 --    17  the audit fixes                v1.19.1
 --    18  the licence authority          v1.20.0
+--    19  what set-up collects             v1.34.0
 --
 -- To add a migration: append a numbered block at the end of the file, inside its
 -- own `do $migration$ … $migration$` guard (it returns early when
@@ -4244,6 +4245,157 @@ begin
      set schema_version = 18, applied_at = now(),
          notes = 'licence authority binding: signed RS256 verdict recorded server-side, tenant licence doors closed when bound'
    where schema_version < 18;
+end $migration$;
+
+-- §19 · WHAT THE SET-UP SCREEN COLLECTS              migration 19 · app v1.34.0
+--
+-- Onboarding has always asked for the clinic's hours, its working days, the
+-- follow-up window and the doctor's registration number. It sent all of them to
+-- create_clinic(), which inserted the name, the type, the phone, the email, the
+-- address, the two fees and the slot length — and dropped the rest on the floor. A
+-- clinic set up as 10:00–19:00 with Sunday closed was created at 09:00–20:00, open
+-- every day, with a 15-day follow-up window, and nobody found out until a patient
+-- was booked on a Sunday.
+--
+-- So the function now writes what the screen collects: `gstin`, `follow_up_days`,
+-- `open_time`, `close_time`, `sessions`, `closed_weekdays` on the clinic row, and
+-- `registration_no`, `day_start`, `day_end`, `slot_minutes` and the two fees on the
+-- owner's staff row.
+--
+-- No column is added and no default changes. Every new key is optional, every value
+-- is range-checked against the constraint that already governs its column, and a
+-- value that does not fit falls back to the default the column had before — so a
+-- client from before this release, which sends none of these keys, creates exactly
+-- the clinic it created yesterday.
+--
+-- Additive and idempotent. A database already at 19 skips the block.
+
+do $migration$
+begin
+  if public.app_schema_version() >= 19 then
+    raise notice 'schema 19 (what set-up collects) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 19 (what set-up collects)';
+
+  create or replace function public.create_clinic(p_clinic jsonb, p_owner jsonb)
+  returns uuid language plpgsql security definer set search_path = public as $$
+  declare
+    new_clinic uuid;
+    owner_name text := coalesce(nullif(trim(p_owner->>'full_name'), ''), 'Clinic owner');
+    -- A clinic without a slug is a clinic whose booking link goes nowhere, so the
+    -- address is minted here (as it has been since §9) and never left null.
+    clinic_name text := coalesce(nullif(trim(p_clinic->>'name'), ''), 'My clinic');
+    v_open  time := '09:00';
+    v_close time := '20:00';
+    v_slot  int  := 15;
+    v_days  int  := 15;
+    v_sessions jsonb := '[]'::jsonb;
+    v_closed smallint[] := '{}';
+    v_fee bigint := 50000;
+    v_follow_fee bigint := 25000;
+  begin
+    if auth.uid() is null then raise exception 'not authenticated'; end if;
+
+    -- Times: only 'HH:MM' inside a day is a time; anything else keeps the default.
+    if p_clinic->>'open_time'  ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then v_open  := (p_clinic->>'open_time')::time;  end if;
+    if p_clinic->>'close_time' ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then v_close := (p_clinic->>'close_time')::time; end if;
+
+    -- Slot and follow-up window: the same sets the column checks enforce.
+    if (p_clinic->>'slot_minutes') ~ '^[0-9]{1,2}$' then
+      v_slot := (p_clinic->>'slot_minutes')::int;
+      if v_slot not in (5,10,15,20,30,45,60) then v_slot := 15; end if;
+    end if;
+    -- The column allows 3–45 days (schema 12); a readable number outside that is
+    -- clamped to the edge rather than dropped, so 200 days means 45, not 15.
+    if (p_clinic->>'follow_up_days') ~ '^[0-9]{1,3}$' then
+      v_days := greatest(3, least(45, (p_clinic->>'follow_up_days')::int));
+    end if;
+
+    -- Fees: rupees turned into paise by the client; unreadable means default.
+    if (p_clinic->>'consultation_fee_paise') ~ '^[0-9]{1,8}$' then
+      v_fee := (p_clinic->>'consultation_fee_paise')::bigint;
+      if v_fee > 99999999 then v_fee := 99999999; end if;
+    end if;
+    if (p_clinic->>'follow_up_fee_paise') ~ '^[0-9]{1,8}$' then
+      v_follow_fee := (p_clinic->>'follow_up_fee_paise')::bigint;
+      if v_follow_fee > 99999999 then v_follow_fee := 99999999; end if;
+    end if;
+
+    -- Days off: whole numbers 0–6, de-duplicated, order kept for the settings screen.
+    if jsonb_typeof(p_clinic->'closed_weekdays') = 'array' then
+      select coalesce(array_agg(distinct d::int), '{}')::smallint[] into v_closed
+        from jsonb_array_elements_text(p_clinic->'closed_weekdays') as t(d)
+       where d ~ '^[0-6]$';
+    end if;
+
+    -- Sessions: used when the app sent a valid pair, otherwise the single session
+    -- that open_time–close_time already describes. A clinic with no sessions is a
+    -- clinic that never set them, which is what '[]' means everywhere else.
+    if jsonb_typeof(p_clinic->'sessions') = 'array'
+       and jsonb_array_length(p_clinic->'sessions') between 1 and 2
+       and coalesce(public.sessions_valid(p_clinic->'sessions'), false) then
+      v_sessions := p_clinic->'sessions';
+    else
+      v_sessions := jsonb_build_array(jsonb_build_object(
+        'label', 'Morning',
+        'start', to_char(v_open,  'HH24:MI'),
+        'end',   to_char(v_close, 'HH24:MI')));
+      if not coalesce(public.sessions_valid(v_sessions), false) then
+        v_sessions := '[]'::jsonb;
+      end if;
+    end if;
+
+    insert into public.clinics (name, slug, clinic_type, phone, email, address, gstin,
+      consultation_fee_paise, follow_up_fee_paise, follow_up_days, slot_minutes,
+      open_time, close_time, sessions, closed_weekdays)
+    values (
+      clinic_name,
+      public.next_clinic_slug(clinic_name),
+      coalesce(nullif(trim(p_clinic->>'clinic_type'), ''), 'General Practice'),
+      coalesce(p_clinic->>'phone', ''),
+      coalesce(p_clinic->>'email', ''),
+      coalesce(p_clinic->>'address', ''),
+      upper(coalesce(p_clinic->>'gstin', '')),
+      v_fee, v_follow_fee, v_days, v_slot,
+      v_open, v_close, v_sessions, v_closed
+    ) returning id into new_clinic;
+
+    insert into public.clinic_subscriptions (clinic_id, plan, status, trial_started_at, trial_ends_at)
+    values (new_clinic, coalesce(p_clinic->>'plan', 'growth'), 'trial', now(), now() + interval '14 days')
+    on conflict (clinic_id) do nothing;
+
+    -- The owner's row carries the practice's own facts, not the front desk's: the
+    -- registration number that goes under the signature, the doctor's own phone,
+    -- the hours they sit and the fees they charge.
+    insert into public.staff (
+      clinic_id, user_id, full_name, role, specialty, qualification, registration_no,
+      phone, email, day_start, day_end, slot_minutes, fee_paise, follow_up_fee_paise
+    ) values (
+      new_clinic, auth.uid(), owner_name, 'owner',
+      coalesce(nullif(trim(p_owner->>'specialty'), ''), 'General Physician'),
+      coalesce(nullif(trim(p_owner->>'qualification'), ''), 'MBBS'),
+      coalesce(p_owner->>'registration_no', ''),
+      coalesce(p_owner->>'phone', ''),
+      coalesce(nullif(trim(p_owner->>'email'), ''), p_clinic->>'email', ''),
+      v_open, v_close, v_slot, v_fee, v_follow_fee
+    );
+
+    update public.profiles set default_clinic_id = new_clinic where id = auth.uid();
+    return new_clinic;
+  end $$;
+
+  grant execute on function public.create_clinic(jsonb, jsonb) to authenticated;
+
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (19, 'onboarding-collects', '1.34.0',
+          'create_clinic() writes the hours, days off, sessions, GSTIN, follow-up window and doctor registration the set-up screen asks for, range-checked against the column constraints and defaulted when absent')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 19, applied_at = now(),
+         notes = 'set-up collects: hours, days off, sessions, GSTIN, follow-up window and doctor registration are persisted at clinic creation'
+   where schema_version < 19;
 end $migration$;
 
 commit;

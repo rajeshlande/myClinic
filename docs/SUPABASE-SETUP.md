@@ -97,6 +97,7 @@ rows: `1 core`, `2 roles-and-offline`, `3 licensing`, `4 branding`, `5 upi`, `6 
 | 16 | §16 | `consultations.investigations` — the tests advised at the visit, printed on the slip |
 | 17 | §17 | audit fixes: the booking reference belongs to the device that made it, one door to a paid state with a collection log, membership checks on the counter helpers, same-clinic patient on every clinical write |
 | 18 | §18 | licence authority: `authority_*` columns, `apply_authority_license()` (`service_role` only), renewal/plan/trial refused once bound, the `authority` block in `license_state()` |
+| 19 | §19 | set-up collects: `create_clinic()` writes hours, days off, sessions, GSTIN, the follow-up window and the doctor's registration number, each range-checked and defaulted when absent |
 
 Confirm the licensing and branding objects exist:
 

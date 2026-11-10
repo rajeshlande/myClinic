@@ -3,6 +3,80 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.34.0] — 2026-11-02 · schema 19
+
+**"Set up your clinic" now keeps the answers it asks for.**
+
+The first screen every clinic sees was three steps of questions and three ways of
+losing the replies: the clinic's phone and the doctor's phone were the same field,
+the hours and the follow-up window were collected and dropped by the database, and a
+fee that could not be read quietly became ₹500.
+
+| Change | File | Why |
+| --- | --- | --- |
+| clinic phone and doctor phone are **two fields**, judged by **two rules** | `onboarding.mjs`, `Onboarding.jsx` | both steps bound `form.phone`; the last edit won and the clinic was created with the doctor's mobile as its contact number |
+| hours, days off, sessions, GSTIN, follow-up window, doctor's registration are **written** | `schema.sql` (§19), `schema-tests.sql` | `create_clinic()` inserted the name, type, phone, email, address, two fees and the slot length — and nothing else; a clinic set up as 10:00–19:00, Sunday closed, was created at 09:00–20:00, open every day |
+| every step validates **before** it advances | `onboarding.mjs`, `Onboarding.jsx` | only a name and a doctor's name were checked, at the last click, which then jumped the person backwards |
+| a bad fee is an **error on the field**, not a silent default | `onboarding.mjs` | `try { moneyToPaise } catch { keep defaults }` meant "abc" charged ₹500 |
+| a **review** step, and the draft **survives a reload** | `Onboarding.jsx`, `onboarding.mjs` | there was no summary before the button that creates a clinic, and a reload lost a half-filled address |
+| "You can change all of this later", naming where | `Onboarding.jsx` | a first-run screen should not read as a contract |
+
+- **The bug, precisely.** `form.phone` was bound in step 1 as the clinic's contact and
+  in step 2 as the doctor's own number. Whichever was typed last reached
+  `create_clinic()`, and the other was gone — so a clinic that typed its landline and
+  then the doctor's mobile was created with the mobile as the front-desk number. The
+  form now carries `clinic_phone` and `doctor_phone`, and the RPC puts each on the row
+  it belongs to. They are also not the same *kind* of number: the clinic may be a
+  landline (`022 4000 1200`, an STD code a patient can dial), while the doctor's must
+  be a mobile (`6–9…`), because that is where a recall message goes.
+- **A new schema release, and why it was not avoidable.** The set-up screen has always
+  sent `open_time`, `close_time`, `follow_up_days`, `sessions`, `closed_weekdays`,
+  `gstin`, `registration_no` and the doctor's day window. `create_clinic()` read none
+  of them, so every clinic in the product started on the defaults regardless of what
+  was typed — silently, because the created clinic looked fine. A client-side second
+  write would have left a window in which the clinic exists with wrong hours, and
+  would not have fixed the doctor's row at all. Schema 19 therefore replaces one
+  function body: no column added, no default changed, every new key optional.
+- **Backwards compatibility is the contract.** Every value is checked against the
+  constraint that already governs its column — times by shape, `slot_minutes` against
+  the seven allowed lengths, `follow_up_days` clamped to the column's 3–45 (it is
+  *not* the 0–180 the original column carried before schema 12), fees inside
+  0–99,999,999, weekdays to 0–6, sessions through `sessions_valid()` — and anything
+  that does not fit falls back to the pre-v1.34.0 default. A payload with only a name
+  creates exactly the clinic it created before, which is the case the older clients
+  in the field will keep sending. `SUITE M` in `supabase/schema-tests.sql` pins all
+  four cases: the full payload, the doctor's row, the name-only payload, and a
+  deliberately unreadable one.
+- **Verified against a real database.** The four `SUITE M` cases were run on
+  PostgreSQL 17 with an `auth` stub (`auth.uid()`, `auth.jwt()`, `request.jwt.claims`
+  as Supabase provides them): the whole schema applies cleanly, `app_schema_version()`
+  reads 19, and a clinic created with 10:00–19:00, Sunday and Saturday closed, a
+  21-day follow-up and a 20-minute slot reads back with every one of those values on
+  the clinic row and the doctor's own phone, registration number, hours and fees on
+  the staff row. §19 carries the version guard every earlier migration has, so
+  re-applying the whole file on a database already at 19 skips it cleanly, and the
+  file stays **one transaction** — a paste that fails half-way leaves nothing
+  behind (the property `tests/schema.test.mjs` asserts).
+- **The rules moved out of the page.** `src/lib/onboarding.mjs` holds the form's blank
+  shape, the three validators, the two payload builders, the review rows and the draft
+  (22 tests, `tests/onboarding.test.mjs`). Two of its tests are ratchets: the payload's
+  key list must be a subset of what `create_clinic()` reads, and the SQL's follow-up
+  clamp must equal `FOLLOW_UP_MIN_DAYS`/`FOLLOW_UP_MAX_DAYS` from `hours.mjs` — the
+  same mirror-and-authority check that caught the plan prices being 10× too high in
+  v1.28.0.
+- **Smaller, in the same spirit.** The day's span (`open_time`/`close_time`) is derived
+  from the sessions, so the legacy pair every pre-schema-12 screen still reads always
+  describes the whole day; a second session is validated by `validateSessions()` — the
+  function the Settings screen uses — so an overlap or a ten-minute session is caught
+  here in the same words; the resume step is computed in the `useState` initialiser
+  rather than an effect, so the first paint is already the right step; and the review
+  body is a `ReviewStep` component so it can be rendered on its own (proved by an SSR
+  smoke that renders all four steps and fails on a stray `undefined`, `NaN` or
+  `[object Object]` in the text).
+- **No change** to any other screen, to the RPC's signature, or to the client's
+  `store.createClinic({ clinic, owner })` contract — only what travels inside the two
+  jsonb payloads, which the function treats as optional.
+
 ## [1.33.0] — 2026-11-02 · schema 18
 
 **Nine requests → one plan, and the first two shipped.**

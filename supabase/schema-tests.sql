@@ -2236,3 +2236,179 @@ begin
 end $$;
 
 rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE M · WHAT THE SET-UP SCREEN COLLECTS (schema 19)
+-- =============================================================================
+-- Onboarding has always asked for the clinic's hours, its days off, the follow-up
+-- window, the slot length and the doctor's registration number. Until schema 19
+-- `create_clinic()` threw all of them away: a clinic set up as 10:00–19:00, Sunday
+-- closed, was created at 09:00–20:00 open every day, and nobody noticed until a
+-- patient was booked on a Sunday. These checks are the ones a person would do by
+-- hand after finishing the set-up screen.
+begin;
+
+do $$
+declare
+  owner_m uuid := gen_random_uuid();
+  clinic_m uuid;
+  c public.clinics;
+  s public.staff;
+  first_session jsonb;
+begin
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values (owner_m, 'owner-m@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_m, 'role', 'authenticated', 'email', 'owner-m@test.local')::text, true);
+  set local role authenticated;
+
+  -- ------------------------------------------------- 1. the answers are kept
+  clinic_m := public.create_clinic(
+    jsonb_build_object(
+      'name', 'Sunrise Multispecialty',
+      'clinic_type', 'Multispecialty',
+      'phone', '02240001200',
+      'email', 'front.desk@sunrise.test',
+      'address', '2nd floor, Andheri West',
+      'gstin', '27aabcu9603r1zm',
+      'consultation_fee_paise', 70000,
+      'follow_up_fee_paise', 35000,
+      'follow_up_days', 21,
+      'slot_minutes', 20,
+      'open_time', '10:00',
+      'close_time', '19:00',
+      'sessions', jsonb_build_array(
+        jsonb_build_object('label', 'Morning', 'start', '10:00', 'end', '14:00'),
+        jsonb_build_object('label', 'Evening', 'start', '16:00', 'end', '19:00')),
+      'closed_weekdays', jsonb_build_array(0, 6)),
+    jsonb_build_object(
+      'full_name', 'Dr. Anita Rao',
+      'specialty', 'Internal Medicine',
+      'qualification', 'MBBS, MD',
+      'registration_no', 'MH-2011-48213',
+      'phone', '9820000000',
+      'email', 'anita@sunrise.test'));
+  reset role;
+
+  select * into c from public.clinics where id = clinic_m;
+  select * into s from public.staff where clinic_id = clinic_m and role = 'owner';
+
+  if c.open_time <> '10:00' or c.close_time <> '19:00' then
+    raise exception 'FAIL: the clinic opens % and closes %, not the 10:00–19:00 that was typed', c.open_time, c.close_time using errcode = 'P0002';
+  end if;
+  if c.follow_up_days <> 21 then
+    raise exception 'FAIL: the follow-up window is %, not the 21 days that was chosen', c.follow_up_days using errcode = 'P0002';
+  end if;
+  if c.slot_minutes <> 20 then
+    raise exception 'FAIL: the slot length is %, not 20 minutes', c.slot_minutes using errcode = 'P0002';
+  end if;
+  if c.closed_weekdays <> array[0,6]::smallint[] then
+    raise exception 'FAIL: the clinic is closed on %, not Sunday and Saturday', c.closed_weekdays using errcode = 'P0002';
+  end if;
+  if jsonb_array_length(c.sessions) <> 2 then
+    raise exception 'FAIL: the clinic has % sessions, not the two that were set', jsonb_array_length(c.sessions) using errcode = 'P0002';
+  end if;
+  first_session := c.sessions -> 0;
+  if (first_session->>'start') <> '10:00' or (first_session->>'end') <> '14:00' then
+    raise exception 'FAIL: the first session is %, not 10:00–14:00', first_session using errcode = 'P0002';
+  end if;
+  if c.gstin <> '27AABCU9603R1ZM' then
+    raise exception 'FAIL: the GSTIN was stored as % instead of upper case', c.gstin using errcode = 'P0002';
+  end if;
+  if c.consultation_fee_paise <> 70000 or c.follow_up_fee_paise <> 35000 then
+    raise exception 'FAIL: the fees are % and %, not 70000 and 35000', c.consultation_fee_paise, c.follow_up_fee_paise using errcode = 'P0002';
+  end if;
+  if c.slug is null or btrim(c.slug) = '' then
+    raise exception 'FAIL: the set-up screen created a clinic with no booking address' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a clinic created by the set-up screen has the hours, days, fees and GSTIN it was given';
+
+  -- ------------------------------------- 2. the doctor's row is the doctor's
+  -- The registration number and the doctor's own phone used to be dropped, and the
+  -- phone field on the set-up screen wrote to the clinic instead.
+  if s.registration_no <> 'MH-2011-48213' then
+    raise exception 'FAIL: the doctor has no registration number on their own row' using errcode = 'P0002';
+  end if;
+  if s.phone <> '9820000000' then
+    raise exception 'FAIL: the doctor''s phone is %, not the 9820000000 that was typed', s.phone using errcode = 'P0002';
+  end if;
+  if c.phone <> '02240001200' then
+    raise exception 'FAIL: the doctor''s number overwrote the clinic contact on the clinic row' using errcode = 'P0002';
+  end if;
+  if s.day_start <> '10:00' or s.day_end <> '19:00' then
+    raise exception 'FAIL: the doctor sits % to %, not the clinic''s 10:00–19:00', s.day_start, s.day_end using errcode = 'P0002';
+  end if;
+  if s.fee_paise <> 70000 or s.follow_up_fee_paise <> 35000 then
+    raise exception 'FAIL: the doctor''s fees are % and %, not the clinic''s', s.fee_paise, s.follow_up_fee_paise using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the doctor''s phone, registration number, hours and fees land on the doctor, not on the clinic';
+
+  -- ------------------------------------ 3. an older client sends only a name
+  -- Backwards compatibility is the whole contract: this payload is what every
+  -- release before v1.34.0 sends, and it must create exactly what it used to.
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_m, 'role', 'authenticated', 'email', 'owner-m@test.local')::text, true);
+  set local role authenticated;
+  clinic_m := public.create_clinic(
+    jsonb_build_object('name', 'Old Client Clinic'),
+    jsonb_build_object('full_name', 'Dr Old'));
+  reset role;
+
+  select * into c from public.clinics where id = clinic_m;
+  if c.open_time <> '09:00' or c.close_time <> '20:00' then
+    raise exception 'FAIL: a name-only payload no longer gets the default 09:00–20:00 day' using errcode = 'P0002';
+  end if;
+  if c.follow_up_days <> 15 or c.slot_minutes <> 15 then
+    raise exception 'FAIL: a name-only payload changed the default follow-up window or slot' using errcode = 'P0002';
+  end if;
+  if c.consultation_fee_paise <> 50000 or c.follow_up_fee_paise <> 25000 then
+    raise exception 'FAIL: a name-only payload changed the default fees' using errcode = 'P0002';
+  end if;
+  if c.closed_weekdays <> array[]::smallint[] then
+    raise exception 'FAIL: a name-only payload closed the clinic on some day' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: a client from before v1.34.0 still creates the clinic it always did';
+
+  -- -------------------------------- 4. rubbish is defaulted, never fatal
+  -- A payload that cannot be parsed must not stop a clinic from being created at
+  -- the moment its owner is most likely to give up.
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_m, 'role', 'authenticated', 'email', 'owner-m@test.local')::text, true);
+  set local role authenticated;
+  clinic_m := public.create_clinic(
+    jsonb_build_object(
+      'name', 'Bad Payload Clinic',
+      'open_time', '25:99',
+      'close_time', 'nonsense',
+      'follow_up_days', 200,
+      'slot_minutes', 7,
+      'consultation_fee_paise', -5,
+      'sessions', jsonb_build_array(jsonb_build_object('start', '10:00'), jsonb_build_object('end', '11:00')),
+      'closed_weekdays', jsonb_build_array(0, 9, 'x')),
+    jsonb_build_object('full_name', 'Dr Bad'));
+  reset role;
+
+  select * into c from public.clinics where id = clinic_m;
+  if c.open_time <> '09:00' or c.close_time <> '20:00' then
+    raise exception 'FAIL: an unreadable time was written to the clinic row' using errcode = 'P0002';
+  end if;
+  if c.slot_minutes <> 15 then
+    raise exception 'FAIL: the invalid slot length 7 was accepted' using errcode = 'P0002';
+  end if;
+  if c.consultation_fee_paise <> 50000 then
+    raise exception 'FAIL: a negative fee was accepted' using errcode = 'P0002';
+  end if;
+  if c.follow_up_days <> 45 then
+    raise exception 'FAIL: a 200-day window became %, not the 45-day maximum', c.follow_up_days using errcode = 'P0002';
+  end if;
+  if c.closed_weekdays <> array[0]::smallint[] then
+    raise exception 'FAIL: the days-off list kept something that is not a weekday: %', c.closed_weekdays using errcode = 'P0002';
+  end if;
+  if jsonb_array_length(c.sessions) <> 1 then
+    raise exception 'FAIL: an unusable session list should collapse to the 09:00–20:00 day, not stay at %', c.sessions using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: an unreadable payload creates a working clinic instead of failing the sign-up';
+
+  raise notice 'ALL SET-UP CHECKS COMPLETED';
+end $$;
+
+rollback;   -- nothing above survives; safe to re-run

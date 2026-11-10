@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.33.0';
-export const SCHEMA_VERSION = 18;
+export const APP_VERSION = '1.34.0';
+export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.34.0', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**The two phone numbers on the set-up screen were one field.** Step 1’s “clinic phone” and step 2’s “doctor’s phone” both bound `form.phone`, so typing the doctor’s mobile rewrote the clinic’s contact number, and the clinic row was created with whichever was typed last. They are separate values now, judged by separate rules: the clinic may be a landline the front desk answers, the doctor must be a mobile a reminder can reach.',
+      '**The hours were collected and thrown away.** The screen asked for the opening and closing time, the follow-up window and the doctor’s registration number, sent them to `create_clinic()`, and the function inserted none of them: a clinic set up as 10:00–19:00 with Sunday closed was created at 09:00–20:00, open every day, follow-up 15 days. Schema 19 writes what the screen collects — sessions, days off, GSTIN, the follow-up window and the doctor’s own row — each range-checked against the column, defaulted when absent, so a client from before this release creates exactly the clinic it created yesterday.',
+      '**An unreadable fee silently became ₹500.** `moneyToPaise` was wrapped in a `try` that kept the default on failure. Every fee is now read before the step can advance, with the error on the field: “Enter the fee in rupees, like 500 or 250.50”.',
+      'Three steps became four — a review of what is about to be created, with an edit link back to each step — every rule moved into `src/lib/onboarding.mjs` (22 tests), and the half-filled form is kept in `localStorage` so a reload on a phone in a queue no longer costs the address and the fees that were just typed.',
+    ],
+  },
   {
     version: '1.33.0', date: '2026-11-02', schema: 18,
     highlights: [
