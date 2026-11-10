@@ -145,11 +145,12 @@ export default function Dashboard() {
             </div>
           </div>
           <span className="spacer" />
-          {board.rows.filter((r) => r.serving || r.next).slice(0, 2).map((r) => (
+          {board.rows.filter((r) => r.inRoom.length || r.next).slice(0, 2).map((r) => (
             <div key={r.doctor.id} className="row" style={{ gap: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 11, padding: '7px 11px' }}>
               <span className="tiny faint truncate" style={{ maxWidth: 92 }}>{r.doctor.full_name.replace(/^Dr\.?\s*/i, 'Dr ')}</span>
-              <span className="mono strong small">{tokenLabel((r.serving ?? r.next)?.token_no)}</span>
-              <Badge tone={r.serving ? 'accent' : 'warn'}>{r.serving ? 'In room' : 'Next'}</Badge>
+              {/* Both people in the room, not just the first — the count above counts them all. */}
+              <span className="mono strong small">{r.inRoom.length ? r.inRoom.map((a) => tokenLabel(a.token_no)).join(' · ') : tokenLabel(r.next?.token_no)}</span>
+              <Badge tone={r.inRoom.length ? 'accent' : 'warn'}>{r.inRoom.length ? 'In room' : 'Next'}</Badge>
             </div>
           ))}
           <div className="row wrap" style={{ gap: 6, minWidth: 0 }}>

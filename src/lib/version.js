@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.34.0';
+export const APP_VERSION = '1.35.0';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.35.0', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**The consulting room holds two people, and now shows both.** `queueBoard()` returned a single `serving` per doctor while “Call next” unconditionally flipped a second token to `in-consult` — the data could hold two patients and every screen showed only one. The board now reports `inRoom` (every token, in order), `roomCount`, `roomLimit` and `roomSeats()`. The first token, T-09, is drawn large with a **Talking** badge; the second, T-10, sits beneath it in small type as **Waiting in room**; a `2 / 2` badge sits in the card header.',
+      '**A third call is refused in words, not silently.** One constant, `ROOM_LIMIT = 2`, gates every call-in control — the room card, “Up next” and each row of the token table — against a board recomputed from the store at the moment of the click, so a stale tab or a fast double click cannot make three. “Call next” is disabled with an inline reason, and a toast names the two people already in the room.',
+      '**The lounge and the dashboard agree with the desk.** The waiting-room display lists both tokens and says **Please wait** rather than **Please proceed** when the room is full; the dashboard’s “N in the room” counts people rather than doctors and its token strip lists both numbers. Completing either consultation frees a seat.',
+      'Backwards compatible: `serving` is still `inRoom[0]`, so every older reader keeps working. 12 new tests plus a server-render smoke that checks T-09 is large and T-10 is small. No schema change.',
+    ],
+  },
   {
     version: '1.34.0', date: '2026-11-02', schema: 19,
     highlights: [

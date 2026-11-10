@@ -9,8 +9,10 @@ Written before any code changed, from the code as it stands at **v1.32.0**.
 
 **Status.** Items 1 and 2 shipped in **v1.33.0**; item 10 (onboarding) shipped in
 **v1.34.0** (schema 19), ahead of the rest because it was asked for last — see §10
-for the plan and the deviation that discovery forced. Items 3–8 are scheduled as
-above; item 9 waits on the three decisions at the end of this document.
+for the plan and the deviation that discovery forced. Item 5 (the token queue)
+shipped in **v1.35.0**, ahead of the rest because it was asked for next — see §5.
+Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 waits
+on the three decisions at the end of this document.
 
 ---
 
@@ -20,9 +22,9 @@ above; item 9 waits on the three decisions at the end of this document.
 | --- | --- | --- | --- | --- | --- |
 | 1 | v1.33.0 | Sidebar must scroll on short desktop screens | low | — | CSS + layout |
 | 2 | v1.33.0 | A sign-out / logout button | low | — | layout + auth call |
-| 3 | v1.35.0 | Follow-ups: the recall list is wrong — find it and fix it | medium | — | one lib rule + screen |
-| 4 | v1.36.0 | Consultation notes: a drug line may not be empty | low | — | one validator |
-| 5 | v1.37.0 | Token queue: at most 2 patients in the room, per doctor | medium | — | `queue.mjs` + 3 screens |
+| 3 | v1.36.0 | Follow-ups: the recall list is wrong — find it and fix it | medium | — | one lib rule + screen |
+| 4 | v1.37.0 | Consultation notes: a drug line may not be empty | low | — | one validator |
+| 5 | **v1.35.0** | Token queue: at most 2 patients in the room, both shown | medium | — | `queue.mjs` + 3 screens |
 | 6 | v1.38.0 | "Visit saved" → Collect payment: recorded once, never twice | medium | — | flow state + screen |
 | 7 | v1.39.0 | Only the owner can cancel an invoice | low | — (already enforced) | UI + guard test |
 | 8 | v1.40.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
@@ -75,7 +77,7 @@ a front-desk seat may sign out (no capability gate on it).
 
 ---
 
-## 3 · v1.35.0 — the follow-ups recall list
+## 3 · v1.36.0 — the follow-ups recall list
 
 **Today.** `FollowUps.jsx:30` builds the list with
 `followUpDue(store.consultations, { withinDays })` (`src/lib/patients.mjs:53`), which
@@ -108,7 +110,7 @@ badge equals the number of rows below it; opening a row lands on that patient's 
 
 ---
 
-## 4 · v1.36.0 — a drug line cannot be empty
+## 4 · v1.37.0 — a drug line cannot be empty
 
 **Today.** `ConsultationForm.jsx:143` validates the *pattern* of a drug that has a name
 (`rx.drug.trim() && …`), and `:171` filters named drugs before the safety check.
@@ -126,7 +128,7 @@ runs only on named drugs; existing consultations render unchanged.
 
 ---
 
-## 5 · v1.37.0 — two in the room, per doctor
+## 5 · v1.35.0 — two in the room, per doctor
 
 **Today.** `queueBoard()` (`src/lib/queue.mjs:37`) returns exactly one `serving` per
 doctor (`status === 'in-consult'`, first by token) plus a `next` (`checked-in`, first by
@@ -140,18 +142,26 @@ shows only the first. The board's "Now in the room" card, the waiting-room displ
   `roomLimit` (2, one constant `ROOM_LIMIT`), keeping `serving` as `inRoom[0]` so
   nothing that reads it breaks.
 - `canCallNext = inRoom.length < ROOM_LIMIT`.
-- Queue: the room card lists up to two people with their token and wait; "Call next"
-  is disabled with an inline reason when the room is full; pressing it anyway (the row
-  buttons, or a stale tab) shows a toast — *"Room is full — T-04 and T-05 are already in
-  the room. Mark one as seen before calling another."* — and does not change any row.
+- Queue: the room card lists **everyone in the room** — the first (T-09) large with a
+  **Talking** badge, the second (T-10) in a **small font** with a **Waiting in room**
+  badge — and a `N / 2` badge in the header. Asked for explicitly: *"Now in the room
+  should show whos in room the limit is 2 all 2 should able to see in room … if T-09 is
+  Talking then next T-10 is wating in room should visibel in small font"*. The two seats
+  come from `roomSeats(inRoom)` in `queue.mjs`, not from an inline JSX conditional.
+- "Call next" is disabled with an inline reason when the room is full; pressing it
+  anyway (the row buttons, or a stale tab) shows a toast — *"Room is full — T-04 and
+  T-05 are already in the room. Mark one as seen before calling another."* — and does
+  not change any row.
 - `callIn()` re-checks the limit against fresh state, so two receptionists clicking at
   once cannot make three.
 - Display screen: the "In the room" block lists both tokens.
 - Dashboard: "N in the room" counts them all.
 
 **Acceptance.** Never more than two `in-consult` per doctor per day; the third attempt
-shows the message and writes nothing; completing one frees a slot; the display and the
-dashboard show the same two people the board does; seeds and existing data unaffected.
+shows the message and writes nothing; completing one frees a slot; with two in the room
+the card shows **both** tokens — the first large as Talking, the second in small type as
+Waiting in room — and the `2 / 2` badge; the display and the dashboard show the same two
+people the board does; seeds and existing data unaffected.
 
 ---
 

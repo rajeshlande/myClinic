@@ -45,8 +45,11 @@ test('the barrel re-exports every part, by identity, not by copy', () => {
 });
 
 test('the public surface is exactly what it was before the split', () => {
-  // 88 exports when the file was one module; the number is the contract.
-  assert.equal(Object.keys(barrel).length, 88, 'a name was dropped or invented in the move');
+  // 88 exports when the file was one module. v1.35.0 added four deliberate names
+  // to queue.mjs (ROOM_LIMIT, canCallNext, roomFullMessage, roomSeats) for the
+  // two-seat consulting room, so the contract is now 92. Repointed, not removed:
+  // the identity check above still pins every one of them by object identity.
+  assert.equal(Object.keys(barrel).length, 92, 'a name was dropped or invented in the move');
   for (const key of ['formatMoney', 'today', 'computeInvoice', 'queueBoard', 'validatePatient', 'monthTotals', 'toCSV', 'DEFAULT_CLINIC', 'PLANS']) {
     assert.ok(key in barrel, `${key} disappeared from logic.mjs`);
   }

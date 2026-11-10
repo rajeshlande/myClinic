@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   CheckCircle2, Clock, CreditCard, HandCoins, MessageSquare, PlayCircle, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
@@ -14,7 +14,7 @@ import { invoiceForVisit } from '../lib/visit-flow.mjs';
 import MessageSheet from '../components/MessageSheet.jsx';
 import { tokenMessage } from '../lib/messages.mjs';
 import {
-  addDays, averageWait, formatDate, formatMoney, formatTime, humanWait, invoiceBalance, nextTokenNo, queueBoard, queueState, relativeDay, tokenLabel, today, waitedMinutes,
+  addDays, averageWait, canCallNext, formatDate, formatMoney, formatTime, humanWait, invoiceBalance, nextTokenNo, queueBoard, queueState, relativeDay, roomFullMessage, tokenLabel, today, waitedMinutes,
 } from '../lib/logic.mjs';
 
 export default function Queue() {
@@ -37,7 +37,6 @@ export default function Queue() {
     [store.appointments, store.patients, store.doctors, date, doctorId],
   );
   const avg = useMemo(() => averageWait(store.consultations, store.appointments, date), [store.consultations, store.appointments, date]);
-  const serving = board.rows.find((r) => r.serving);
   const patientOf = (id) => store.patients.find((p) => p.id === id);
   const doctorOf = (id) => store.doctors.find((d) => d.id === id);
 
@@ -58,14 +57,39 @@ export default function Queue() {
     } catch (e) { toast.error(e.message ?? 'Could not update the queue.'); }
   }
 
-  const callIn = (row) => {
-    if (!row.next) return;
-    setStatus(row.next, 'in-consult', `${tokenLabel(row.next.token_no)} · ${patientOf(row.next.patient_id)?.full_name ?? 'patient'} — called in.`);
+  // A click can come from a tab whose board is a few seconds old, or from a second
+  // receptionist. Re-read the room from the store at click time instead of trusting
+  // the row that was rendered, and hold a token id while its write is in flight so a
+  // double click cannot put two people through the same open seat.
+  const storeRef = useRef(store);
+  storeRef.current = store;
+  const callingRef = useRef(new Set());
+
+  const callIn = async (row, appt = row.next) => {
+    if (!appt || callingRef.current.has(appt.id)) return;
+    const fresh = queueBoard({
+      appointments: storeRef.current.appointments,
+      patients: storeRef.current.patients,
+      doctors: storeRef.current.doctors,
+      iso: date, doctorId: row.doctor.id,
+    });
+    const live = fresh.rows[0];
+    if (!live || !canCallNext(live.inRoom)) {
+      toast.error(roomFullMessage(live?.inRoom ?? []));
+      return;
+    }
+    callingRef.current.add(appt.id);
+    try {
+      const name = storeRef.current.patients.find((p) => p.id === appt.patient_id)?.full_name ?? 'patient';
+      await setStatus(appt, 'in-consult', `${tokenLabel(appt.token_no)} · ${name} — called in.`);
+    } finally {
+      callingRef.current.delete(appt.id);
+    }
   };
 
-  const markDone = (row) => {
-    if (!row.serving) return;
-    setStatus(row.serving, 'completed', `${tokenLabel(row.serving.token_no)} completed.`);
+  const markDone = (appt) => {
+    if (!appt) return;
+    setStatus(appt, 'completed', `${tokenLabel(appt.token_no)} completed.`);
   };
 
   return (
@@ -119,29 +143,55 @@ export default function Queue() {
           <div className="card-body stack" style={{ gap: 12, paddingTop: 12 }}>
             {/* now serving + next up */}
             <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: 10 }}>
-              <div className="card pad" style={{ padding: 13, background: row.serving ? 'linear-gradient(140deg, var(--brand-50), var(--surface) 75%)' : 'var(--surface-2)', borderColor: row.serving ? 'var(--brand-300)' : 'var(--border)', boxShadow: 'none' }}>
+              <div className="card pad" style={{ padding: 13, background: row.roomCount ? 'linear-gradient(140deg, var(--brand-50), var(--surface) 75%)' : 'var(--surface-2)', borderColor: row.roomCount ? 'var(--brand-300)' : 'var(--border)', boxShadow: 'none' }}>
                 <div className="row" style={{ gap: 8, marginBottom: 6 }}>
                   <span className="eyebrow">Now in the room</span>
                   <span className="spacer" />
-                  {row.serving ? <Badge tone="accent">Talking</Badge> : <Badge tone="neutral">Free</Badge>}
+                  <Badge tone={row.canCallNext ? 'neutral' : 'warn'} aria-label={`${row.roomCount} of ${row.roomLimit} seats in the room`}>{row.roomCount} / {row.roomLimit}</Badge>
                 </div>
-                {row.serving ? (
-                  <div className="row" style={{ gap: 10 }}>
-                    <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.7rem', fontWeight: 800, letterSpacing: '-0.03em' }}>{tokenLabel(row.serving.token_no)}</span>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="small strong truncate">{patientOf(row.serving.patient_id)?.full_name}</div>
-                      <div className="tiny muted">with {row.doctor.full_name} · {formatTime(row.serving.scheduled_at)}</div>
-                    </div>
+                {row.seats.length ? (
+                  <div className="stack" style={{ gap: 8 }}>
+                    {row.seats.map((seat) => seat.primary ? (
+                      /* The first token is the one talking — large, so it reads across the desk. */
+                      <div key={seat.appt.id} className="row" style={{ gap: 10 }}>
+                        <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.7rem', fontWeight: 800, letterSpacing: '-0.03em' }}>{tokenLabel(seat.appt.token_no)}</span>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div className="small strong truncate">{patientOf(seat.appt.patient_id)?.full_name}</div>
+                          <div className="tiny muted">with {row.doctor.full_name} · {formatTime(seat.appt.scheduled_at)}</div>
+                        </div>
+                        <Badge tone={seat.tone}>{seat.label}</Badge>
+                      </div>
+                    ) : (
+                      /* The second seat is already inside the room, waiting — small type. */
+                      <div key={seat.appt.id} className="row" style={{ gap: 8, borderTop: '1px dashed var(--border)', paddingTop: 8 }}>
+                        <span className="mono tiny strong">{tokenLabel(seat.appt.token_no)}</span>
+                        <span className="tiny muted truncate" style={{ flex: 1 }}>{patientOf(seat.appt.patient_id)?.full_name}</span>
+                        <span className="tiny faint nowrap">{humanWait(waitedMinutes(seat.appt))}</span>
+                        <Badge tone={seat.tone}>{seat.label}</Badge>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <p className="small muted">{row.next ? 'Ready for the next patient.' : 'No one waiting.'}</p>
                 )}
                 <div className="row no-print" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                  {row.serving ? <>
-                    <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(row.serving)}>Consult</Button>
-                    <Button size="sm" variant="subtle" icon={CheckCircle2} onClick={() => markDone(row)}>Done</Button>
-                  </> : row.next ? <Button size="sm" variant="primary" icon={Volume2} onClick={() => callIn(row)}>Call {tokenLabel(row.next.token_no)}</Button> : null}
+                  {row.seats.length ? <>
+                    <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(row.seats[0].appt)}>Consult</Button>
+                    {row.seats.map((seat) => (
+                      <Button
+                        key={seat.appt.id} size="sm" variant="subtle" icon={CheckCircle2}
+                        aria-label={`Mark ${tokenLabel(seat.appt.token_no)} done`}
+                        onClick={() => markDone(seat.appt)}
+                      >{row.seats.length > 1 ? `Done ${tokenLabel(seat.appt.token_no)}` : 'Done'}</Button>
+                    ))}
+                  </> : null}
+                  {row.next && row.canCallNext ? (
+                    <Button size="sm" variant={row.roomCount ? 'subtle' : 'primary'} icon={Volume2} onClick={() => callIn(row)}>
+                      {row.roomCount ? `Call ${tokenLabel(row.next.token_no)} in` : `Call ${tokenLabel(row.next.token_no)}`}
+                    </Button>
+                  ) : null}
                 </div>
+                {row.next && !row.canCallNext ? <p className="tiny muted" role="status" style={{ marginTop: 8 }}>{row.roomFull}</p> : null}
               </div>
 
               <div className="card pad" style={{ padding: 13, background: 'var(--surface-2)', boxShadow: 'none' }}>
@@ -168,9 +218,18 @@ export default function Queue() {
                   </div>
                 ) : <p className="small muted">Queue is empty — issue a token when a patient arrives.</p>}
                 <div className="row no-print" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                  {row.next ? <Button size="sm" variant="subtle" icon={Volume2} onClick={() => callIn(row)}>Call next</Button> : null}
+                  {row.next ? (
+                    <Button
+                      size="sm" variant="subtle" icon={Volume2}
+                      disabled={!row.canCallNext}
+                      title={row.canCallNext ? '' : row.roomFull}
+                      aria-label={row.canCallNext ? 'Call next' : `Cannot call next: ${row.roomFull}`}
+                      onClick={() => callIn(row)}
+                    >Call next</Button>
+                  ) : null}
                   <Button size="sm" variant="ghost" icon={Ticket} onClick={() => setTokenOpen(true)}>New token</Button>
                 </div>
+                {row.next && !row.canCallNext ? <p className="tiny muted" role="status" style={{ marginTop: 6 }}>{row.roomFull}</p> : null}
               </div>
             </div>
 
@@ -209,7 +268,7 @@ export default function Queue() {
                           <td className="num no-print">
                             <div className="row" style={{ gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                               {appt.status === 'booked' ? <Button size="sm" variant="subtle" onClick={() => setStatus(appt, 'checked-in', 'Patient is at the desk.')}>Arrived</Button> : null}
-                              {appt.status === 'checked-in' ? <Button size="sm" variant="primary" onClick={() => setStatus(appt, 'in-consult', 'Called in.')}>Call in</Button> : null}
+                              {appt.status === 'checked-in' ? <Button size="sm" variant="primary" onClick={() => callIn(row, appt)}>Call in</Button> : null}
                               {appt.status === 'in-consult' ? <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(appt)}>Consult</Button> : null}
                               {appt.status === 'completed' ? (billFor(appt)
                                 ? <Button size="sm" variant="ghost" icon={HandCoins} onClick={() => setPayFor(billFor(appt))}>Collect {formatMoney(invoiceBalance(billFor(appt)))}</Button>
@@ -342,7 +401,7 @@ export default function Queue() {
 }
 
 export function WaitingDisplay({ board, patientOf }) {
-  const rows = board.rows.filter((r) => r.serving || r.next);
+  const rows = board.rows.filter((r) => r.seats.length || r.next);
   return (
     <div className="stack" style={{ gap: 10 }}>
       {rows.length ? rows.map((row) => (
@@ -355,12 +414,30 @@ export function WaitingDisplay({ board, patientOf }) {
           </div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="center card pad" style={{ padding: 10, background: 'var(--brand-50)', boxShadow: 'none', borderColor: 'var(--brand-300)' }}>
-              <span className="eyebrow">In the room</span>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.1 }}>{row.serving ? tokenLabel(row.serving.token_no) : '—'}</div>
-              <div className="tiny truncate">{row.serving ? patientOf(row.serving.patient_id)?.full_name : 'Ready'}</div>
+              <span className="eyebrow">In the room · {row.roomCount} / {row.roomLimit}</span>
+              {row.seats.length ? (
+                <div className="stack" style={{ gap: 2 }}>
+                  {row.seats.map((seat) => seat.primary ? (
+                    <div key={seat.appt.id}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.1 }}>{tokenLabel(seat.appt.token_no)}</div>
+                      <div className="tiny truncate">{patientOf(seat.appt.patient_id)?.full_name}</div>
+                    </div>
+                  ) : (
+                    <div key={seat.appt.id} className="row center" style={{ gap: 6, justifyContent: 'center', borderTop: '1px dashed var(--border)', marginTop: 5, paddingTop: 5 }}>
+                      <span className="mono small strong">{tokenLabel(seat.appt.token_no)}</span>
+                      <span className="tiny faint truncate">{patientOf(seat.appt.patient_id)?.full_name} · waiting in room</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.1 }}>—</div>
+                  <div className="tiny truncate">Ready</div>
+                </>
+              )}
             </div>
             <div className="center card pad" style={{ padding: 10, background: 'var(--surface-2)', boxShadow: 'none' }}>
-              <span className="eyebrow">Please proceed</span>
+              <span className="eyebrow">{row.canCallNext ? 'Please proceed' : 'Please wait'}</span>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.1 }}>{row.next ? tokenLabel(row.next.token_no) : '—'}</div>
               <div className="tiny truncate">{row.next ? patientOf(row.next.patient_id)?.full_name : 'No one waiting'}</div>
             </div>

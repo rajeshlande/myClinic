@@ -3,6 +3,67 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.0] — 2026-11-02 · schema 19
+
+**"Now in the room" shows everyone in the room — both of them.**
+
+A consulting room holds two patients: one talking, one waiting inside. The board
+only ever returned the first, so a second patient called in was in the data and
+invisible on every screen. Asked for as: *"Now in the room should show whos in
+room the limit is 2 all 2 should able to see in room … if T-09 is Talking then
+next T-10 is wating in room should visibel in small font"*.
+
+| Change | File | Why |
+| --- | --- | --- |
+| `inRoom` (all tokens), `roomCount`, `roomLimit`, `canCallNext`, `roomFull`, `seats` | `queue.mjs` | `queueBoard()` returned exactly one `serving` (`in-consult`, first by token), while "Call next" flipped a second token to `in-consult` unconditionally |
+| the first seat **large / Talking**, the rest **small type / Waiting in room**, and a `N / 2` badge | `Queue.jsx` | the card showed one person and labelled the whole room "Talking" |
+| one gate on all three call-in controls | `Queue.jsx` | "Call next", the room card and every table row each wrote `in-consult` with no limit check |
+| the display lists both tokens; "Please wait" when full | `Queue.jsx` (`WaitingDisplay`) | the lounge told a third patient to "Proceed" into a full room |
+| "N in the room" counts **people**, and the strip lists both tokens | `Dashboard.jsx` | the count counted doctors with someone in the room, not the people in them |
+
+- **The bug, precisely.** `queueBoard()` built `serving` as
+  `mine.filter(a => a.status === 'in-consult')[0]`. "Call next" then did
+  `setStatus(row.next, 'in-consult')` with no guard, so a second call produced two
+  `in-consult` rows while `serving` still named only the first. The queue card, the
+  waiting-room display and the dashboard all read that single value — the second
+  patient appeared nowhere. The board now returns `inRoom` in token order and keeps
+  `serving` as `inRoom[0]`, so every older reader is untouched.
+- **One limit, one place.** `ROOM_LIMIT = 2`, `canCallNext(inRoom)` and
+  `roomFullMessage(inRoom)` are pure functions in `src/lib/queue.mjs`; the two seat
+  labels come from `roomSeats(inRoom)` (first `Talking`/`accent`, the rest `Waiting
+  in room`/`warn`), not from an inline JSX conditional. `logic.mjs` re-exports all
+  four by identity — its surface goes from 88 to **92** names, and
+  `tests/logic-modules.test.mjs` is repointed to 92, not weakened.
+- **Every door uses the same gate.** `callIn(row, appt)` is the only function that
+  writes `in-consult`. It recomputes `queueBoard()` from the store **at click time**
+  rather than trusting the row that was rendered (a stale tab can still show one
+  seat free), and holds the token id in a ref while the write is in flight so two
+  fast clicks cannot use the same seat twice. "Call next" is additionally disabled
+  with the reason on screen; the table-row buttons stay enabled so pressing one on
+  a full room shows the toast: *"Room is full — T-09 and T-10 are already in the
+  room. Mark one as seen before calling another."* Nothing is written.
+- **The third screen.** The waiting-room display lists both tokens (the second in
+  small type) and switches "Please proceed" to "Please wait" when both seats are
+  taken. The dashboard's total now counts people, so "2 in the room" with one
+  doctor is correct for the first time, and its token strip prints `T-09 · T-10`.
+- **Verified by rendering, not only by reading the rules.** `tests/queue-room.test.mjs`
+  (12 tests) pins the two seats, the refusal sentence, the people-vs-doctors count,
+  a call filling the second seat, completing one freeing it, the unchanged
+  one-token board, the barrel identities, and three page-wiring ratchets with
+  comments stripped before matching. An SSR smoke at `tools/queue-room-smoke/`
+  renders `<Queue />` and `<WaitingDisplay />` with T-09/T-10 in the room: both
+  tokens are present, T-09 is the only 1.7rem span, T-10 sits in a `tiny` span,
+  `2 / 2` and the refusal are on screen, "Call next" is disabled, T-11 stays at
+  the desk, no `undefined`/`NaN`/`[object Object]` leaks, and a one-seat board
+  still offers the second call.
+- **Plan order.** `docs/PLAN-v1.33.md` item 5 was scheduled as v1.37.0; it ships
+  now as **v1.35.0** because it was asked for next, the same reason onboarding
+  shipped as v1.34.0. Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–9 keep
+  their slots. Recorded in the plan's status line and in `docs/ARCHITECTURE.md` §4.1.
+- **No change** to the schema, to any RPC, to `store.update()`, or to seeds and
+  existing data. A clinic with one person in the room sees exactly the card it saw
+  yesterday, plus a `1 / 2` badge and a "Call … in" button for the free seat.
+
 ## [1.34.0] — 2026-11-02 · schema 19
 
 **"Set up your clinic" now keeps the answers it asks for.**

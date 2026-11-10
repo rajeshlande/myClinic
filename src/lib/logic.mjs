@@ -19,7 +19,7 @@ export { patientCode, invoiceNumber, nextRxNumber, nextId } from './ids.mjs';
 export { APPOINTMENT_STATUS, APPOINTMENT_TYPES, statusMeta, generateSlots, sortAppointments, appointmentsForDate, slotAvailability, appointmentMatchesQuery } from './appointments.mjs';
 export { DEFAULT_SERVICES, computeLine, computeInvoice, invoiceStatus, invoiceBalance, outstandingByPatient, feeForVisit } from './invoicing.mjs';
 export { patientSearch, patientVisits, visitFrequency, lastAppointmentVisit, appointmentVisitsSince, lastVisit, followUpDue } from './patients.mjs';
-export { nextTokenNo, tokenLabel, waitedMinutes, humanWait, queueBoard, queueState, averageWait } from './queue.mjs';
+export { nextTokenNo, tokenLabel, waitedMinutes, humanWait, queueBoard, queueState, averageWait, ROOM_LIMIT, canCallNext, roomFullMessage, roomSeats } from './queue.mjs';
 export { inMonth, monthTotals, revenueSeries, footfallSeries, categoryRevenue, payerMix, doctorPerformance, occupancy, topDiagnoses } from './reporting.mjs';
 export { PHONE_RE, validatePatient, validateAppointment, validateConsultation } from './validation.mjs';
 export { CLINIC_TYPES, ROLES, PAYMENT_METHODS, BLOOD_GROUPS, GENDERS, CHRONIC_TAGS, PLANS, DEFAULT_CLINIC, DEFAULT_PREFERENCES, PROFILE_COLUMNS, pickColumns, profilePatch } from './constants.mjs';

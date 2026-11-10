@@ -348,6 +348,18 @@ plan that quietly stops being true is worse than one that is corrected in public
   half-filled address. Both are in the plan's §10 and the release CHANGELOG; neither
   changes the RPC signature or `store.createClinic({ clinic, owner })`.
 
+**v1.35.0 — a deviation of order, not of design.** Item 5 (the two-seat token
+queue) was scheduled as v1.37.0, behind the lower-risk recall and drug-line fixes.
+It was asked for next and so shipped as v1.35.0, exactly as item 10 shipped as
+v1.34.0 when it was asked for last. Items 3 and 4 moved to v1.36.0/v1.37.0; no
+version was reused and the plan's status line and §5 say so. Nothing in the design
+changed: the room rules went into the existing pure `queue.mjs`, `queueBoard()`
+kept its `serving` field as `inRoom[0]`, and no schema, RPC or store contract was
+touched. The one surface change is deliberate — `logic.mjs` re-exports four new
+names (`ROOM_LIMIT`, `canCallNext`, `roomFullMessage`, `roomSeats`), taking its
+public surface from 88 to 92; `tests/logic-modules.test.mjs` still pins the exact
+count and every re-export by identity.
+
 ---
 
 ## 5. How to re-measure

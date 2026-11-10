@@ -17,6 +17,46 @@ export function tokenLabel(n) {
   return n ? `T-${String(n).padStart(2, '0')}` : 'T-—';
 }
 
+/**
+ * How many patients may be in a consulting room with one doctor at once.
+ *
+ * The board used to return exactly one `serving` per doctor while "Call next"
+ * flipped a second token to `in-consult` unconditionally — so the data could hold
+ * two people in the room and every screen showed only one. One constant, one gate.
+ */
+export const ROOM_LIMIT = 2;
+
+/** Is there a free seat for the next token? */
+export function canCallNext(inRoom = []) {
+  return (Array.isArray(inRoom) ? inRoom.length : 0) < ROOM_LIMIT;
+}
+
+/** Why a third patient cannot be called in, in the desk's own words. */
+export function roomFullMessage(inRoom = []) {
+  const people = (Array.isArray(inRoom) ? inRoom : []).filter(Boolean);
+  if (canCallNext(people)) return '';
+  const labels = people.map((a) => tokenLabel(a.token_no));
+  const joined = labels.length === 2 ? `${labels[0]} and ${labels[1]}`
+    : labels.length > 2 ? `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+      : labels[0] ?? '';
+  return `Room is full — ${joined} ${labels.length === 1 ? 'is' : 'are'} already in the room. Mark one as seen before calling another.`;
+}
+
+/**
+ * The two seats as the desk sees them: the first is talking, everyone after is
+ * waiting inside the room (shown smaller). Kept pure so the labels and the
+ * ordering cannot drift between the board, the display and the dashboard.
+ */
+export function roomSeats(inRoom = []) {
+  return (Array.isArray(inRoom) ? inRoom : []).filter(Boolean).map((appt, index) => ({
+    appt,
+    index,
+    primary: index === 0,
+    label: index === 0 ? 'Talking' : 'Waiting in room',
+    tone: index === 0 ? 'accent' : 'warn',
+  }));
+}
+
 /** Minutes a patient has been waiting, from their issue/check-in time. */
 
 export function waitedMinutes(appointment, now = new Date()) {
@@ -50,13 +90,20 @@ export function queueBoard({ appointments = [], patients = [], doctors = [], iso
     .map((doctor) => {
       const mine = day.filter((a) => a.doctor_id === doctor.id);
       const byToken = (a, b) => (Number(a.token_no) || 999) - (Number(b.token_no) || 999) || String(a.scheduled_at).localeCompare(String(b.scheduled_at));
-      const serving = mine.filter((a) => a.status === 'in-consult' && a.token_no).sort(byToken)[0] ?? null;
+      const inRoom = mine.filter((a) => a.status === 'in-consult' && a.token_no).sort(byToken);
+      const serving = inRoom[0] ?? null;   // kept: every older reader uses this one
       const called = mine.filter((a) => a.status === 'checked-in' && a.token_no).sort(byToken);
       const booked = mine.filter((a) => a.status === 'booked' && a.token_no).sort(byToken);
       const done = mine.filter((a) => a.status === 'completed' && a.token_no);
       return {
         doctor,
         serving,
+        inRoom,
+        roomCount: inRoom.length,
+        roomLimit: ROOM_LIMIT,
+        canCallNext: canCallNext(inRoom),
+        roomFull: roomFullMessage(inRoom),
+        seats: roomSeats(inRoom),
         next: called[0] ?? null,
         waiting: [...called, ...booked],
         done: done.length,
@@ -68,13 +115,14 @@ export function queueBoard({ appointments = [], patients = [], doctors = [], iso
     });
   const waiting = list.reduce((t, d) => t + d.waiting.length, 0);
   const withToken = day.filter((a) => a.token_no);
-  const servingNow = list.filter((d) => d.serving).length;
+  const inRoomNow = list.reduce((t, d) => t + d.inRoom.length, 0);
   return {
     rows: list,
     totals: {
       issued: withToken.length,
       waiting,
-      serving: servingNow,
+      serving: inRoomNow,   // people in the room across every doctor, not doctors
+      inRoom: inRoomNow,
       done: withToken.filter((a) => a.status === 'completed').length,
       tokensLeft: withToken.filter((a) => ['booked', 'checked-in'].includes(a.status)).length,
     },
