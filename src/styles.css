@@ -230,6 +230,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tabbar { display: none; }
 
 @media (max-width: 1080px) {
+  /* v1.35.5 — a mobile page taller than the viewport used to scroll onto an
+     unpainted canvas: html/body were locked to height:100% and the body's tint
+     was background-attachment:fixed. Grow the document, paint html, and let the
+     tint scroll with it. Fixes the black area in light and dark themes. */
+  html, body, #root { height: auto; min-height: 100%; }
+  html { background: var(--bg); }
+  body { background-attachment: scroll; }
+
   .sidebar { display: none; }
   .mobilebar {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;

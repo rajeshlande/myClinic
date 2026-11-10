@@ -16,9 +16,11 @@ request — a date filter on the Patient records list — is item 11 and shipped
 **v1.35.2** (§11). A second later request — WhatsApp at token issue, a redesigned
 token slip, and the slip sent as an image with the message — is item 12 and ships as
 **v1.35.3** (§12). A third — one token per patient per day, plus proper handling of
-not-arrived / no-show / arrived-late tokens — is item 13 and ships as **v1.35.4**
-(§13). Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their slots;
-item 9 waits on the three decisions at the end of this document.
+not-arrived / no-show / arrived-late tokens — is item 13 and shipped as **v1.35.4**
+(§13). A fourth — Settings / mobile clean-up and a plan-aware **Branch** badge on
+Doctors & staff — is item 14 and shipped as **v1.35.5** (§14). Items 3 and 4 move to
+v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 still waits on the three
+decisions at the end of this document — §14 is a *label*, not that schema release.
 
 ---
 
@@ -39,6 +41,7 @@ item 9 waits on the three decisions at the end of this document.
 | 11 | **v1.35.2** | Patient records: add a date filter to the All list | low | — | one pure module + `Patients.jsx` |
 | 12 | **v1.35.3** | Token issued: WhatsApp send, redesign the print slip, send the slip image with the message | medium | — | one pure module + slip component + composer |
 | 13 | **v1.35.4** | One token per patient per day; improve not arrived / no show / arrived later | medium | — | one pure module + `queue.mjs` + 2 screens |
+| 14 | **v1.35.5** | Settings clean-up, plan-aware Branch badge, one mobile sign-out, mobile scroll background | low | — | one pure module + 4 files + CSS |
 
 Items 1 and 2 are the same release because both are the sidebar and nothing else.
 Everything else stays one item per release.
@@ -544,3 +547,55 @@ cancelled token does not block; a no-show token stays visible and can be restore
 with the same number; an arrived-late token is labelled on the queue and on the
 display; a not-arrived token can be marked arrived or no-show; the existing room
 limit, waiting list, next-token and every other screen keep their behaviour.
+
+
+---
+
+## 14 · v1.35.5 — a quieter Settings screen, one Branch label, one way out
+
+**Asked for, after v1.35.4 was pushed.** Five small UI corrections in one patch:
+
+1. **Settings → About & version** must show *only* `App version v1.35.4`. Hide the
+   Schema `v19` tile, the Build tile, **Recent problems**, **What's new** and its
+   "Release notes for this workspace" card. The user chose the strictest reading:
+   the **Your access** role matrix and the "You are up to date" / "Reload this
+   build" buttons go too, so the tab is one stat tile. Diagnostics still exist in
+   `ErrorBoundary` and `scripts/`; RBAC is still enforced in Postgres — this is a
+   display decision, not a permission change.
+2. **Settings → Plan & data** must hide the footer line
+   `myClinic v1.0 · connected · 4 patients · 6 consultations`. The plan card,
+   seat meters, exports and reset actions stay.
+3. **Doctors & staff** must "add Branch for Solo / Growth / Multi-clinic license".
+   The chosen scope is a **plan-aware display badge only**, not item 9. A new pure
+   module `src/lib/staff-branch.mjs` maps Solo / Growth (one licensed branch) to
+   **Main branch** and the Multi-clinic plan to a staff member's branch name when
+   one is present, otherwise **Multi-clinic · branch-capable**. It reads the plan
+   through `planLimits()` / `planId()` — no quoted plan id outside `plans.mjs` —
+   and it introduces **no** `branches` table, `staff.branch_id` column, RPC, store
+   field or `SCHEMA_VERSION` change. Real multi-branch data remains item 9 and
+   still needs the three decisions in §9.
+4. **Mobile drawer** shows two sign-outs and three shortcuts the user does not
+   want. Keep the small sign-out icon beside the account row, remove the second
+   **Sign out** button at the bottom of the drawer, and remove **Issue token** /
+   **New appointment** / **Register patient** from the drawer. The mobile header
+   and the command palette keep their shortcuts (chosen explicitly).
+5. **Mobile scrolling shows a black background** in light theme too. The cause is
+   `html, body, #root { height: 100% }` plus `background-attachment: fixed` on
+   `body`: on mobile the body box does not grow with the document, so the area
+   below the first viewport falls back to the browser's unpainted canvas. A mobile
+   media query gives the three elements `height: auto; min-height: 100%`, paints
+   `html` with `var(--bg)`, and changes the body tint to
+   `background-attachment: scroll`. A CSS ratchet guards all three declarations.
+
+**Change.** `AboutTab.jsx` (one tile), `PlanDataTab.jsx` (footer card removed),
+`Settings.jsx` (dead diagnostics state/handlers removed), `AppLayout.jsx` (drawer
+trimmed), `Team.jsx` (badge + human plan label), `styles.css` (mobile background),
+`src/lib/staff-branch.mjs` (new pure rules), and tests. No schema, RPC, store,
+seed or `SCHEMA_VERSION` change; lib census 52 modules, still 22 importing nothing.
+
+**Acceptance.** The About tab renders exactly one `MiniStat` and none of the hidden
+strings; Plan & data has no `myClinic v1.0` line; every staff card shows a Branch
+badge and the header says Solo / Growth / Multi-clinic rather than a raw id; the
+drawer has exactly one `handleSignOut` door and no `Issue token` / `New appointment`
+/ `Register patient` buttons; the mobile CSS keeps a painted background in both
+themes; every existing screen, test and gate stays green.

@@ -2,13 +2,14 @@
  * Plan & data: the current plan, the seat meters, and the export/import and demo reset
  * actions, with the plan picker and reset confirmation they open. Extracted verbatim
  * from Settings.jsx in v1.30.0 (docs/ARCHITECTURE.md §3 step 4) — markup and copy
- * unchanged.
+ * unchanged. v1.35.5 removes only the bottom "myClinic v1.0 · connected · …"
+ * census card; the plan, seats, exports and reset actions are unchanged.
  */
 
 import { PLANS, downloadFile, formatMoney, toCSV, today } from '../../lib/logic.mjs';
 import { planLimits, planRow } from '../../lib/plans.mjs';
 import { Badge, Button, Card, CardHead, Modal } from '../ui.jsx';
-import { Download, Monitor, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
+import { Download, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../../lib/store.jsx';
 import { clearDemoSnapshot } from '../../lib/offline-cache.js';
 import { useToast } from '../ui.jsx';
@@ -70,13 +71,6 @@ export default function PlanDataTab({ planOpen, setPlanOpen, resetOpen, setReset
             </div>
           </Card>
 
-          <Card className="pad">
-            <div className="row" style={{ gap: 8 }}>
-              <Monitor size={15} className="muted" />
-              <span className="small muted">myClinic v1.0 · {store.mode === 'demo' ? 'demo mode' : 'connected'} · {store.patients.length} patients · {store.consultations.length} consultations</span>
-              <span className="spacer" />
-            </div>
-          </Card>
         </div>
 
       <Modal open={planOpen} onClose={() => setPlanOpen(false)} title="Change plan" sub="Switch any time — data stays put">

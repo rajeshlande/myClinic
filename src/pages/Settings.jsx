@@ -6,11 +6,10 @@ import { useAuth } from '../lib/auth-context.jsx';
 import { useToast, Select, Tabs } from '../components/ui.jsx';
 import { normaliseVpa } from '../lib/upi.mjs';
 import { ACCENTS, applyDensity, applyTheme, readAccent, readTheme, saveAccent, saveTheme } from '../lib/theme.js';
-import { APP_VERSION, BUILD_LABEL, SCHEMA_VERSION } from '../lib/version.js';
 import { can, ROLE_BLURB, ROLE_LABEL } from '../lib/permissions.js';
 import { BOOKING_HORIZON_DAYS, bookingUrl, clinicSlug } from '../lib/public-booking.mjs';
 import { clinicSessions, closure, normaliseDates, normaliseWeekdays, validateFollowUpDays, validateSessions } from '../lib/hours.mjs';
-import { diagnosticsText, recentErrors, rememberError } from '../lib/errors.mjs';
+import { rememberError } from '../lib/errors.mjs';
 import { DEFAULT_PREFERENCES, downloadFile, moneyToPaise, paiseToInput, addDays, profilePatch, today, toCSV } from '../lib/logic.mjs';
 import BrandingTab from '../components/settings/BrandingTab.jsx';
 import ClinicTab from '../components/settings/ClinicTab.jsx';
@@ -56,8 +55,6 @@ export default function Settings() {
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFERENCES, ...pickPrefs(store.profile) });
 
   useEffect(() => { applyDensity(prefs.density); }, [prefs.density]);
-  // A failure recorded on another screen should be visible here.
-  useEffect(() => { if (tab === 'about') setProblems(recentErrors()); }, [tab]);
 
   const canEdit = can(role, 'clinic:settings');
   // A seat only sees the settings it can act on: the clinic's identity, GST setup,
@@ -102,15 +99,6 @@ export default function Settings() {
    }
     return 'Open every day for the next two weeks.';
  })();
-
-  const [problems, setProblems] = useState(() => recentErrors());
-
-  function copyDiagnostics() {
-    const text = diagnosticsText({ app: APP_VERSION, schema: SCHEMA_VERSION, build: BUILD_LABEL });
-    const done = () => toast.success('Diagnostics copied — paste them into your message to support.');
-    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done).catch(() => toast.error('Clipboard blocked by the browser.', 'Select the text under Recent problems and copy it by hand.'));
-    else toast.error('This browser has no clipboard access.', 'Select the text under Recent problems and copy it by hand.');
- }
 
   async function saveClinic() {
     setSaving(true);
@@ -244,7 +232,7 @@ export default function Settings() {
     account: <AccountTab profile={profile} setProfile={setProfile} pw={pw} setPw={setPw} saveProfile={saveProfile} saving={saving} />,
     appearance: <AppearanceTab theme={theme} setTheme={setTheme} changeTheme={changeTheme} accent={accent} setAccent={setAccent} changeAccent={changeAccent} prefs={prefs} setPrefs={setPrefs} saveProfile={saveProfile} saving={saving} />,
     sync: <SyncTab syncOpen={syncOpen} setSyncOpen={setSyncOpen} clinic={clinic} />,
-    about: <AboutTab problems={problems} copyDiagnostics={copyDiagnostics} clinic={clinic} />,
+    about: <AboutTab />,
     plan: <PlanDataTab planOpen={planOpen} setPlanOpen={setPlanOpen} resetOpen={resetOpen} setResetOpen={setResetOpen} exportAll={exportAll} clinic={clinic} />,
  };
 

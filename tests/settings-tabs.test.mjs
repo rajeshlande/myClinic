@@ -29,6 +29,8 @@ const TABS = [
 
 const component = (name) => read(`../src/components/settings/${name}.jsx`);
 const lines = (text) => text.replace(/\n$/, '').split('\n').length;
+/** Comments are documentation, not UI — hidden strings may appear in a rationale. */
+const uiOnly = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 test('every tab id the page can show has a panel of its own', () => {
   for (const [id, name] of TABS) {
@@ -119,4 +121,42 @@ test('no panel was given a copy of the save logic', () => {
 test('the tab folder holds only the panels the page renders', () => {
   const files = readdirSync(tabsDir).filter((f) => f.endsWith('.jsx')).sort();
   assert.deepEqual(files, [...TABS.map(([, n]) => `${n}.jsx`), 'MiniStat.jsx'].sort());
+});
+
+
+test('About & version shows only the app version', () => {
+  const about = uiOnly(component('AboutTab'));
+  assert.match(about, /<MiniStat label="App version" value=\{`v\$\{APP_VERSION\}`\} tone="brand" \/>/);
+  assert.equal((about.match(/<MiniStat/g) ?? []).length, 1, 'exactly one stat tile');
+  assert.match(about, /import \{ APP_VERSION \} from '\.\.\/\.\.\/lib\/version\.js'/);
+  for (const hidden of [
+    'Schema', 'Build', 'Recent problems', "What's new", 'Release notes for this workspace',
+    'Your access', 'You are up to date', 'Reload this build', 'CHANGELOG', 'BUILD_LABEL',
+    'SCHEMA_VERSION', 'copyDiagnostics', 'problems', 'useStore', 'ROLE_BLURB', 'ROLE_LABEL',
+  ]) {
+    assert.ok(!about.includes(hidden), `AboutTab still mentions ${hidden}`);
+  }
+});
+
+test('Plan & data no longer prints the workspace census line', () => {
+  const plan = uiOnly(component('PlanDataTab'));
+  for (const hidden of [
+    'myClinic v1.0', 'connected', 'demo mode', 'consultations', 'Monitor',
+  ]) {
+    assert.ok(!plan.includes(hidden), `PlanDataTab still mentions ${hidden}`);
+  }
+  // the cards that matter are still there
+  for (const kept of ['Your plan', 'Your data', 'Change plan', 'Export patients (CSV)']) {
+    assert.ok(plan.includes(kept), `PlanDataTab lost ${kept}`);
+  }
+});
+
+test('the Settings page dropped the dead diagnostics state', () => {
+  for (const gone of [
+    'recentErrors', 'diagnosticsText', 'BUILD_LABEL', 'copyDiagnostics',
+    'setProblems', '[problems, setProblems]',
+  ]) {
+    assert.ok(!page.includes(gone), `Settings.jsx still has ${gone}`);
+  }
+  assert.match(page, /about: <AboutTab \/>/, 'the About panel takes no props now');
 });

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
   CalendarDays, ClipboardList, CreditCard, LayoutDashboard, Menu, MoonStar,
-  Plus, Search, Settings as SettingsIcon, Sparkles, Stethoscope, Sun, Users, UserRound,
+  Plus, Search, Settings as SettingsIcon, Sparkles, Stethoscope, Sun, Users,
   ArrowRightLeft, BarChart3, X, BellRing, LogOut, ShieldCheck, CircleUser, Ticket, Sunset,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
@@ -251,13 +251,10 @@ export default function AppLayout() {
               <span className="eyebrow">Menu</span>
               <IconButton icon={X} label="Close menu" onClick={() => setMenuOpen(false)} className="plain" />
             </div>
+            {/* v1.35.5: one way out. The account row inside `nav` carries the
+                only sign-out control — the drawer no longer repeats it or the
+                Issue token / New appointment / Register patient shortcuts. */}
             {nav}
-            <div className="stack" style={{ marginTop: 16, gap: 8 }}>
-              <Button icon={Ticket} variant="primary" onClick={() => { setMenuOpen(false); navigate('/app/queue'); }}>Issue token</Button>
-              <Button icon={CalendarDays} variant="subtle" onClick={() => { setMenuOpen(false); navigate('/app/appointments?new=1'); }}>New appointment</Button>
-              <Button icon={UserRound} variant="ghost" onClick={() => { setMenuOpen(false); navigate('/app/patients?new=1'); }}>Register patient</Button>
-              {configured ? <Button icon={LogOut} variant="ghost" onClick={handleSignOut} loading={signingOut}>Sign out</Button> : null}
-            </div>
           </div>
         </div>
       ) : null}

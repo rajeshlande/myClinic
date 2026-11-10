@@ -18,7 +18,7 @@ A **functional core with an imperative shell**:
         ↓  (imports)
   lib/store.jsx                the one stateful seam: data, cache, queue, licence
         ↓  (imports)
-  lib/*.mjs                    pure domain: 51 modules, 22 of them import nothing
+  lib/*.mjs                    pure domain: 52 modules, 22 of them import nothing
         ↓  (never called from lib/)
   supabase/                    Postgres is the authority: RLS, triggers, one RPC
 ```
@@ -36,7 +36,7 @@ A **functional core with an imperative shell**:
 
 ```bash
 $ grep -rn "extends " src --include=*.js* | wc -l          # 1
-$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 51
+$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 52
 $ for f in src/lib/*.mjs src/lib/*.js; do [ "$(grep -c '^import ' $f)" -eq 0 ] && echo $f; done | wc -l   # 22
 ```
 
@@ -55,7 +55,7 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **B** | 22/51 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
+| Single Responsibility | **B** | 22/52 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
 | Interface Segregation | **C** | Pure modules take narrow arguments; but **32 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
@@ -405,6 +405,22 @@ constraint, so a strict race between two receptionists on different devices woul
 still need a server-side unique index on `(clinic_id, patient_id, scheduled_on)`.
 That is a schema decision, recorded here rather than hidden. No schema, RPC,
 store, seed or `SCHEMA_VERSION` change.
+
+
+**v1.35.5 — a fourteenth item, and two deliberate limits.** Item 14
+(`docs/PLAN-v1.33.md` §14) is a UI patch: About & version becomes one stat tile,
+Plan & data loses its census footer, the mobile drawer loses its duplicate sign-out
+and three shortcuts, and the mobile page stops scrolling onto an unpainted canvas.
+Its one new pure module, `staff-branch.mjs`, imports `plans.mjs` and owns no plan
+id of its own — the lib census moves to 52 modules, still 22 importing nothing.
+Two limits are recorded rather than hidden. (1) The **Branch badge is display
+only**: Solo / Growth have one licensed branch, Multi-clinic reads an optional
+branch name already on a staff row, and no `branches` table, `staff.branch_id`,
+RPC or store field was added. Real branch-scoped data is still item 9 and needs
+the three schema decisions in §9. (2) Hiding **Recent problems** and **Your
+access** removes those two *surfaces* from Settings; diagnostics remain in
+`ErrorBoundary` / `scripts/` and RBAC remains a Postgres decision. No schema,
+RPC, store, seed or `SCHEMA_VERSION` change.
 
 
 Two new lib files take the census to 50, still 22 importing nothing:

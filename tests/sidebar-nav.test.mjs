@@ -75,7 +75,7 @@ test('every nav item is inside the scroll region — the wrapper did not drop li
   assert.equal((region.match(/<NavLink/g) ?? []).length, 1, 'links are rendered once, from the table');
 });
 
-test('signing out is one implementation with two doors', () => {
+test('signing out is one implementation with one visible door', () => {
   // one handler, one call to the auth method
   assert.equal((LAYOUT.match(/async function handleSignOut\(/g) ?? []).length, 1);
   assert.equal((LAYOUT.match(/await signOut\(\)/g) ?? []).length, 1, 'sign-out is implemented twice');
@@ -83,8 +83,9 @@ test('signing out is one implementation with two doors', () => {
   assert.match(LAYOUT, /if \(signingOut\) return;/);
   assert.match(LAYOUT, /setSigningOut\(true\)/);
   assert.match(LAYOUT, /navigate\('\/'\)/, 'signing out must leave the app');
-  // both the sidebar and the mobile drawer use it
-  assert.ok((LAYOUT.match(/onClick=\{handleSignOut\}/g) ?? []).length >= 2);
+  // v1.35.5: the drawer's duplicate button is gone. The shared `nav` fragment
+  // carries exactly one sign-out control, used by both desktop and the drawer.
+  assert.equal((LAYOUT.match(/onClick=\{handleSignOut\}/g) ?? []).length, 1);
 });
 
 test('the sidebar has a sign-out control, and only when there is a session', () => {
@@ -101,10 +102,21 @@ test('the sidebar has a sign-out control, and only when there is a session', () 
   assert.match(rule('.sidebar-account .user-chip'), /flex: 1 1 auto/);
 });
 
-test('the drawer keeps its own sign-out and its own scrolling', () => {
+test('the mobile drawer has one sign-out and no duplicate shortcuts', () => {
   assert.match(LAYOUT, /Mobile drawer/);
-  // the drawer is still the mobile route to the same actions
-  assert.match(LAYOUT, /Issue token<\/Button>/);
-  // and it renders the same nav fragment, so it inherits the scroll region
+  // it renders the same nav fragment, so it inherits the scroll region AND the
+  // account row's single sign-out icon.
   assert.match(LAYOUT, /\{nav\}/);
+  assert.equal((LAYOUT.match(/onClick=\{handleSignOut\}/g) ?? []).length, 1);
+  assert.match(LAYOUT, /label="Sign out"/, 'the one control keeps its accessible name');
+  // v1.35.5 removed the bottom Sign out button and the three quick actions.
+  // Scope this to the drawer: the desktop topbar still has New appointment.
+  const drawer = LAYOUT.slice(LAYOUT.indexOf('{/* Mobile drawer */}'), LAYOUT.indexOf('<CommandPalette'));
+  assert.ok(drawer.length > 0, 'drawer markup was not found');
+  for (const gone of [
+    'Issue token</Button>', 'New appointment</Button>', 'Register patient</Button>',
+    'Sign out</Button>', 'UserRound', 'marginTop: 16, gap: 8',
+  ]) {
+    assert.ok(!drawer.includes(gone), `drawer still has ${gone}`);
+  }
 });

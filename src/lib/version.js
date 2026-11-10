@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.4';
+export const APP_VERSION = '1.35.5';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -19,8 +19,19 @@ export const BUILD = (() => {
   }
 })();
 
-/** What changed, newest first. Shown in Settings → What's new. */
+/** What changed, newest first. Kept as the in-app version history; the
+ *  Settings → What's new card was hidden in v1.35.5 at the clinic's request. */
 export const CHANGELOG = [
+  {
+    version: '1.35.5', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**About & version is one line now.** The tab shows only `App version v1.35.5` — the Schema `v19` tile, Build number, **Recent problems**, **What’s new / Release notes for this workspace**, the **Your access** matrix and the two version buttons are gone. Diagnostics still exist in `ErrorBoundary` and the scripts; permissions are still enforced in Postgres.',
+      '**Plan & data is quieter.** The footer `myClinic v1.0 · connected · 4 patients · 6 consultations` line is removed. The plan card, seat meters, CSV exports and demo reset are unchanged.',
+      '**Doctors & staff has a plan-aware Branch badge.** A new pure `src/lib/staff-branch.mjs` reads the licensed branch cap: Solo / Growth show **Main branch**, Multi-clinic shows a branch name already on the row or **Multi-clinic · branch-capable**. The header now says Solo / Growth / Multi-clinic instead of a raw plan id. This is a **label, not item 9** — no branches table, `staff.branch_id`, RPC or store field; real multi-branch data still needs the three decisions in `docs/PLAN-v1.33.md` §9.',
+      '**One way out on mobile.** The drawer no longer repeats **Sign out** beside the account row’s icon, and no longer offers **Issue token / New appointment / Register patient**. The mobile header and command palette keep their shortcuts. A mobile CSS fix also stops the black area below a scrolled page: the document grows with its content, `html` is painted with `var(--bg)`, and the body tint scrolls instead of staying fixed.',
+      'Plan-first item 14 (§14). 8 pure tests for the branch rules, 3 CSS/mobile ratchets, 3 new Settings ratchets and the sidebar tests updated for the single sign-out: **686 tests / 41 suites**, all gates green. No schema, RPC, store, seed or `SCHEMA_VERSION` change; lib census 52 modules (22 import nothing).',
+    ],
+  },
   {
     version: '1.35.4', date: '2026-11-02', schema: 19,
     highlights: [

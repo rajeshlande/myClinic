@@ -3,6 +3,83 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.5] — 2026-11-02 · schema 19
+
+**A quieter Settings screen, one Branch label, one way out, and no black page.**
+Item 14 of `docs/PLAN-v1.33.md` (§14), a patch so items 3–9 keep their planned
+releases. Four choices were confirmed before any code changed: About & version
+shows **only** the app version; the Branch badge is **display only**; the mobile
+drawer keeps **one** sign-out (the account-row icon) and no quick-action buttons;
+and the scroll background is fixed for light theme too.
+
+| Change | File | Why |
+| --- | --- | --- |
+| one stat tile | `src/components/settings/AboutTab.jsx` | the clinic asked for `App version v1.35.5` alone |
+| census footer removed | `src/components/settings/PlanDataTab.jsx` | `myClinic v1.0 · connected · 4 patients · 6 consultations` was noise |
+| dead diagnostics state removed | `src/pages/Settings.jsx` | `problems`, `copyDiagnostics`, `recentErrors` and the version imports had no reader left |
+| one sign-out, no shortcuts | `src/components/AppLayout.jsx` | the drawer repeated Sign out and offered three actions the desk did not want |
+| Branch rules | `src/lib/staff-branch.mjs` (new, pure) | no plan id or branch rule belongs inline in JSX |
+| Branch badge + plan label | `src/pages/Team.jsx` | raw `growth` and no branch column on Doctors & staff |
+| mobile background | `src/styles.css` | a scrolled phone page fell onto an unpainted canvas |
+
+**About & version.** The Schema `v19` tile, Build number, **Recent problems**,
+**What’s new** / “Release notes for this workspace”, the **Your access** role
+matrix and the “You are up to date” / “Reload this build” buttons are gone. The tab
+is one `MiniStat`: **App version v1.35.5**. This removes two *surfaces*, not two
+systems: diagnostics still live in `ErrorBoundary` and `scripts/`, and every
+permission is still enforced by row-level security in Postgres. `Settings.jsx`
+no longer builds the `recentErrors()` state or the clipboard diagnostics handler
+that only that card used.
+
+**Plan & data.** The bottom `<Card>` carrying
+`myClinic v1.0 · connected · 4 patients · 6 consultations` is removed. The plan
+badge, price, seat meters, **Change plan**, both CSV exports, the live-workspace
+notice and the demo reset are unchanged.
+
+**Doctors & staff — a Branch label, not item 9.** `staff-branch.mjs` reads the
+licensed branch cap through `planLimits()` / `planId()`; it writes down **no plan
+id of its own**. Solo and Growth are licensed for one branch, so every row says
+**Main branch**. The Multi-clinic plan shows a branch name already present on the
+row (`branch_name`, `branch_label`, or `branch` as a string or `{ name }`) and
+otherwise says **Multi-clinic · branch-capable** — it never invents “Branch 1”.
+Long names are clipped to 40 characters. `Team.jsx` adds that badge to every
+doctor / front-desk card, a **Branches enabled** / **Main branch** badge beside
+the header, and replaces the raw `planId(...)` text with `planLabel(...)`; the
+seats card carries the same plan summary.
+
+This is deliberately **presentation only**. There is no `branches` table, no
+`staff.branch_id`, no branch switcher, no branch-scoped query, no RPC and no store
+field. Real multi-branch data is still item 9 of `docs/PLAN-v1.33.md` and needs
+the three decisions in §9 plus a schema release; shipping a fake editable branch
+here would have hidden that. Recorded in `docs/ARCHITECTURE.md` §4.1.
+
+**Mobile drawer.** `nav` already carried an account row with a small **Sign out**
+icon; the drawer added a second labelled **Sign out** at the bottom plus
+**Issue token**, **New appointment** and **Register patient**. The bottom block is
+gone: one `handleSignOut` door remains, gated on `configured` exactly as before,
+and `UserRound` is no longer imported. The mobile header’s Issue token / search /
+theme icons and the command palette’s quick actions **stay** — that was the
+chosen scope, not an oversight.
+
+**Black background after scrolling.** `html, body, #root` were locked to
+`height: 100%` and `body` used `background-attachment: fixed`, so on a phone the
+body box stayed one viewport tall while the document grew; below the first screen
+the browser painted its own canvas (reported black in light theme as well). Inside
+the existing `@media (max-width: 1080px)` block the three elements now get
+`height: auto; min-height: 100%`, `html` is painted with `var(--bg)`, and the body
+tint uses `background-attachment: scroll`. The desktop `height: 100%` rule and the
+`@media print` rule are untouched.
+
+**Verified.** 8 pure tests for `staff-branch.mjs` (single- vs multi-branch plans,
+unknown-plan fallback, every branch-name shape, no invented branch, clipping, no
+quoted plan id, Team wiring); 3 CSS/mobile-shell ratchets (base rule, the three fix
+declarations, correct media-query placement, print rule intact); 3 new Settings
+ratchets (one tile, no hidden strings, no census line, no dead diagnostics state);
+`sidebar-nav.test.mjs` updated to pin exactly one sign-out and no drawer
+shortcuts. **686 tests / 41 suites**, build ✓, `check:pages` ✓,
+`check:contributing` 28/28, `test:security` ✓. No schema, RPC, store, seed or
+`SCHEMA_VERSION` change; lib census 52 modules (22 import nothing).
+
 ## [1.35.4] — 2026-11-02 · schema 19
 
 **One token per patient per day, and attendance states that can be recovered.**
