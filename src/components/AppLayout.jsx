@@ -14,6 +14,7 @@ import { SyncBadge, SyncCenter } from './SyncCenter.jsx';
 import { LicenseBanner } from './LicenseBanner.jsx';
 import { licenseHeadline, licenseTone } from '../lib/license.mjs';
 import { planSidebarLabel } from '../lib/plans.mjs';
+import { currentPlan } from '../lib/current-plan.mjs';
 import { Avatar, Button, IconButton, Modal, SearchInput } from './ui.jsx';
 import { BrandMark } from './Branding.jsx';
 
@@ -153,7 +154,7 @@ export default function AppLayout() {
             clinic's billing is not their screen. */}
         {can(role, 'clinic:settings') ? (
           <div className="plan-card">
-            <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {planSidebarLabel(store.license?.plan)}</div>
+            <div className="plan-name"><Sparkles size={13} style={{ color: 'var(--brand-500)' }} /> {planSidebarLabel(currentPlan(store))}</div>
             <p className="tiny muted" style={{ margin: '4px 0 6px' }}>{store.mode === 'demo' ? 'Demo workspace · sample data' : 'Live workspace · Supabase synced'}</p>
             <span className={`badge ${licenseTone(store.license) === 'success' ? 'success' : licenseTone(store.license) === 'danger' ? 'danger' : 'warn'} tiny`} style={{ marginBottom: 8, display: 'inline-flex' }}>{licenseHeadline(store.license)}</span>
             <Button size="sm" variant="subtle" className="block" onClick={() => navigate('/app/subscription')}>Manage subscription</Button>

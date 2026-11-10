@@ -3,6 +3,45 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.6] — 2026-11-02 · schema 19
+
+**One plan, one answer.** Item 15 of `docs/PLAN-v1.33.md` (§15), a patch so items
+3–9 keep their planned releases. A clinic on a Central Multi-clinic licence but
+with a stale `clinics.plan` row read **Growth plan / Main branch** on Doctors &
+staff while Subscription read **Plan Multi-clinic** and printed a raw Central tier.
+The same clinic now reads **Multi-clinic** on every plan-bearing screen.
+
+| Change | File | Why |
+| --- | --- | --- |
+| one effective plan | `src/lib/current-plan.mjs` (new, pure) | Central verdict → licence → legacy clinic row → default |
+| no second vocabulary | `src/lib/plans.mjs` (unchanged) | no quoted plan id outside the plan table |
+| plan, seats, Branch badge | `src/pages/Team.jsx` | one screen still read `clinics.plan` |
+| plan, price, seat meters, switch | `src/components/settings/PlanDataTab.jsx` | `store.update('clinic', …)` patched a legacy column |
+| plan card, CSV export, Central label | `src/pages/Subscription.jsx` | `Central tier: …` printed a raw tier id |
+| sidebar plan | `src/components/AppLayout.jsx` | it read `license.plan` directly |
+| consistency ratchets | `tests/current-plan.test.mjs` (new), `tests/settings-tabs.test.mjs`, `tests/subscription.test.mjs` | four screens must not drift apart again |
+
+**What changed for a clinic.** With Central Auto-Sync enabled, Team, Plan & data,
+Subscription and the sidebar all use the Central verdict’s plan (its tier already
+translated by `planForTier()`), otherwise the licence plan, with `clinics.plan`
+only as a last-resort display fallback. Team’s Branch badge and seat line follow
+that same plan: Multi-clinic shows **Branches enabled** /
+**Multi-clinic · branch-capable** and unlimited seats. Subscription says
+**Central plan: Multi-clinic** rather than a raw tier id, and its CSV export uses
+the human name. Plan & data no longer shows a local catalogue price or a local
+**Change plan** button for a Central-managed clinic; a local switch now calls
+`store.changePlan()` (the real subscription RPC) and keeps the licence’s billing
+interval.
+
+**Deviation.** `clinics.plan` stays in the schema as a legacy column. This release
+does not migrate or delete it, does not change `create_clinic()` and leaves
+`SCHEMA_VERSION` at 19. It is now a fallback, never the first answer. No schema,
+RPC, store, seed or `SCHEMA_VERSION` change.
+
+**Gates.** 703/703 unit tests across 41 suites, `vite build`, `check:pages`,
+`check:contributing` 28/28 (version 1.35.6 / 1.35.6 / 1.35.6 · schema 19) and
+`test:security` all green. Lib census 53 modules, 22 import nothing.
+
 ## [1.35.5] — 2026-11-02 · schema 19
 
 **A quieter Settings screen, one Branch label, one way out, and no black page.**

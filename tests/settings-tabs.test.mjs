@@ -109,12 +109,10 @@ test('no panel was given a copy of the save logic', () => {
     assert.doesNotMatch(body, /store\.(updateNow|create)\(/, `${name} writes to the database directly`);
     assert.doesNotMatch(body, /setSaving\(/, `${name} owns the saving flag`);
     assert.doesNotMatch(body, /saveBookingSlug\(/, `${name} writes the booking slug itself`);
-    // the one write a panel may make is the plan switch it always made, in place
-    const writes = [...body.matchAll(/store\.update\(([\s\S]{0,80})/g)].map((m) => m[1]);
-    for (const call of writes) {
-      assert.match(call, /^'clinic', store\.clinic\.id, \{ plan: plan\.id \}\)/, `${name} writes something other than the plan`);
-    }
-    if (writes.length) assert.equal(name, 'PlanDataTab', `${name} is not allowed to write at all`);
+    // v1.35.6: even the plan switch no longer patches `clinics.plan` from a
+    // panel — it goes through the store's subscription RPC. See §15 of the plan.
+    assert.doesNotMatch(body, /store\.update\(/,
+      `${name} writes to the database directly instead of using the store`);
   }
 });
 
@@ -149,6 +147,10 @@ test('Plan & data no longer prints the workspace census line', () => {
   for (const kept of ['Your plan', 'Your data', 'Change plan', 'Export patients (CSV)']) {
     assert.ok(plan.includes(kept), `PlanDataTab lost ${kept}`);
   }
+  // v1.35.6: the switch is a real subscription change, not a legacy column edit.
+  assert.match(plan, /store\.changePlan\(/);
+  assert.doesNotMatch(plan, /store\.update\('clinic'/);
+  assert.match(plan, /isCentralManaged\(store\)/);
 });
 
 test('the Settings page dropped the dead diagnostics state', () => {

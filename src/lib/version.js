@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.5';
+export const APP_VERSION = '1.35.6';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -22,6 +22,16 @@ export const BUILD = (() => {
 /** What changed, newest first. Kept as the in-app version history; the
  *  Settings → What's new card was hidden in v1.35.5 at the clinic's request. */
 export const CHANGELOG = [
+  {
+    version: '1.35.6', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**One plan, one answer.** A clinic on a Central Multi-clinic licence with a stale `clinics.plan` row used to read **Growth plan / Main branch** on Doctors & staff while Subscription read **Plan Multi-clinic** and a raw Central tier. Team, Plan & data, Subscription and the sidebar now all use one effective plan: the Central verdict (its tier already translated by `planForTier()`), then the licence plan, with `clinics.plan` only as a last-resort display fallback.',
+      '**Branch and seats follow that same plan.** A new pure `src/lib/current-plan.mjs` normalises the answer through `planId()`; `src/lib/staff-branch.mjs` and `PLAN_LIMITS` then give Multi-clinic **Branches enabled**, **Multi-clinic · branch-capable** and unlimited seats instead of Growth / **Main branch**. No quoted plan id lives outside `src/lib/plans.mjs`.',
+      '**Subscription speaks in human names.** The plan card and CSV export use `planLabel()` / `centralPlanLabel()`; **Central plan: Multi-clinic** replaces a raw tier id. The billing interval also comes from one helper, `currentInterval()`, rather than a second inline rule.',
+      '**Plan & data no longer edits a legacy column.** Its **Change plan** dialog now calls `store.changePlan()` (the real subscription RPC) and preserves the licence interval. When Central owns the plan, it shows **Issued by Central**, hides the local catalogue price and offers no local switch.',
+      'Plan-first item 15 (§15). 17 new pure tests in `tests/current-plan.test.mjs`, settings and subscription ratchets updated: **703 tests / 41 suites**, all gates green. `clinics.plan` stays in the database as a legacy fallback; no schema, RPC, store, seed or `SCHEMA_VERSION` change; lib census 53 modules (22 import nothing).',
+    ],
+  },
   {
     version: '1.35.5', date: '2026-11-02', schema: 19,
     highlights: [

@@ -6,7 +6,8 @@ import { useStore } from '../lib/store.jsx';
 import { useAuth } from '../lib/auth-context.jsx';
 import { Badge, Button, Card, CardHead, Modal, useToast } from '../components/ui.jsx';
 import { PLANS, downloadFile, formatMoney, toCSV, today } from '../lib/logic.mjs';
-import { PLAN_BLURB, DEFAULT_PLAN } from '../lib/plans.mjs';
+import { PLAN_BLURB, planLabel } from '../lib/plans.mjs';
+import { centralPlanLabel, currentInterval, currentPlan, isCentralManaged } from '../lib/current-plan.mjs';
 import {
   GRACE_DAYS, billingPeriod, canWrite, formatExpiry, licenseHeadline, licenseTone,
   planPrice, upgradeCost,
@@ -25,7 +26,7 @@ export default function Subscription() {
   // Two different questions, kept apart: `period` is what the clinic actually
   // bought (it decides the renewal term and the price on the status card), while
   // `shopPeriod` is the toggle inside the plan dialog (it only previews prices).
-  const period = license?.interval === 'yearly' ? 'yearly' : 'monthly';
+  const period = currentInterval(store);
   const term = billingPeriod({ interval: period });
   const [shopPeriod, setShopPeriod] = useState(period);
   const [billing, setBilling] = useState({ name: store.clinic?.name ?? '', email: store.clinic?.email ?? user?.email ?? '', phone: store.clinic?.phone ?? '', gstin: store.clinic?.gstin ?? '', collection_ref: '' });
@@ -40,9 +41,8 @@ export default function Subscription() {
    * refused by the store anyway (it throws `CENTRAL_MANAGED_MESSAGE`).
    */
   const central = store.centralSync ?? { enabled: false };
-  const centrallyManaged = Boolean(central.enabled);
+  const centrallyManaged = isCentralManaged(store);
   const centralVerdict = central.verdict ?? null;
-  const centralPlan = centralVerdict?.plan ?? license?.plan ?? DEFAULT_PLAN;
   const centralStatusText = central.state === 'offline'
     ? 'Offline grace'
     : centralStatusLabel(centralVerdict?.status ?? (license?.status === 'expired' ? 'expired' : 'active'));
@@ -56,7 +56,7 @@ export default function Subscription() {
 
   const isOwner = store.role === 'owner';
   const writable = canWrite(license);
-  const plan = license?.plan ?? DEFAULT_PLAN;
+  const plan = currentPlan(store);
   const seats = store.licenseSeats ?? [];
 
   /**
@@ -101,7 +101,7 @@ export default function Subscription() {
       else if (result.allowed) {
         toast.success(result.offline
           ? `Offline — the sealed licence is still in force until ${formatExpiry(result.expiresAt)}.`
-          : `Licence confirmed: ${PLANS.find((p) => p.id === result.plan)?.name ?? result.plan} until ${formatExpiry(result.expiresAt)}.`);
+          : `Licence confirmed: ${planLabel(result.plan)} until ${formatExpiry(result.expiresAt)}.`);
       } else toast.error(result.reason || 'The central subscription service refused this clinic.');
     } catch (e) {
       toast.error(e.message ?? 'Central Auto-Sync failed.');
@@ -114,7 +114,7 @@ export default function Subscription() {
     // left empty rather than filled with the local catalogue's numbers.
     const row = [{
       clinic: store.clinic?.name ?? '',
-      plan: centrallyManaged ? `Central · ${centralPlan}` : plan,
+      plan: centrallyManaged ? `Central · ${centralPlanLabel(store)}` : plan,
       status: license?.status ?? '',
       interval: centrallyManaged ? '' : period,
       starts: startsAt ? formatExpiry(startsAt) : '',
@@ -151,10 +151,10 @@ export default function Subscription() {
           <div className="grid three" style={{ gap: 14, alignItems: 'start' }}>
             <div className="stack" style={{ gap: 5 }}>
               <span className="eyebrow">Plan</span>
-              <strong style={{ fontSize: '1.35rem' }}>{PLANS.find((p) => p.id === centralPlan)?.name ?? centralPlan}</strong>
+              <strong style={{ fontSize: '1.35rem' }}>{planLabel(plan)}</strong>
               {centrallyManaged ? (
                 <span className="tiny muted">
-                  {centralVerdict?.tier ? `Central tier: ${centralVerdict.tier}` : 'Not verified on this device yet'}
+                  {centralVerdict?.plan ? `Central plan: ${centralPlanLabel(store)}` : 'Not verified on this device yet'}
                 </span>
               ) : (
                 <>

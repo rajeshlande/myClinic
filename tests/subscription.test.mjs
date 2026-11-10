@@ -158,7 +158,10 @@ test('the subscription screen renews and quotes from the saved interval', () => 
   assert.match(PAGE, /const term = billingPeriod\(\{ interval: period \}\)/);
   assert.match(PAGE, /await store\.renewSubscription\(\{ reference: reference\.trim\(\), months: term\.months \}\)/);
   // what the status card and the export say
-  assert.match(PAGE, /const period = license\?\.interval === 'yearly' \? 'yearly' : 'monthly'/);
+  // v1.35.6: the interval rule moved into current-plan.mjs alongside the plan
+  // rule, so the screen has no second source of truth.
+  assert.match(PAGE, /const period = currentInterval\(store\)/);
+  assert.doesNotMatch(PAGE, /license\?\.interval === 'yearly'/);
   assert.match(PAGE, /money\(planPrice\(plan, \{ interval: period \}\)\)/);
   assert.match(PAGE, /reference: license\?\.collectionRef \?\? ''/);
   // the price toggle lives in the dialog and is named as such

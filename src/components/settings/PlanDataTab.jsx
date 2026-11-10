@@ -8,6 +8,7 @@
 
 import { PLANS, downloadFile, formatMoney, toCSV, today } from '../../lib/logic.mjs';
 import { planLimits, planRow } from '../../lib/plans.mjs';
+import { currentInterval, currentPlan, isCentralManaged } from '../../lib/current-plan.mjs';
 import { Badge, Button, Card, CardHead, Modal } from '../ui.jsx';
 import { Download, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../../lib/store.jsx';
@@ -20,25 +21,38 @@ const cap = (n) => (n === null ? '∞' : n);
 export default function PlanDataTab({ planOpen, setPlanOpen, resetOpen, setResetOpen, exportAll, clinic }) {
   const store = useStore();
   const toast = useToast();
+  // v1.35.6: the licence / Central verdict is the plan; `clinics.plan` is only
+  // a legacy fallback. See docs/PLAN-v1.33.md §15.
+  const activePlan = currentPlan(store);
+  const centralManaged = isCentralManaged(store);
+  const canChangePlan = !centralManaged;
   return (
     <>
         <div className="stack" style={{ gap: 16 }}>
           <Card>
             <CardHead title="Your plan" sub={store.mode === 'demo' ? 'Demo workspace' : 'Live workspace'} icon={Sparkles}
-              action={<Badge tone="brand">{planRow(store.clinic?.plan).name}</Badge>} />
+              action={<Badge tone="brand">{planRow(activePlan).name}</Badge>} />
             <div className="card-body">
               <div className="row wrap" style={{ gap: 14 }}>
                 <div>
                   <span className="eyebrow">Current</span>
-                  <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>{formatMoney(planRow(store.clinic?.plan).price_paise ?? 0)}<span className="tiny faint"> /mo</span></div>
+                  {centralManaged ? (
+                    <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>Issued by Central</div>
+                  ) : (
+                    <div className="kpi-value mono" style={{ fontSize: '1.5rem' }}>{formatMoney(planRow(activePlan).price_paise ?? 0)}<span className="tiny faint"> /mo</span></div>
+                  )}
                 </div>
                 <span className="spacer" />
-                <Button variant="primary" icon={Sparkles} onClick={() => setPlanOpen(true)}>Change plan</Button>
+                {centralManaged ? (
+                  <span className="tiny muted">Plan is managed by Central Auto-Sync.</span>
+                ) : (
+                  <Button variant="primary" icon={Sparkles} onClick={() => setPlanOpen(true)}>Change plan</Button>
+                )}
               </div>
               <div className="grid three" style={{ gap: 8, marginTop: 14 }}>
                 {[
-                  ['Doctors', `${store.doctors.length} / ${cap(planLimits(store.clinic?.plan).doctors)}`],
-                  ['Front desk', `${store.frontDesk.length} / ${cap(planLimits(store.clinic?.plan).frontdesk)}`],
+                  ['Doctors', `${store.doctors.length} / ${cap(planLimits(activePlan).doctors)}`],
+                  ['Front desk', `${store.frontDesk.length} / ${cap(planLimits(activePlan).frontdesk)}`],
                   ['Patients', String(store.patients.length)],
                 ].map(([label, value]) => (
                   <div key={label} className="card pad" style={{ padding: 10, background: 'var(--surface-2)', boxShadow: 'none' }}>
@@ -73,28 +87,34 @@ export default function PlanDataTab({ planOpen, setPlanOpen, resetOpen, setReset
 
         </div>
 
-      <Modal open={planOpen} onClose={() => setPlanOpen(false)} title="Change plan" sub="Switch any time — data stays put">
+      <Modal open={planOpen && canChangePlan} onClose={() => setPlanOpen(false)} title="Change plan" sub="Switch any time — data stays put">
         <div className="stack">
           {PLANS.map((plan) => (
-            <div key={plan.id} className="row" style={{ gap: 12, border: `1px solid ${store.clinic?.plan === plan.id ? 'var(--brand-500)' : 'var(--border)'}`, borderRadius: 12, padding: 12 }}>
+            <div key={plan.id} className="row" style={{ gap: 12, border: `1px solid ${activePlan === plan.id ? 'var(--brand-500)' : 'var(--border)'}`, borderRadius: 12, padding: 12 }}>
               <div className="stack" style={{ gap: 2, flex: 1 }}>
                 <div className="row" style={{ gap: 6 }}>
                   <strong className="small">{plan.name}</strong>
                   {plan.popular ? <Badge tone="brand">Popular</Badge> : null}
-                  {store.clinic?.plan === plan.id ? <Badge tone="success">Current</Badge> : null}
+                  {activePlan === plan.id ? <Badge tone="success">Current</Badge> : null}
                 </div>
                 <span className="tiny muted">{plan.limits}</span>
               </div>
               <span className="strong mono small">{formatMoney(plan.price_paise, { compact: true })}/mo</span>
-              <Button size="sm" variant={store.clinic?.plan === plan.id ? 'subtle' : 'primary'} disabled={store.clinic?.plan === plan.id}
+              <Button size="sm" variant={activePlan === plan.id ? 'subtle' : 'primary'} disabled={activePlan === plan.id || centralManaged}
                 onClick={async () => {
-                  try { await store.update('clinic', store.clinic.id, { plan: plan.id }); toast.success(`Switched to ${plan.name}.`); setPlanOpen(false); }
-                  catch (e) { toast.error(e.message ?? 'Could not change plan.'); }
+                  try {
+                    await store.changePlan({ plan: plan.id, interval: currentInterval(store), billing: {} });
+                    toast.success(`Switched to ${plan.name}.`);
+                    setPlanOpen(false);
+                  } catch (e) { toast.error(e.message ?? 'Could not change plan.'); }
                 }}>
-                {store.clinic?.plan === plan.id ? 'Active' : 'Switch'}
+                {activePlan === plan.id ? 'Active' : 'Switch'}
               </Button>
             </div>
           ))}
+          {centralManaged ? (
+            <p className="tiny faint">Central Auto-Sync issues this plan. Change it in the Control Room, not here.</p>
+          ) : null}
           <p className="tiny faint">Billing is simulated in this build. Wire a payment provider before charging real clinics.</p>
         </div>
       </Modal>

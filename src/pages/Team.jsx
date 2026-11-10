@@ -7,7 +7,8 @@ import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
 import { ROLES, formatMoney, moneyToPaise, paiseToInput } from '../lib/logic.mjs';
 import { canAddSeat } from '../lib/license.mjs';
-import { PLAN_SEATS, planId, planLabel } from '../lib/plans.mjs';
+import { PLAN_SEATS, planLabel } from '../lib/plans.mjs';
+import { currentPlan } from '../lib/current-plan.mjs';
 import { branchForPlan, branchTone, staffBranchLabel } from '../lib/staff-branch.mjs';
 import { can, roleMatrixFor } from '../lib/permissions.js';
 import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
@@ -27,6 +28,7 @@ import { guardWrite } from '../components/LicenseBanner.jsx';
 export default function Team() {
   const store = useStore();
   const toast = useToast();
+  const plan = currentPlan(store);
   const [tab, setTab] = useState('doctors');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -216,8 +218,8 @@ export default function Team() {
         <div className="stack" style={{ gap: 1, flex: 1, minWidth: 200 }}>
           <h2>{store.clinic?.name}</h2>
           <div className="row wrap" style={{ gap: 6 }}>
-            <span className="tiny muted">{doctors.length} doctor{doctors.length === 1 ? '' : 's'} · {staff.length} front-desk seat{staff.length === 1 ? '' : 's'} · {planLabel(store.clinic?.plan)} plan</span>
-            <Badge tone={branchTone(store.clinic?.plan)}>{branchForPlan(store.clinic?.plan)}</Badge>
+            <span className="tiny muted">{doctors.length} doctor{doctors.length === 1 ? '' : 's'} · {staff.length} front-desk seat{staff.length === 1 ? '' : 's'} · {planLabel(plan)} plan</span>
+            <Badge tone={branchTone(plan)}>{branchForPlan(plan)}</Badge>
           </div>
         </div>
         <Button variant="subtle" icon={Mail} onClick={() => setInviteOpen(true)}>Invite staff</Button>
@@ -239,7 +241,7 @@ export default function Team() {
                   <div className="row wrap" style={{ gap: 6 }}>
                     <strong style={{ fontSize: '0.98rem' }}>{member.full_name}</strong>
                     <Badge tone={member.role === 'owner' ? 'brand' : member.role === 'doctor' ? 'info' : 'neutral'}>{ROLES.find((r) => r.id === member.role)?.label ?? member.role}</Badge>
-                    <Badge tone={branchTone(store.clinic?.plan)}>{staffBranchLabel(store.clinic?.plan, member)}</Badge>
+                    <Badge tone={branchTone(plan)}>{staffBranchLabel(plan, member)}</Badge>
                     {member.active === false ? <Badge tone="neutral">Inactive</Badge> : null}
                   </div>
                   <span className="tiny muted">{member.specialty}{member.qualification ? ` · ${member.qualification}` : ''}</span>
@@ -348,7 +350,7 @@ export default function Team() {
           <span className="kpi-icon"><Users size={15} /></span>
           <div className="stack" style={{ gap: 1, flex: 1, minWidth: 200 }}>
             <strong className="small">Seats on your plan</strong>
-            <span className="tiny muted">{PLAN_SEATS[planId(store.clinic?.plan)]} · {branchForPlan(store.clinic?.plan)}</span>
+            <span className="tiny muted">{PLAN_SEATS[plan]} · {branchForPlan(plan)}</span>
           </div>
           <Badge tone="brand">{doctors.length + staff.length} in use</Badge>
         </div>

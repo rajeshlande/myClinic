@@ -18,9 +18,12 @@ token slip, and the slip sent as an image with the message — is item 12 and sh
 **v1.35.3** (§12). A third — one token per patient per day, plus proper handling of
 not-arrived / no-show / arrived-late tokens — is item 13 and shipped as **v1.35.4**
 (§13). A fourth — Settings / mobile clean-up and a plan-aware **Branch** badge on
-Doctors & staff — is item 14 and shipped as **v1.35.5** (§14). Items 3 and 4 move to
+Doctors & staff — is item 14 and shipped as **v1.35.5** (§14). A fifth — the
+same clinic reading **Growth** on Doctors & staff but **Multi-clinic** on
+Subscription — is item 15 and shipped as **v1.35.6** (§15). Items 3 and 4 move to
 v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 still waits on the three
-decisions at the end of this document — §14 is a *label*, not that schema release.
+decisions at the end of this document — §§14–15 are labels and a plan-source fix,
+not that schema release.
 
 ---
 
@@ -42,6 +45,7 @@ decisions at the end of this document — §14 is a *label*, not that schema rel
 | 12 | **v1.35.3** | Token issued: WhatsApp send, redesign the print slip, send the slip image with the message | medium | — | one pure module + slip component + composer |
 | 13 | **v1.35.4** | One token per patient per day; improve not arrived / no show / arrived later | medium | — | one pure module + `queue.mjs` + 2 screens |
 | 14 | **v1.35.5** | Settings clean-up, plan-aware Branch badge, one mobile sign-out, mobile scroll background | low | — | one pure module + 4 files + CSS |
+| 15 | **v1.35.6** | One authoritative plan across Team, Settings, Subscription and the sidebar | medium | — | one pure module + 4 screens |
 
 Items 1 and 2 are the same release because both are the sidebar and nothing else.
 Everything else stays one item per release.
@@ -599,3 +603,66 @@ badge and the header says Solo / Growth / Multi-clinic rather than a raw id; the
 drawer has exactly one `handleSignOut` door and no `Issue token` / `New appointment`
 / `Register patient` buttons; the mobile CSS keeps a painted background in both
 themes; every existing screen, test and gate stays green.
+
+
+---
+
+## 15 · v1.35.6 — one plan, one answer
+
+**Reported.** Doctors & staff says `1 doctor · 1 front-desk seat · Growth plan`
+with a **Main branch** badge, while Subscription says **Plan Multi-clinic** and
+`Central tier: chain`. The same clinic, two plans on two screens.
+
+**Diagnosis.** There are three places a plan can come from, and the screens each
+picked a different one:
+
+| Source | Meaning | Who used it |
+| --- | --- | --- |
+| `clinics.plan` | a legacy column on the clinic row | `Team.jsx`, `PlanDataTab.jsx` |
+| `license.plan` | `license_state()` → `clinic_subscriptions.plan`, or Central's sealed subscription row | `AppLayout.jsx` (sidebar), `Subscription.jsx` (local mode), seat guards |
+| `centralSync.verdict.plan` | Central Auto-Sync's tier translated by `planForTier()` | `Subscription.jsx` (centrally managed) |
+
+`clinic_subscriptions.plan` is what the database uses for seat caps and prices;
+`clinics.plan` is **not** the authority. Worse, `PlanDataTab`'s **Change plan**
+dialog writes `store.update('clinic', …, { plan })` — it edits the legacy column
+only, so a local switch can never move the subscription and the two values drift
+again. With Central configured the dialog should not offer a local switch at all:
+`store.changePlan()` deliberately refuses with `CENTRAL_MANAGED_MESSAGE`.
+
+**Change.**
+
+1. **`src/lib/current-plan.mjs`** (new, pure) — `currentPlan(store)` resolves one
+   normalised id with the precedence Subscription already used:
+   Central verdict (when Central is enabled) → `license.plan` → `clinic.plan` →
+   `DEFAULT_PLAN`. `planSource(store)` names the winning source for diagnostics;
+   `isCentralManaged(store)` is the one gate. No plan id is written down here —
+   `planId()` from `plans.mjs` owns that.
+2. **`Team.jsx`** — header, Branch badges and the seats card all use
+   `currentPlan(store)`. A `chain` clinic now says **Multi-clinic plan**,
+   **Branches enabled** and **Multi-clinic · branch-capable** instead of Growth /
+   Main branch.
+3. **`PlanDataTab.jsx`** — badge, price, seat meters and the modal's Current /
+   Active markers use the same id. **Change plan** now calls
+   `store.changePlan()` (the real subscription RPC) instead of patching
+   `clinics.plan`; it is replaced by a read-only note when Central owns the plan.
+4. **`Subscription.jsx`** and **`AppLayout.jsx`** — refactored onto the same
+   helper, so the sidebar, the plan grid, the billing export and the header cannot
+   disagree with each other or with Team.
+
+**Deviation.** `clinics.plan` stays in the schema as a legacy column; this release
+does not migrate or delete it, and does not change `SCHEMA_VERSION`. It is now a
+last-resort display fallback, never the first answer. Recorded in
+`CHANGELOG.md` / `docs/ARCHITECTURE.md`.
+
+**Acceptance.** With a Central `chain` verdict and a stale `growth` clinic row,
+Team, Plan & data, Subscription and the sidebar all say **Multi-clinic**; Team
+shows **Branches enabled** / **Multi-clinic · branch-capable**; Plan & data shows
+unlimited seat caps and no local Change plan button; a local (non-Central) plan
+switch goes through `store.changePlan`; every existing screen, test and gate stays
+green. No schema, RPC, store, seed or `SCHEMA_VERSION` change.
+
+**Shipped.** v1.35.6 adds `src/lib/current-plan.mjs` (one pure, tested rule),
+wires all four plan-bearing screens to it, fixes Plan & data to use the real
+subscription RPC, and replaces the raw Central tier with a human plan label.
+**703 tests / 41 suites**, all gates green; lib census 53 modules, 22 import
+nothing. No schema, RPC, store, seed or `SCHEMA_VERSION` change.
