@@ -3,6 +3,79 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.3] — 2026-11-02 · schema 19
+
+**WhatsApp at token issue, a redesigned token slip, and that slip sent as an image
+with the message.** Item 12 of `docs/PLAN-v1.33.md` (§12), a patch so items 3–9
+keep their planned releases.
+
+| Change | File | Why |
+| --- | --- | --- |
+| redesigned slip as data + one SVG | `src/lib/token-slip.mjs` (new, pure) | the preview, the printed sheet and the PNG must not be three layouts that drift |
+| SVG → PNG, OS file sharing, 80 mm print | `src/lib/token-slip-image.js` (new, DOM boundary) | a `wa.me` link cannot carry an image; the share sheet can, and a canvas can make the file |
+| slip preview, print portal, issued actions | `src/components/TokenSlip.jsx` (new) | the whole issued state becomes server-renderable in a smoke |
+| **Send on WhatsApp** at issue | `TokenForm.jsx` | the desk had the patient in front of it and no way to send the number |
+| slip attachment in the shared composer | `MessageSheet.jsx` | one composer, still consent-aware and still logged |
+| message says the slip is attached | `messages.mjs` (`withSlip`) | the text and the image describe the same thing |
+| print only the slip | `styles.css` | the dead `.slip` rule is removed, not left behind |
+
+**Before.** `TokenForm.jsx` issued a token and showed a card with **Done**,
+**Print slip** and **Next patient**. There was **no WhatsApp send at that moment**
+— the composer and `tokenMessage()` existed, but only on the Queue and the day
+board, i.e. later. And **Print slip** was a bare `window.print()` on the modal:
+`.slip` was a CSS rule (`styles.css:559`, `position: fixed` inside `@media print`)
+that **no JSX element ever used**. What reached the printer was the app behind a
+dialog, not a slip.
+
+**The redesigned slip.** A proper 80 mm counter slip: clinic initials, name,
+address and phone on the brand-colour header; `YOUR NUMBER` over a 62 pt token;
+date and time; a tinted queue strip (`3 patients are ahead · about 45 min` or
+`You are next — please wait here`); the patient name and ID; doctor, visit and
+fee; and a two-line "wait in the lounge" footline. `Print slip` now injects a
+scoped `@page { size: 80mm 170mm }`, hides `#root` and prints a portal copy of
+the slip outside it, then cleans up on `afterprint` so every other screen keeps
+its A4 paper.
+
+**The image with the message — and the platform limit.** This is a static app
+with no server and no WhatsApp Business credentials; every message leaves through
+`wa.me` from the clinic's own number. **A `wa.me` link can carry text but not an
+image attachment.** Rather than pretend otherwise:
+
+- **Share image + message** — on a device with Web Share file support, one OS
+  sheet hands the slip PNG *and* the exact message text to the app the desk picks
+  (WhatsApp). Both arrive together. A cancelled share is not logged as sent.
+- **Download slip PNG** — on a desktop browser that cannot share files, the desk
+  downloads `Token-T-14-Aarav-Sharma-2026-11-02.png` and attaches it in WhatsApp
+  Web. The composer says this in plain words instead of hiding a disabled button.
+- **Text only / Open WhatsApp** — the existing `wa.me` hand-off remains.
+- `tokenMessage({ withSlip: true })` adds one line: *"Your token slip (T-14) is
+  attached as an image — please show it at the desk."* Opt-out and unusable-number
+  refusals still win, and `opened` / `sent` / `copied` are logged exactly as before.
+
+A **WhatsApp Cloud API** send would need a server, a phone-number ID and a token;
+that is a different product decision, not a missing dependency. Recorded as a
+deviation in `docs/ARCHITECTURE.md` §4.1.
+
+**One source of truth.** `tokenSlipSvg(model)` returns a standalone SVG — explicit
+`xmlns`, width, height and viewBox, inline fills, a system font stack, no external
+image/font/stylesheet — so it can be rendered by React as a percent-encoded data
+URI, printed, drawn onto a canvas and asserted in a test. The first draft used
+`dangerouslySetInnerHTML`; the clean-clone gate caught it (`check:contributing`
+allows no raw HTML opt-outs, and an untracked file is invisible to that scan).
+An `<img>` is both safer and just as sharp, and it is what ships. Every human-supplied value is XML-escaped and
+clipped (`A & "B" <b>` cannot inject markup, a long name cannot overflow the
+box), and `brand_color` is sanitised to a hex colour before it reaches an
+attribute. The four existing composer callers are unchanged: `slip` is optional.
+
+**Verified.** 14 tests in `tests/token-slip.test.mjs` (colour/escaping/clipping,
+the model reading the domain helpers, SVG self-containment, the data URI and XML
+injection, filename, message line and five wiring ratchets); an SSR smoke at
+`tools/token-slip-smoke/` with **41 checks** renders the real issued panel, the
+composer with the slip preview and exact text, the desktop fallback, the composer
+without a slip, the opt-out refusal, a hostile name, the inert print portal and
+the whole issue form. **No change** to the schema, any RPC, the store, seeds or
+`SCHEMA_VERSION`; the lib census goes to 50 modules (22 import nothing).
+
 ## [1.35.2] — 2026-11-02 · schema 19
 
 **A date filter on Patient records / All.**

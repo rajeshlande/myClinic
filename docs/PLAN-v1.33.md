@@ -13,7 +13,9 @@ for the plan and the deviation that discovery forced. Item 5 (the token queue)
 shipped in **v1.35.0**, ahead of the rest because it was asked for next — see §5, and
 refined in **v1.35.1** so each seat has its own Consult / Done. A later, unrelated
 request — a date filter on the Patient records list — is item 11 and shipped as
-**v1.35.2** (§11). Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their
+**v1.35.2** (§11). A second later request — WhatsApp at token issue, a redesigned
+token slip, and the slip sent as an image with the message — is item 12 and ships as
+**v1.35.3** (§12). Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their
 slots; item 9 waits on the three decisions at the end of this document.
 
 ---
@@ -33,6 +35,7 @@ slots; item 9 waits on the three decisions at the end of this document.
 | 9 | v1.41.0+ | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** | schema + RPC + screens |
 | 10 | **v1.34.0** | Onboarding / "Set up your clinic": clinic details, lead doctor, hours & fees | medium | **yes** (schema 19) | page + pure module + `create_clinic()` |
 | 11 | **v1.35.2** | Patient records: add a date filter to the All list | low | — | one pure module + `Patients.jsx` |
+| 12 | **v1.35.3** | Token issued: WhatsApp send, redesign the print slip, send the slip image with the message | medium | — | one pure module + slip component + composer |
 
 Items 1 and 2 are the same release because both are the sidebar and nothing else.
 Everything else stays one item per release.
@@ -405,3 +408,71 @@ today; a `From`/`To` range keeps only patients whose chosen date is inside it
 `From > To` shows the error and keeps all rows; a patient with no date is excluded
 while a filter is active; Export exports the filtered rows; and the permission-aware
 `lastSeen` is the one used for "Last seen". No schema, RPC, store or seed change.
+
+---
+
+## 12 · v1.35.3 — token issued: WhatsApp, a redesigned slip, and the slip as an image
+
+**Today.** `TokenForm.jsx` issues a token and then shows a "Token issued" card with
+three footer actions: **Done**, **Print slip**, **Next patient**. Two problems:
+
+1. **There is no WhatsApp send at the moment of issue.** The consent-aware
+   composer (`MessageSheet.jsx`) and `tokenMessage()` already exist, but they are
+   only reachable later from the Queue's "Token" button and the day board. The one
+   moment the desk has the patient standing in front of it is the moment with no
+   way to send the number.
+2. **There is no token slip.** `Print slip` calls `window.print()`; `.slip` is a
+   dead CSS rule (`styles.css:559`) that **no JSX element uses**. What prints is
+   the whole app behind a modal. A dead `.slip` class is not a slip.
+
+**The environment constrains the image.** This app has no server and no WhatsApp
+Business credentials; every message today leaves through `wa.me` from the clinic's
+own number, and the composer says so explicitly. A `wa.me` link can carry text but
+**cannot carry an image attachment**. So the slip image is delivered through the
+Web Share API (`navigator.share({ files, text })`, where the desk picks WhatsApp —
+both travel together), with a **Download slip PNG** fallback on desktop browsers
+that cannot share files, and the existing **Open WhatsApp** text-only link kept for
+everywhere else. A Cloud API send would need credentials and a server and is out of
+scope; this is recorded as a deviation in `CHANGELOG.md` / `ARCHITECTURE.md`.
+
+**Change.**
+
+1. **`src/lib/token-slip.mjs`** (pure, tested) — the single source of truth for
+   the redesigned slip: `tokenSlipModel()` normalises clinic / doctor / patient /
+   appointment / fee / queue position into plain data; `tokenSlipSvg(model)`
+   returns **one self-contained SVG string** (inline fills, system fonts, XML
+   escaped, no external references) used for the on-screen preview, the print
+   sheet *and* the PNG. Also `safeColor()`, `clipText()`,
+   `tokenSlipFilename()` and `slipCaption()`. No DOM, no `Date`, no network.
+2. **`src/lib/token-slip-image.js`** (browser-only) — `slipPngFile(model)` turns
+   that SVG into a `File` through a canvas; `canShareFiles()`, `downloadBlob()`
+   and `printTokenSlip()` (injects a scoped 80 mm `@page`, sets
+   `body[data-token-print]`, cleans up on `afterprint`). Nothing runs at import
+   time, so SSR stays safe.
+3. **`src/components/TokenSlip.jsx`** — `TokenSlip` renders the SVG preview,
+   `TokenSlipPrintPortal` puts the same SVG outside `#root` for paper, and
+   `TokenIssuedPanel` owns the issue-time actions so the whole issued state is
+   server-renderable in a smoke. The SVG is rendered as a percent-encoded data-URI
+   `<img>`, not injected markup — `check:contributing` allows no raw HTML opt-outs.
+4. **`src/styles.css`** — print rules hide `#root` while `data-token-print` is on
+   and show only the 74 mm-wide slip; screen styles for the preview.
+5. **`TokenForm.jsx`** — issued state renders the redesigned slip and offers
+   **Send on WhatsApp**, **Print slip**, **Download slip image**; the composer
+   receives the slip model and the token message built with `withSlip: true`.
+6. **`MessageSheet.jsx`** — an optional `slip` model adds a slip preview and
+   **Share image + message** / **Download slip PNG** actions, still gated by
+   `canMessage()` and still writing `opened` / `sent` / `copied` log entries.
+   With no `slip` the composer is byte-for-byte the one the other four screens
+   already use.
+7. **`messages.mjs`** — `tokenMessage({ withSlip: true })` adds one line telling
+   the patient the slip is attached as an image; privacy rules unchanged.
+
+**Acceptance.** The issued state has a real, designed slip (clinic identity, huge
+token, patient, doctor, visit, date/time, fee, queue position, footline) instead of
+a dead CSS class; Print slip prints only that slip on an 80 mm page; Send on
+WhatsApp opens the consent-aware composer with the exact text and the slip preview;
+Share image + message hands a PNG and the text to the OS share sheet; Download slip
+PNG works where file sharing does not; the five existing composer callers are
+unchanged; opt-out / bad-number refusals still win; and the SVG is XML-escaped so
+a patient name cannot inject markup. No schema, RPC, store, seed or `SCHEMA_VERSION`
+change.

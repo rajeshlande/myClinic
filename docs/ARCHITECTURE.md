@@ -18,7 +18,7 @@ A **functional core with an imperative shell**:
         ↓  (imports)
   lib/store.jsx                the one stateful seam: data, cache, queue, licence
         ↓  (imports)
-  lib/*.mjs                    pure domain: 48 modules, 22 of them import nothing
+  lib/*.mjs                    pure domain: 50 modules, 22 of them import nothing
         ↓  (never called from lib/)
   supabase/                    Postgres is the authority: RLS, triggers, one RPC
 ```
@@ -36,7 +36,7 @@ A **functional core with an imperative shell**:
 
 ```bash
 $ grep -rn "extends " src --include=*.js* | wc -l          # 1
-$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 48
+$ ls src/lib/*.mjs src/lib/*.js src/lib/*.jsx | wc -l      # 50
 $ for f in src/lib/*.mjs src/lib/*.js; do [ "$(grep -c '^import ' $f)" -eq 0 ] && echo $f; done | wc -l   # 22
 ```
 
@@ -55,7 +55,7 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **B** | 22/48 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
+| Single Responsibility | **B** | 22/50 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
 | Interface Segregation | **C** | Pure modules take narrow arguments; but **32 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
@@ -380,6 +380,29 @@ them importing nothing. The module is deliberately *not* added to `logic.mjs`:
 the barrel is the frozen 92-name surface from the v1.29.0 split, and new domain
 modules are imported directly by the page that needs them (as `visit-flow.mjs`
 and `permissions.js` already are). No schema, RPC, store or seed change.
+
+
+**v1.35.3 — a twelfth item, and one honest platform limit.** WhatsApp sending at
+token issue, a redesigned slip and the slip as an image were asked for together
+(`docs/PLAN-v1.33.md` §12) and ship as a patch so items 3–9 keep their slots. The
+constraint is recorded rather than hidden: this is a static app with no server and
+no WhatsApp Business credentials, and a `wa.me` link **cannot carry an image**.
+So the slip PNG goes with the text through the Web Share API where the OS supports
+it, and is offered as a download to attach by hand where it does not. A Cloud API
+send would need a server, a phone number ID and a token — a different product
+decision, not a missing library.
+
+Two new lib files take the census to 50, still 22 importing nothing:
+`token-slip.mjs` is a pure module (one SVG string, XML-escaped, tested) and
+`token-slip-image.js` is deliberately *not* pure — it is the DOM/canvas boundary,
+named `.js` for the same reason `logo.js` is. Neither is re-exported from
+`logic.mjs`; the barrel stays the frozen 92-name surface. The slip design is
+**one** SVG used for preview, paper and PNG, which is the whole point of rule 5:
+three copies of a layout would drift by the next release. Rendering it through a
+data-URI `<img>` rather than `dangerouslySetInnerHTML` also keeps the `xss` gate
+honest: the checker allows no opt-outs, and the clean-clone run is what caught
+the first draft (the new file was untracked during the local run, so it was not
+scanned). No schema, RPC, store or seed change.
 
 
 ---

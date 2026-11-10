@@ -556,10 +556,40 @@ body[data-printview='true'] .syncbar { display: none !important; }
 .pwa-icon { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--brand-50); color: var(--brand-600); }
 :root[data-theme='dark'] .pwa-icon { color: var(--brand-300); }
 
-/* token print slip */
-.slip { font-variant-numeric: tabular-nums; }
+/* --------------------------------------------------------------- token slip */
+/* v1.35.3 replaces the dead `.slip` rule (no JSX ever used it, and its
+   `position: fixed` inside @media print is exactly what the print notes below
+   warn about). The slip is one SVG from token-slip.mjs: previewed here, printed
+   from a portal outside #root, and rasterised to PNG for WhatsApp. */
+.token-slip-frame {
+  display: grid; place-items: center; padding: 14px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2);
+}
+.token-slip-preview { width: 100%; max-width: 300px; }
+.token-slip-img {
+  display: block; width: 100%; height: auto; border-radius: 12px;
+  border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(4, 16, 14, .12);
+}
+.token-issue-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.token-slip-compose {
+  display: flex; gap: 12px; align-items: flex-start; padding: 10px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2);
+}
+.token-slip-thumb { flex: 0 0 92px; width: 92px; }
+.token-slip-thumb .token-slip-img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.token-slip-print { display: none; }
 @media print {
-  .slip { position: fixed; inset: 0; display: grid; place-items: center; }
+  /* Only the portal copy prints: everything React owns sits inside #root. */
+  body[data-token-print='true'] #root { display: none !important; }
+  body[data-token-print='true'] .token-slip-print {
+    display: block !important; margin: 0; padding: 0; background: #fff;
+  }
+  body[data-token-print='true'] .token-slip-print img {
+    display: block; width: 74mm; height: auto; max-width: none; border: 0; box-shadow: none;
+  }
 }
 
 /* toasts */

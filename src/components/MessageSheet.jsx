@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, MessageSquare, Send } from 'lucide-react';
+import { Check, Copy, Download, Image, MessageSquare, Send, Share2 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { Badge, Button, Field, Modal, Textarea, useToast } from './ui.jsx';
 import { canMessage, waLink } from '../lib/messages.mjs';
 import { today } from '../lib/logic.mjs';
+import { TokenSlip } from './TokenSlip.jsx';
+import { slipCaption } from '../lib/token-slip.mjs';
+import { canShareFiles, downloadSlip, shareSlip, slipPngFile } from '../lib/token-slip-image.js';
 
 /**
  * One composer for every patient message.
@@ -17,11 +20,20 @@ import { today } from '../lib/logic.mjs';
  * Everything is visible before it leaves: the number it will open, the exact
  * text, and — when the patient has opted out or the number is unusable — the
  * reason instead of a disabled button with no explanation.
+ *
+ * v1.35.3 adds an optional `slip` model. A `wa.me` link cannot carry an image,
+ * so the slip goes through the OS share sheet (`navigator.share({ files, text })`)
+ * where the device supports it — image *and* message in one hand-off — with a PNG
+ * download for desktops. Without `slip` this is exactly the composer the other
+ * four screens already use.
  */
-export default function MessageSheet({ open, onClose, patient, message }) {
+export default function MessageSheet({ open, onClose, patient, message, slip = null }) {
   const store = useStore();
   const toast = useToast();
-  const [text, setText] = useState('');
+  // Seed from the message itself, not only from an effect: an effect does not
+  // run during server rendering, and the composer must show the exact text from
+  // its first paint (the smoke asserts this without a DOM to run effects in).
+  const [text, setText] = useState(() => message?.text ?? '');
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +46,9 @@ export default function MessageSheet({ open, onClose, patient, message }) {
 
   const consent = canMessage(patient);
   const link = consent.ok ? waLink(patient?.phone, text) : '';
+  // `canShareFiles` touches navigator, so it is only asked while the sheet is
+  // open on a real client; SSR sees false and simply offers the download.
+  const shareable = useMemo(() => Boolean(open && slip && canShareFiles()), [open, slip]);
 
   // Has this exact thing been messaged today already? The log is the source of
   // truth, and telling the desk now is cheaper than a patient being chased twice.
@@ -101,6 +116,42 @@ export default function MessageSheet({ open, onClose, patient, message }) {
     setBusy(false);
   }
 
+  /** The slip image and the exact text leave together through the OS share sheet. */
+  async function share() {
+    if (!consent.ok || !slip) return;
+    setBusy(true);
+    try {
+      const file = await slipPngFile(slip);
+      if (!canShareFiles(file)) {
+        await download();
+        return;
+      }
+      try {
+        await shareSlip({ file, text, title: `Token ${slip.token}` });
+      } catch (e) {
+        if (e?.name === 'AbortError') { toast.info('Sharing cancelled.'); return; }
+        throw e;
+      }
+      setOpened(true);
+      if (await log('opened', 'whatsapp')) toast.success('Slip and message shared — tap Mark sent once they are away.');
+    } catch (e) {
+      toast.error(e.message ?? 'Could not share the slip image.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Desktop fallback: a real PNG the desk attaches in WhatsApp Web by hand. */
+  async function download() {
+    if (!slip) return;
+    try {
+      const name = await downloadSlip(slip);
+      toast.success(`${name} downloaded — attach it in WhatsApp.`);
+    } catch (e) {
+      toast.error(e.message ?? 'Could not make the slip image.');
+    }
+  }
+
   async function markSent() {
     if (await log('sent', 'whatsapp')) {
       toast.success(`Logged as sent to ${patient?.full_name ?? 'the patient'}.`);
@@ -113,10 +164,20 @@ export default function MessageSheet({ open, onClose, patient, message }) {
       <Button variant="ghost" onClick={onClose}>Close</Button>
       <span className="spacer" />
       <Button variant="subtle" icon={Copy} onClick={copy} disabled={!text.trim()}>Copy</Button>
+      {slip ? <Button variant="subtle" icon={Download} onClick={download}>Download slip PNG</Button> : null}
       {opened ? <Button variant="subtle" icon={Check} onClick={markSent}>Mark sent</Button> : null}
-      <Button variant="primary" icon={Send} onClick={send} disabled={!consent.ok || busy}>
-        Open WhatsApp
-      </Button>
+      {slip && shareable ? (
+        <>
+          <Button variant="ghost" icon={Send} onClick={send} disabled={!consent.ok || busy}>Text only</Button>
+          <Button variant="primary" icon={Share2} onClick={share} disabled={!consent.ok || busy}>
+            Share image + message
+          </Button>
+        </>
+      ) : (
+        <Button variant="primary" icon={Send} onClick={send} disabled={!consent.ok || busy}>
+          Open WhatsApp
+        </Button>
+      )}
     </>
   );
 
@@ -147,12 +208,29 @@ export default function MessageSheet({ open, onClose, patient, message }) {
           </p>
         ) : null}
 
+        {slip ? (
+          <Field label="Token slip image" hint="The same slip that prints, as a PNG.">
+            <div className="token-slip-compose">
+              <TokenSlip model={slip} className="token-slip-thumb" />
+              <div className="stack" style={{ gap: 6, minWidth: 0 }}>
+                <span className="small strong">{slip.token} · {slip.clinicName}</span>
+                <span className="tiny muted">{slipCaption(slip)}</span>
+                <span className="tiny faint">
+                  {shareable
+                    ? 'Share image + message opens your share sheet — choose WhatsApp and both arrive together.'
+                    : 'This browser cannot share files. Download the PNG, then attach it to the WhatsApp message.'}
+                </span>
+              </div>
+            </div>
+          </Field>
+        ) : null}
+
         <Field label="Message" hint={`${text.length} / 1200 characters — edit before sending if you need to.`}>
           <Textarea rows={12} value={text} onChange={(e) => setText(e.target.value.slice(0, 1200))} />
         </Field>
 
         <p className="tiny faint" style={{ margin: 0 }}>
-          <MessageSquare size={12} /> Appointment and token messages carry the time, the doctor and the clinic —
+          {slip ? <Image size={12} /> : <MessageSquare size={12} />} Appointment and token messages carry the time, the doctor and the clinic —
           never the diagnosis. The prescription carries the medicines because the patient has to read them.
         </p>
       </div>

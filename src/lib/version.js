@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.2';
+export const APP_VERSION = '1.35.3';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.35.3', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**The token can now be sent on WhatsApp the moment it is issued.** The “Token issued” screen had Done, Print slip and Next patient — but no way to send the number while the patient was still standing at the desk, even though the consent-aware composer and the token message already existed elsewhere. It now offers **Send on WhatsApp**, **Print slip** and **Download slip image**.',
+      '**The token print slip is redesigned.** The old **Print slip** called the browser print on the whole app: `.slip` was a CSS class that no element used. The new counter slip carries the clinic name and brand colour, a large token number, patient, doctor, visit, date and time, fee, queue position and what to do next. Printing now puts **only the slip** on an 80 mm page.',
+      '**The same slip goes with the WhatsApp message as an image.** A `wa.me` link can carry text but not an attachment, so **Share image + message** hands the slip PNG and the exact message text to the phone’s share sheet together; on a desktop, **Download slip PNG** gives you the image to attach in WhatsApp Web. The message says the slip is attached, and every send is still logged. A patient who opted out of WhatsApp is still refused with a reason.',
+      'One self-contained SVG in `src/lib/token-slip.mjs` drives the preview, the printed sheet and the PNG through a data-URI image — with every patient name XML-escaped, so a name cannot inject markup. 14 new tests and a 41-check SSR smoke render the real issued state, the composer with the slip, the desktop fallback and the opt-out refusal. No schema, RPC, store or seed change.',
+    ],
+  },
   {
     version: '1.35.2', date: '2026-11-02', schema: 19,
     highlights: [

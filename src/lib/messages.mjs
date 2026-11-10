@@ -20,6 +20,7 @@
 import { formatDate, formatTime, formatMoney, tokenLabel } from './logic.mjs';
 import { normaliseVpa, upiPayeeName } from './upi.mjs';
 import { dosePattern, quantityToDispense } from './rx-language.js';
+import { slipCaption } from './token-slip.mjs';
 
 /** Keep in step with `reminders.body` in supabase/schema.sql. */
 export const BODY_LIMIT = 1200;
@@ -88,7 +89,7 @@ function callLine(clinic) {
  * they are worth more than any apology, and when it does not the message still
  * works without inventing a number.
  */
-export function tokenMessage({ clinic, doctor, patient, appointment, ahead = null, etaMinutes = null, at = '' } = {}) {
+export function tokenMessage({ clinic, doctor, patient, appointment, ahead = null, etaMinutes = null, at = '', withSlip = false } = {}) {
   const token = tokenLabel(appointment?.token_no);
   const lines = [
     `Hello ${firstName(patient?.full_name)},`,
@@ -102,6 +103,7 @@ export function tokenMessage({ clinic, doctor, patient, appointment, ahead = nul
   }
   if (at) lines.push(`Please be at the desk by ${formatTime(at)}.`);
   lines.push(callLine(clinic).trim() ? `If you cannot come, call us on ${clinic.phone}.` : 'Please show this message at the desk.');
+  if (withSlip) lines.push(slipCaption({ token }));
   return {
     kind: 'token',
     key: messageKey('token', appointment?.id),

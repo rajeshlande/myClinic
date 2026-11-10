@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Ticket, UserPlus, AlertTriangle, Printer, Phone } from 'lucide-react';
+import { Check, Ticket, UserPlus } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Field, Input, Modal, Select, Textarea, Segmented } from './ui.jsx';
 import {
-  APPOINTMENT_TYPES, formatMoney, formatTime, nextTokenNo, patientSearch, tokenLabel, today,
+  APPOINTMENT_TYPES, formatMoney, nextTokenNo, patientSearch, tokenLabel, today,
 } from '../lib/logic.mjs';
+import { canMessage, tokenMessage } from '../lib/messages.mjs';
+import { tokenSlipModel } from '../lib/token-slip.mjs';
+import { downloadSlip, printTokenSlip } from '../lib/token-slip-image.js';
+import { TokenIssuedPanel, TokenSlipPrintPortal } from './TokenSlip.jsx';
+import MessageSheet from './MessageSheet.jsx';
 import PatientForm from './PatientForm.jsx';
 
 /**
  * Front-desk token issue. One screen: pick patient (or register), pick doctor,
- * pick visit type → the next token number is reserved and printed.
+ * pick visit type → the next token number is reserved, shown on a redesigned
+ * slip, printed, or sent on WhatsApp with the slip image attached.
  */
 export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
   const store = useStore();
@@ -24,10 +30,15 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
   const [saving, setSaving] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [issued, setIssued] = useState(null);
+  const [msgOpen, setMsgOpen] = useState(false);
 
   useEffect(() => {
-    if (!open) { setIssued(null); setReason(''); setQuery(''); }
+    if (!open) { setIssued(null); setReason(''); setQuery(''); setMsgOpen(false); }
   }, [open]);
+
+  // The composer is a second modal; its cleanup deletes body[data-modal] when it
+  // closes, so re-assert it while this dialog is still open (toast placement).
+  useEffect(() => { if (open) document.body.dataset.modal = 'true'; }, [open, msgOpen]);
 
   const doctor = doctors.find((d) => d.id === doctorId);
   const patient = store.patients.find((p) => p.id === patientId);
@@ -38,12 +49,30 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
   const dayCount = store.appointments.filter((a) => a.scheduled_on === today() && a.doctor_id === doctorId && a.token_no).length;
   const ahead = store.appointments.filter((a) => a.scheduled_on === today() && a.doctor_id === doctorId && ['booked', 'checked-in'].includes(a.status) && a.token_no).length;
   const fee = kind === 'Follow-up' ? (doctor?.follow_up_fee_paise ?? store.clinic?.follow_up_fee_paise ?? 0) : (doctor?.fee_paise ?? store.clinic?.consultation_fee_paise ?? 0);
+  const slot = Number(doctor?.slot_minutes ?? store.clinic?.slot_minutes ?? 15);
 
   const matches = useMemo(() => {
     const q = query.trim();
     if (!q) return store.patients.slice(0, 5);
     return patientSearch(store.patients, q).slice(0, 6);
   }, [store.patients, query]);
+
+  // Everything the issued state needs is captured at issue time, so "Next
+  // patient" clearing the form cannot change the slip or the message behind it.
+  const issuedModel = useMemo(() => (issued ? tokenSlipModel({
+    clinic: store.clinic, doctor: issued.doctor, patient: issued.patient,
+    appointment: issued.record, token: issued.token, feePaise: issued.fee,
+    ahead: issued.ahead, etaMinutes: issued.ahead * issued.slot,
+    issuedOn: issued.issuedOn, issuedAt: issued.issuedAt, kind: issued.kind,
+  }) : null), [issued, store.clinic]);
+
+  const issuedMessage = useMemo(() => (issued ? tokenMessage({
+    clinic: store.clinic, doctor: issued.doctor, patient: issued.patient,
+    appointment: issued.record, ahead: issued.ahead,
+    etaMinutes: issued.ahead * issued.slot,
+    at: String(issued.record.scheduled_at ?? '').slice(0, 5),
+    withSlip: true,
+  }) : null), [issued, store.clinic]);
 
   async function issue() {
     if (!patientId) { toast.error('Choose or register a patient first.'); return; }
@@ -65,13 +94,26 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
         status: 'checked-in',
         token_no: token,
       });
-      setIssued({ record, token });
+      setIssued({
+        record, token, patient, doctor, fee, kind, ahead, slot,
+        issuedOn: today(), issuedAt: startAt,
+      });
       toast.success(`Token ${tokenLabel(token)} issued to ${patient?.full_name ?? 'patient'}.`);
       onIssued?.(record);
     } catch (e) {
       toast.error(e.message ?? 'Could not issue the token.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function downloadImage() {
+    if (!issuedModel) return;
+    try {
+      const name = await downloadSlip(issuedModel);
+      toast.success(`${name} downloaded — attach it in WhatsApp.`);
+    } catch (e) {
+      toast.error(e.message ?? 'Could not make the slip image.');
     }
   }
 
@@ -82,11 +124,10 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
       <Modal
         open={open} onClose={onClose}
         title={issued ? 'Token issued' : 'Issue a token'}
-        sub={issued ? 'Hand this number to the patient — the doctor sees it on their queue' : 'Walk-ins and booked patients both get a number at the desk'}
+        sub={issued ? 'Hand this slip to the patient — or send it on WhatsApp' : 'Walk-ins and booked patients both get a number at the desk'}
         footer={issued ? (
           <>
             <Button variant="ghost" onClick={onClose}>Done</Button>
-            <Button variant="subtle" icon={Printer} onClick={() => window.print()}>Print slip</Button>
             <Button variant="primary" icon={Ticket} onClick={() => { setIssued(null); setQuery(''); setReason(''); setPatientId(''); }}>
               Next patient
             </Button>
@@ -101,23 +142,13 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
         )}
       >
         {issued ? (
-          <div className="stack" style={{ gap: 14 }}>
-            <div className="card pad center" style={{ background: 'linear-gradient(160deg, var(--brand-50), var(--surface) 70%)' }}>
-              <span className="eyebrow">Token number</span>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: '3.4rem', fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1 }}>{tokenLabel(issued.token)}</div>
-              <p className="small strong" style={{ marginTop: 6 }}>{patient?.full_name}</p>
-              <p className="tiny muted">{patient?.code} · {doctor?.full_name} · {formatTime(issued.record.scheduled_at)}</p>
-              <div className="row" style={{ justifyContent: 'center', gap: 8, marginTop: 10 }}>
-                <Badge tone="brand">{kind}</Badge>
-                <Badge tone="neutral">{formatMoney(fee)}</Badge>
-                {patient?.phone ? <Badge tone="neutral"><Phone size={10} /> {patient.phone}</Badge> : null}
-              </div>
-            </div>
-            <div className="row small" style={{ background: 'var(--surface-2)', padding: '10px 12px', borderRadius: 11, gap: 8 }}>
-              <AlertTriangle size={14} className="muted" />
-              <span className="muted">Tell the patient their number will be called on the display / by name. They can wait in the lounge.</span>
-            </div>
-          </div>
+          <TokenIssuedPanel
+            model={issuedModel}
+            consent={canMessage(issued.patient)}
+            onWhatsapp={() => setMsgOpen(true)}
+            onPrint={printTokenSlip}
+            onDownload={downloadImage}
+          />
         ) : (
           <div className="stack">
             <Field label="Patient *">
@@ -192,6 +223,16 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
           </div>
         )}
       </Modal>
+
+      {issued ? <TokenSlipPrintPortal model={issuedModel} /> : null}
+
+      <MessageSheet
+        open={msgOpen}
+        onClose={() => setMsgOpen(false)}
+        patient={issued?.patient}
+        message={issuedMessage}
+        slip={issuedModel}
+      />
 
       <PatientForm
         open={registerOpen}
