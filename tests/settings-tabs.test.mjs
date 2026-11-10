@@ -25,6 +25,7 @@ const TABS = [
   ['sync', 'SyncTab'],
   ['about', 'AboutTab'],
   ['plan', 'PlanDataTab'],
+  ['branches', 'BranchesTab'],
 ];
 
 const component = (name) => read(`../src/components/settings/${name}.jsx`);
@@ -48,12 +49,12 @@ test('every tab id the page can show has a panel of its own', () => {
 test('the tab list, its order and the tab it opens on are unchanged', () => {
   assert.match(page, /useState\('clinic'\)/, 'Settings must still open on the clinic tab');
   const order = [...page.matchAll(/value: '(\w+)'/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['clinic', 'branding', 'billing', 'account', 'appearance', 'sync', 'about', 'plan']);
+  assert.deepEqual(order, ['clinic', 'branding', 'billing', 'account', 'appearance', 'sync', 'about', 'plan', 'branches']);
   // a front-desk seat gets my account, appearance, sync and about — nothing else
   const ownerOnly = [...page.matchAll(/\.\.\.\(canEdit \? \[([\s\S]*?)\] : \[\]\)/g)]
     .flatMap((m) => [...m[1].matchAll(/value: '(\w+)'/g)].map((x) => x[1]));
-  assert.deepEqual(ownerOnly, ['clinic', 'branding', 'billing', 'plan'],
-    'clinic, branding, billing and plan must stay inside canEdit');
+  assert.deepEqual(ownerOnly, ['clinic', 'branding', 'billing', 'plan', 'branches'],
+    'clinic, branding, billing, plan and branches must stay inside canEdit');
 });
 
 test('every panel is a default-exported component that takes props, not the store', () => {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Clock, Plus, Pencil, Stethoscope, Users, UserRound, ShieldCheck, Copy, Mail, Phone, Power,
-  Trash2, Link2, UserPlus, Hourglass,
+  Trash2, Link2, UserPlus, Hourglass, GitBranch,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, Field, IconButton, Input, Modal, Select, Tabs } from '../components/ui.jsx';
@@ -10,6 +10,8 @@ import { canAddSeat } from '../lib/license.mjs';
 import { PLAN_SEATS, planLabel } from '../lib/plans.mjs';
 import { currentPlan } from '../lib/current-plan.mjs';
 import { branchForPlan, branchTone, staffBranchLabel } from '../lib/staff-branch.mjs';
+import { ROLE_OWNER, branchesForStaff, staffBranchBadge } from '../lib/branch-config.mjs';
+import BranchAssignmentModal from '../components/BranchAssignmentModal.jsx';
 import { can, roleMatrixFor } from '../lib/permissions.js';
 import { SessionEditor, DayOffEditor } from '../components/HoursEditor.jsx';
 import {
@@ -36,6 +38,7 @@ export default function Team() {
   const [invite, setInvite] = useState({ email: '', role: 'frontdesk', name: '', specialty: '', qualification: '' });
   const [saving, setSaving] = useState(false);
   const [sentInvite, setSentInvite] = useState(null);
+  const [branchMember, setBranchMember] = useState(null);
 
   const doctors = store.doctors;
   const staff = store.frontDesk;
@@ -208,6 +211,15 @@ export default function Team() {
 
   const pending = pendingInvites(store.invites ?? []);
   const canInvite = can(store.role ?? 'owner', 'team:write');
+  const branchRows = store.branches ?? [];
+  const assignments = store.staffBranches ?? [];
+  const isOwner = store.role === ROLE_OWNER;
+  /** Real assignments win; the label-only badge remains a pre-migration fallback. */
+  const memberBranchBadge = (member) => (
+    branchesForStaff(member.id, assignments, branchRows).length
+      ? staffBranchBadge(member.id, assignments, branchRows)
+      : branchRows.length ? 'No branch' : staffBranchLabel(plan, member)
+  );
   const inviteLink = sentInvite?.token
     ? buildInviteLink(sentInvite.token, {})
     : buildInviteLink('', {});
@@ -241,7 +253,7 @@ export default function Team() {
                   <div className="row wrap" style={{ gap: 6 }}>
                     <strong style={{ fontSize: '0.98rem' }}>{member.full_name}</strong>
                     <Badge tone={member.role === 'owner' ? 'brand' : member.role === 'doctor' ? 'info' : 'neutral'}>{ROLES.find((r) => r.id === member.role)?.label ?? member.role}</Badge>
-                    <Badge tone={branchTone(plan)}>{staffBranchLabel(plan, member)}</Badge>
+                    <Badge tone={branchTone(plan)}>{memberBranchBadge(member)}</Badge>
                     {member.active === false ? <Badge tone="neutral">Inactive</Badge> : null}
                   </div>
                   <span className="tiny muted">{member.specialty}{member.qualification ? ` · ${member.qualification}` : ''}</span>
@@ -263,6 +275,7 @@ export default function Team() {
                   ) : null}
                 </div>
                 <div className="row" style={{ gap: 4 }}>
+                  {isOwner ? <IconButton icon={GitBranch} label="Assign branches" size={15} onClick={() => setBranchMember(member)} /> : null}
                   <IconButton icon={Pencil} label="Edit" size={15} onClick={() => openEdit(member)} />
                   {member.role !== 'owner' ? <IconButton icon={Power} label={member.active === false ? 'Reactivate' : 'Deactivate'} size={15} onClick={() => toggleActive(member)} /> : null}
                 </div>
@@ -499,6 +512,15 @@ export default function Team() {
           )}
         </div>
       </Modal>
+
+      <BranchAssignmentModal
+        open={Boolean(branchMember)}
+        onClose={() => setBranchMember(null)}
+        member={branchMember}
+        branches={branchRows}
+        assignments={assignments}
+        onSave={store.assignStaffBranches}
+      />
     </div>
   );
 }

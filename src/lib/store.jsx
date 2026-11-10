@@ -3,7 +3,12 @@ import { supabase, supabaseConfigured } from './supabase.js';
 import { makeDemoWorkspace } from './demo-data.js';
 import { inviteDefaults, recallInviteToken, rememberInviteError, rememberInviteToken } from './invites.mjs';
 import { nextId } from './logic.mjs';
-import { DEFAULT_PLAN } from './plans.mjs';
+import { DEFAULT_PLAN, planLabel, planLimits } from './plans.mjs';
+import { currentPlan } from './current-plan.mjs';
+import {
+  ROLE_OWNER, ensureBranchState, normaliseBranchName, uniqueBranchCode,
+  validateAssignments, visibleBranchIds,
+} from './branch-config.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
 import { TRIAL_DAYS, seatUsage } from './license.mjs';
@@ -55,7 +60,11 @@ const StoreContext = createContext(null);
 const emptyState = {
   clinic: null, profile: null, staff: [], patients: [], appointments: [], consultations: [],
   invoices: [], day_closes: [], reminders: [], invites: [], subscription: null,
+  branches: [], staffBranches: [], activeBranchId: null,
 };
+
+/** Tables whose rows are tagged with the active branch (schema 20). */
+const BRANCH_TABLES = new Set(['appointments', 'consultations', 'invoices']);
 
 
 export function StoreProvider({ children, session }) {
@@ -102,6 +111,17 @@ export function StoreProvider({ children, session }) {
   const bootDemo = useCallback(() => {
     const cached = readDemoSnapshot();
     const next = cached ?? makeDemoWorkspace();
+    // A cached demo snapshot from before schema 20 has no branch state. Server
+    // backfill is authoritative in live mode; this only heals an offline demo.
+    const healed = ensureBranchState(next, {
+      makeId: () => `branch-${nextId()}`, now: () => new Date().toISOString(),
+    });
+    Object.assign(next, {
+      branches: healed.branches,
+      staffBranches: healed.staffBranches,
+      activeBranchId: healed.activeBranchId,
+      profile: healed.profile,
+    });
     if (!next.subscription) {
       const startedAt = new Date();
       next.subscription = {
@@ -210,6 +230,10 @@ export function StoreProvider({ children, session }) {
         // Owners see every invitation; staff see none (the policy filters, it does
         // not error), so Team can show the pending list without a second query.
         optional(supabase.from('invites').select('*').eq('clinic_id', clinic.id).order('created_at', { ascending: false })),
+        // Schema 20 tables are optional for the same reason: an unmigrated
+        // database must not blank the clinic, it simply has one implicit branch.
+        optional(supabase.from('branches').select('*').eq('clinic_id', clinic.id).order('created_at')),
+        optional(supabase.from('staff_branches').select('*').eq('active', true)),
       ]);
       const failure = results.find((r) => r.error);
       if (failure) throw failure.error;
@@ -218,10 +242,20 @@ export function StoreProvider({ children, session }) {
       // clinic, so it degrades to "read-only, unknown plan" for the banner only.
       const { data: licenseRow } = await supabase.rpc('license_state', { p_clinic: clinic.id });
 
+      const staffRows = results[0].data ?? [];
+      const branchRows = results[8].data ?? [];
+      const assignmentRows = (results[9].data ?? [])
+        .filter((a) => staffRows.some((member) => member.id === a.staff_id));
+      const currentStaff = staffRows.find((member) => member.user_id && member.user_id === session.user.id)
+        ?? staffRows.find((member) => member.role === 'owner') ?? staffRows[0] ?? null;
+      const visible = visibleBranchIds(currentStaff?.role, currentStaff?.id, assignmentRows, branchRows);
+      const requested = profile?.active_branch_id;
+      const activeBranchId = requested && visible.includes(requested) ? requested : (visible[0] ?? null);
+
       const next = {
         clinic,
         profile: profile ?? { id: session.user.id, full_name: session.user.email, theme: 'system' },
-        staff: results[0].data ?? [],
+        staff: staffRows,
         patients: results[1].data ?? [],
         appointments: results[2].data ?? [],
         consultations: results[3].data ?? [],
@@ -229,6 +263,9 @@ export function StoreProvider({ children, session }) {
         day_closes: results[5].data ?? [],
         reminders: results[6].data ?? [],
         invites: results[7].data ?? [],
+        branches: branchRows,
+        staffBranches: assignmentRows,
+        activeBranchId,
         // schema 7 is what day close and the reminder log need; without it the
         // pages explain themselves instead of failing a write.
         schemaReady: !(results[5].missing || results[6].missing),
@@ -376,12 +413,23 @@ export function StoreProvider({ children, session }) {
     // `profiles` is keyed by the auth user and carries neither client_id nor
     // clinic_id, so it is written on its own shape — sending the clinic columns
     // there is a 400, not a shrug.
+    const branchId = BRANCH_TABLES.has(table) ? stateRef.current.activeBranchId : null;
     const record = table === 'profile'
       ? { id: row.id ?? clientId, ...stamp, ...row }
-      : { id: row.id ?? clientId, client_id: clientId, ...stamp, ...row, clinic_id: clinicId };
+      : {
+        id: row.id ?? clientId, client_id: clientId, ...stamp, ...row,
+        ...(branchId ? { branch_id: branchId } : {}), clinic_id: clinicId,
+      };
 
-    // Optimistic: the UI updates immediately, the network catches up.
-    persistLocal((prev) => ({ ...prev, [table]: [record, ...(prev[table] ?? [])] }));
+    // Optimistic: the UI updates immediately, the network catches up. A demo
+    // staff row also needs the assignment its live counterpart gets from the
+    // schema-20 trigger, so the roster and Branches tab never disagree.
+    persistLocal((prev) => {
+      const next = { ...prev, [table]: [record, ...(prev[table] ?? [])] };
+      return mode === 'demo' && table === 'staff'
+        ? ensureBranchState(next, { makeId: () => `branch-${nextId()}`, now: () => new Date().toISOString() })
+        : next;
+    });
 
     if (mode === 'demo') return record;
 
@@ -540,11 +588,12 @@ export function StoreProvider({ children, session }) {
   const createClinic = useCallback(async ({ clinic, owner }) => {
     if (mode === 'demo') {
       const clinicId = nextId('clinic');
-      persistLocal((prev) => ({
+      persistLocal((prev) => ensureBranchState({
         ...prev,
         clinic: { ...prev.clinic, ...clinic, id: clinicId },
-        staff: [{ ...owner, id: nextId('staff'), clinic_id: clinicId, role: 'owner', user_id: 'demo-user' }, ...prev.staff],
-      }));
+        staff: [{ ...owner, id: nextId('staff'), clinic_id: clinicId, role: 'owner', user_id: 'demo-user' }, ...(prev.staff ?? [])],
+        branches: [], staffBranches: [], activeBranchId: null,
+      }, { makeId: () => `branch-${nextId()}`, now: () => new Date().toISOString() }));
       setNeedsOnboarding(false);
       return clinicId;
     }
@@ -604,6 +653,105 @@ export function StoreProvider({ children, session }) {
     if (e) throw e;
     await loadLive({ quiet: true });
   }, [mode, loadLive]);
+
+  /* ------------------------------------------------------------- branches */
+  /** Create a child branch. The database enforces the plan cap; demo mode does
+   *  the same check locally so the UI cannot promise a branch it cannot keep. */
+  const createBranch = useCallback(async ({ name } = {}) => {
+    const clean = normaliseBranchName(name);
+    if (!clean) throw new Error('Give the branch a name.');
+    const current = stateRef.current;
+    const plan = currentPlan(current);
+    const cap = planLimits(plan).branches;
+    const activeCount = (current.branches ?? []).filter((b) => b.active).length;
+    if (cap !== null && activeCount >= cap) {
+      throw new Error(`The ${planLabel(plan)} plan allows ${cap} branch${cap === 1 ? '' : 'es'}. Upgrade to add another.`);
+    }
+    const code = uniqueBranchCode(clean, (current.branches ?? []).map((b) => b.code));
+    const stamp = new Date().toISOString();
+    if (mode === 'demo') {
+      const row = {
+        id: `branch-${nextId()}`, clinic_id: current.clinic?.id, name: clean, code,
+        active: true, created_at: stamp, updated_at: stamp,
+      };
+      persistLocal((prev) => {
+        const owners = (prev.staff ?? []).filter((member) => member.role === ROLE_OWNER && member.active);
+        return {
+          ...prev,
+          branches: [...(prev.branches ?? []), row],
+          staffBranches: [
+            ...(prev.staffBranches ?? []),
+            ...owners.map((owner) => ({
+              staff_id: owner.id, branch_id: row.id, active: true,
+              created_at: stamp, updated_at: stamp,
+            })),
+          ],
+        };
+      });
+      return row;
+    }
+    const { data, error } = await supabase.rpc('create_branch', {
+      p_clinic: current.clinic?.id, p_name: clean,
+    });
+    if (error) throw error;
+    await loadLive({ quiet: true });
+    return data;
+  }, [mode, persistLocal, loadLive]);
+
+  /** Replace one staff row's assignments. The pure rule and the RPC agree. */
+  const assignStaffBranches = useCallback(async (staffId, branchIds) => {
+    const current = stateRef.current;
+    const member = (current.staff ?? []).find((row) => row.id === staffId);
+    const validIds = (current.branches ?? []).filter((b) => b.active).map((b) => b.id);
+    const check = validateAssignments({ role: member?.role, branchIds, validBranchIds: validIds });
+    if (!check.ok) throw new Error(check.message);
+    if (mode === 'demo') {
+      const stamp = new Date().toISOString();
+      persistLocal((prev) => {
+        const rows = prev.staffBranches ?? [];
+        const retired = rows
+          .filter((a) => a.staff_id === staffId && !check.ids.includes(a.branch_id))
+          .map((a) => ({ ...a, active: false, updated_at: stamp }));
+        return {
+          ...prev,
+          staffBranches: [
+            ...rows.filter((a) => a.staff_id !== staffId),
+            ...retired,
+            ...check.ids.map((branch_id) => ({
+              staff_id: staffId, branch_id, active: true,
+              created_at: stamp, updated_at: stamp,
+            })),
+          ],
+        };
+      });
+      return;
+    }
+    const { error } = await supabase.rpc('set_staff_branches', {
+      p_staff: staffId, p_branch_ids: check.ids,
+    });
+    if (error) throw error;
+    await loadLive({ quiet: true });
+  }, [mode, persistLocal, loadLive]);
+
+  /** Which branch new visits and invoices are tagged with. */
+  const setActiveBranch = useCallback(async (branchId) => {
+    if (!branchId) return;
+    const current = stateRef.current;
+    const member = (current.staff ?? []).find((row) => row.user_id && row.user_id === session?.user?.id)
+      ?? (current.staff ?? []).find((row) => row.role === ROLE_OWNER)
+      ?? (current.staff ?? [])[0] ?? null;
+    const visible = visibleBranchIds(member?.role, member?.id, current.staffBranches, current.branches);
+    if (!visible.includes(branchId)) throw new Error('You are not assigned to that branch.');
+    if (mode !== 'demo') {
+      const { error } = await supabase.rpc('set_active_branch', { p_branch: branchId });
+      if (error) throw error;
+    }
+    persistLocal((prev) => ({
+      ...prev,
+      activeBranchId: branchId,
+      profile: { ...(prev.profile ?? {}), active_branch_id: branchId },
+    }));
+  }, [mode, persistLocal, session]);
 
   const resetDemo = useCallback(() => {
     const fresh = makeDemoWorkspace();
@@ -953,6 +1101,7 @@ export function StoreProvider({ children, session }) {
     online, pending, conflicts, syncState, lastSyncedAt, usingCache,
     flushNow: flush, resolveConflict, dismissConflict,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
+    createBranch, assignStaffBranches, setActiveBranch,
     refresh, resetDemo, enterDemo: bootDemo,
     // drug directory (schema 14) — searched on the server, always optional
     searchDrugDirectory,
@@ -966,6 +1115,7 @@ export function StoreProvider({ children, session }) {
   }), [ready, error, savedAt, mode, needsOnboarding, state, session, online, pending, conflicts,
     syncState, lastSyncedAt, usingCache, flush, resolveConflict, dismissConflict,
     create, update, updateNow, remove, createClinic, saveBookingSlug, inviteStaff, revokeInvite,
+    createBranch, assignStaffBranches, setActiveBranch,
     resetDemo, bootDemo, refresh, searchDrugDirectory,
     license, licenseSeats, licenseUsage, writable,
     changePlan, renewSubscription, startTrial,

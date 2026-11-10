@@ -7,8 +7,8 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.6';
-export const SCHEMA_VERSION = 19;
+export const APP_VERSION = '1.41.0';
+export const SCHEMA_VERSION = 20;
 
 /** Injected by vite.config.js define(). */
 export const BUILD = (() => {
@@ -22,6 +22,17 @@ export const BUILD = (() => {
 /** What changed, newest first. Kept as the in-app version history; the
  *  Settings → What's new card was hidden in v1.35.5 at the clinic's request. */
 export const CHANGELOG = [
+  {
+    version: '1.41.0', date: '2026-11-10', schema: 20,
+    highlights: [
+      '**Branch Configuration is real now.** Item 9 of `docs/PLAN-v1.33.md` (§9) begins with schema 20: a child `branches` table under one clinic, a `staff_branches` assignment table, and `branch_id` on appointments / consultations / invoices. Patients stay shared; visits and bills are tagged by branch. Drug directory and subscription stay shared.',
+      '**Owners get several branches; everyone else gets one.** A new pure `src/lib/branch-config.mjs` owns the assignment rule. `set_staff_branches()` enforces it in Postgres, and the Doctors & staff roster plus the new **Settings → Branches** tab read the same assignment table.',
+      '**Owners see all branches; front desk sees only its own.** `user_branch_ids()` and `can_access_branch()` add branch scoping to the existing role matrix. A front-desk seat cannot read another branch’s appointments or invoices, and a null `branch_id` on a pre-schema-20 row stays readable.',
+      '**No RPC signature changed.** A `tag_branch()` insert trigger fills `branch_id` from `current_branch_id()`, so `issue_token()`, public booking and every existing write keep working. `create_clinic()` keeps its signature: an after-insert trigger creates **Main branch** and assigns the owner.',
+      '**Schema 20 is additive and idempotent.** Existing clinics are backfilled with **Main branch**, every active staff row gets an assignment, and old visits/invoices are tagged. `SCHEMA_VERSION` is 20; paste `supabase/schema.sql` once in the Supabase SQL editor. v1.42.0 adds the sidebar switcher and branch-scoped list queries.',
+      'Plan-first item 9 (§9). 11 pure branch-rule tests, 4 store/UI wiring ratchets, 15 schema ratchets and a real PostgreSQL 17 suite M: **720 tests / 42 suites**, all gates green and a clean clone verified. The lib census is 54 modules (22 import nothing); `create_clinic()` keeps its two-argument signature.',
+    ],
+  },
   {
     version: '1.35.6', date: '2026-11-02', schema: 19,
     highlights: [

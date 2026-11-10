@@ -5,6 +5,7 @@
 import { DEFAULT_CLINIC, DEFAULT_PREFERENCES, addDays, currentMonth, shiftMonth, today } from './logic.mjs';
 import { closure } from './hours.mjs';
 import { DEFAULT_PLAN } from './plans.mjs';
+import { defaultBranch } from './branch-config.mjs';
 
 // Deterministic PRNG so the demo looks the same on every device.
 function rng(seed = 20260101) {
@@ -88,9 +89,18 @@ export function makeDemoWorkspace() {
     },
   ];
 
+  // Schema 20: one parent clinic, one Main branch. The demo is on the Growth
+  // plan, so Add a branch is correctly gated off here; the owner still gets the
+  // assignment table and an active branch that every visit is tagged with.
+  const mainBranch = {
+    ...defaultBranch(), id: 'branch-demo-main', clinic_id: clinic.id,
+    created_at: `${shiftMonth(currentMonth(), -14)}-01T09:00:00.000Z`,
+    updated_at: `${shiftMonth(currentMonth(), -14)}-01T09:00:00.000Z`,
+  };
   const profile = {
     id: 'demo-user', full_name: 'Dr. Anita Rao', phone: '+91 98200 11234',
     designation: 'Consultant Physician', ...DEFAULT_PREFERENCES, default_clinic_id: clinic.id,
+    active_branch_id: mainBranch.id,
   };
 
   const patients = [];
@@ -375,11 +385,22 @@ export function makeDemoWorkspace() {
     created_at: new Date(Date.now() - 43 * 60000).toISOString(),
   });
 
+  for (const row of appointments) row.branch_id = mainBranch.id;
+  for (const row of consultations) row.branch_id = mainBranch.id;
+  for (const row of invoices) row.branch_id = mainBranch.id;
+  const staffBranches = staff.map((member) => ({
+    staff_id: member.id, branch_id: mainBranch.id, active: true,
+    created_at: mainBranch.created_at, updated_at: mainBranch.updated_at,
+  }));
+
   return {
     mode: 'demo',
     clinic,
     profile,
     staff,
+    branches: [mainBranch],
+    staffBranches,
+    activeBranchId: mainBranch.id,
     patients,
     appointments,
     consultations,

@@ -22,13 +22,19 @@
 --   H. sessions          — two sessions a day, days off, the 3–45 day follow-up
 --   I. the profile row   — every account has one, and only its owner writes it
 --   J. drug directory    — brands, compositions, typo tolerance, read-only rules
+--   K–L. later schemas     — drug search at scale, investigations, audit fixes,
+--                          licence authority and what set-up collects
+--   M. branch config     — one clinic, many branches; owners multi, seats one;
+--                          front desk reads only its own branch
 --
 -- Every assertion raises on failure, so a clean run is the proof. Success lines:
 --   "ALL RLS CHECKS COMPLETED", "ALL LICENSING CHECKS COMPLETED",
 --   "ALL BOOKING CHECKS COMPLETED", "ALL SLUG CHECKS COMPLETED",
 --   "ALL BOOKING LINK CHECKS COMPLETED", "ALL ROLE SPLIT CHECKS COMPLETED",
 --   "ALL WHATSAPP CHECKS COMPLETED", "ALL HOURS CHECKS COMPLETED",
---   "ALL PROFILE CHECKS COMPLETED" and "ALL DRUG DIRECTORY CHECKS COMPLETED".
+--   "ALL PROFILE CHECKS COMPLETED", "ALL DRUG DIRECTORY CHECKS COMPLETED",
+--   "ALL SET-UP CHECKS COMPLETED" and "ALL BRANCH CONFIGURATION CHECKS
+--   COMPLETED" (plus the drug-search, investigations, audit and authority lines).
 --
 -- This file is not part of the schema. `supabase/schema.sql` is the single
 -- source of truth for the database; this is the test that it behaves.
@@ -2410,5 +2416,332 @@ begin
 
   raise notice 'ALL SET-UP CHECKS COMPLETED';
 end $$;
+
+rollback;   -- nothing above survives; safe to re-run
+
+-- =============================================================================
+-- SUITE M · BRANCH CONFIGURATION (schema 20 / v1.41.0)
+-- =============================================================================
+-- One parent clinic, many child branches. Patients stay shared; visits and
+-- invoices are branch-tagged. Only owners hold several assignments, and a
+-- front-desk seat reads only the branch it is assigned to. Every fixture is
+-- rolled back, like the suites above.
+begin;
+
+do $branch$
+declare
+  v_owner uuid := gen_random_uuid();
+  v_doctor uuid := gen_random_uuid();
+  v_desk uuid := gen_random_uuid();
+  v_growth_owner uuid := gen_random_uuid();
+  v_clinic uuid;
+  v_other_clinic uuid;
+  v_growth_clinic uuid;
+  v_owner_staff uuid;
+  v_doctor_staff uuid;
+  v_desk_staff uuid;
+  v_main uuid;
+  v_west uuid;
+  v_east uuid;
+  v_other_branch uuid;
+  v_patient uuid;
+  v_legacy_appointment uuid;
+  v_legacy_invoice uuid;
+  v_new_appointment uuid;
+  v_consultation uuid;
+  v_tagged uuid;
+  v_n integer;
+  v_refused boolean;
+  v_row public.branches%rowtype;
+begin
+  ---------------------------------------------------------------- fixtures
+  insert into auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, aud, role)
+  values
+    (v_owner, 'branch-owner@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (v_doctor, 'branch-doctor@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (v_desk, 'branch-desk@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated'),
+    (v_growth_owner, 'branch-growth@test.local', crypt('x', gen_salt('bf')), now(), now(), now(), '{}', '{}', 'authenticated', 'authenticated')
+  on conflict (id) do nothing;
+  insert into public.profiles (id, full_name)
+  values (v_owner, 'Branch Owner'), (v_doctor, 'Branch Doctor'),
+         (v_desk, 'Branch Desk'), (v_growth_owner, 'Growth Owner')
+  on conflict (id) do nothing;
+
+  if public.app_schema_version() <> 20 then
+    raise exception 'FAIL: schema 20 was not applied' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from public.schema_migrations
+                  where version = 20 and app_version = '1.41.0') then
+    raise exception 'FAIL: schema 20 migration row is missing' using errcode = 'P0002';
+  end if;
+  select count(*) into v_n
+    from pg_proc f join pg_namespace ns on ns.oid = f.pronamespace
+   where ns.nspname = 'public' and f.proname = 'create_clinic' and f.pronargs = 2;
+  if v_n <> 1 then
+    raise exception 'FAIL: create_clinic() no longer has its two-argument signature' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: schema 20 is registered and create_clinic() kept its signature';
+
+  ------------------------------- one new clinic gets one implicit Main branch
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated', 'email', 'branch-owner@test.local')::text, true);
+  set local role authenticated;
+  v_clinic := public.create_clinic(
+    jsonb_build_object('name', 'Branch Clinic', 'plan', 'chain'),
+    jsonb_build_object('full_name', 'Dr Owner'));
+  reset role;
+
+  select id into v_main from public.branches
+   where clinic_id = v_clinic and code = 'MAIN' and active;
+  if v_main is null then
+    raise exception 'FAIL: a new clinic did not get a Main branch' using errcode = 'P0002';
+  end if;
+  select id into v_owner_staff from public.staff
+   where clinic_id = v_clinic and user_id = v_owner and role = 'owner';
+  if not exists (select 1 from public.staff_branches
+                  where staff_id = v_owner_staff and branch_id = v_main and active) then
+    raise exception 'FAIL: the owner was not assigned to the Main branch' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: create_clinic() still produces one clinic, one Main branch and one owner assignment';
+
+  --------------------------------------------------------- owners create branches
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated', 'email', 'branch-owner@test.local')::text, true);
+  set local role authenticated;
+  select * into v_row from public.create_branch(v_clinic, 'Bandra West');
+  v_west := v_row.id;
+  select * into v_row from public.create_branch(v_clinic, 'Andheri East');
+  v_east := v_row.id;
+  reset role;
+  if v_west is null or v_east is null or v_west = v_east then
+    raise exception 'FAIL: the owner could not create two distinct branches' using errcode = 'P0002';
+  end if;
+  select count(*) into v_n from public.branches where clinic_id = v_clinic and active;
+  if v_n <> 3 then
+    raise exception 'FAIL: expected three active branches, got %', v_n using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: one owner created two more branches under the same parent clinic';
+
+  -- A second clinic's Main branch is another clinic's data, not a valid target.
+  insert into public.clinics (name, slug, plan)
+  values ('Other Branch Clinic', 'other-' || left(gen_random_uuid()::text, 20), 'chain')
+  returning id into v_other_clinic;
+  select id into v_other_branch from public.branches
+   where clinic_id = v_other_clinic and code = 'MAIN';
+  if v_other_branch is null then
+    raise exception 'FAIL: the second clinic did not get its own Main branch' using errcode = 'P0002';
+  end if;
+
+  -- The single-branch plan still stops at one branch.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_growth_owner, 'role', 'authenticated', 'email', 'branch-growth@test.local')::text, true);
+  set local role authenticated;
+  v_growth_clinic := public.create_clinic(
+    jsonb_build_object('name', 'Growth Branch Clinic', 'plan', 'growth'),
+    jsonb_build_object('full_name', 'Dr Growth'));
+  v_refused := false;
+  begin
+    perform public.create_branch(v_growth_clinic, 'Second Branch');
+  exception when sqlstate '22023' then
+    v_refused := true;
+  end;
+  reset role;
+  if not v_refused then
+    raise exception 'FAIL: the Growth plan allowed a second branch' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: the one-branch plan cap is still enforced by create_branch()';
+
+  -------------------------------------------------------------- staff + data
+  insert into public.staff (clinic_id, user_id, full_name, role)
+  values (v_clinic, v_doctor, 'Dr Branch', 'doctor') returning id into v_doctor_staff;
+  insert into public.staff (clinic_id, user_id, full_name, role)
+  values (v_clinic, v_desk, 'Desk Branch', 'frontdesk') returning id into v_desk_staff;
+  insert into public.patients (clinic_id, code, full_name, phone)
+  values (v_clinic, 'PT-BRANCH-1', 'Shared Patient', '9000001001') returning id into v_patient;
+
+  ---------------------------------------------- owner multi, seats exactly one
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated', 'email', 'branch-owner@test.local')::text, true);
+  set local role authenticated;
+  perform public.set_staff_branches(v_owner_staff, array[v_main, v_west, v_east]);
+  perform public.set_staff_branches(v_doctor_staff, array[v_west]);
+  perform public.set_staff_branches(v_desk_staff, array[v_east]);
+  reset role;
+
+  select count(*) into v_n from public.staff_branches
+   where staff_id = v_owner_staff and active;
+  if v_n <> 3 then
+    raise exception 'FAIL: owner has % active branches, expected 3', v_n using errcode = 'P0002';
+  end if;
+  select count(*) into v_n from public.staff_branches
+   where staff_id = v_doctor_staff and active;
+  if v_n <> 1 then raise exception 'FAIL: doctor has % active branches', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.staff_branches
+   where staff_id = v_desk_staff and active;
+  if v_n <> 1 then raise exception 'FAIL: front desk has % active branches', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.staff_branches
+   where staff_id = v_doctor_staff and not active;
+  if v_n < 1 then
+    raise exception 'FAIL: a replaced assignment was deleted instead of retired' using errcode = 'P0002';
+  end if;
+  raise notice 'PASS: owners hold several branches, doctors and front desk hold exactly one';
+
+  -- A non-owner cannot give itself a second branch, and nobody can borrow
+  -- another clinic's branch. Each refusal must leave the row unchanged.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_doctor, 'role', 'authenticated', 'email', 'branch-doctor@test.local')::text, true);
+  set local role authenticated;
+  v_refused := false;
+  begin
+    perform public.create_branch(v_clinic, 'Not Allowed');
+  exception when insufficient_privilege then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: a doctor created a branch' using errcode = 'P0002'; end if;
+  v_refused := false;
+  begin
+    perform public.set_staff_branches(v_doctor_staff, array[v_west]);
+  exception when insufficient_privilege then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: a doctor changed its own assignments' using errcode = 'P0002'; end if;
+  reset role;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated', 'email', 'branch-owner@test.local')::text, true);
+  set local role authenticated;
+  v_refused := false;
+  begin
+    perform public.set_staff_branches(v_doctor_staff, array[v_west, v_east]);
+  exception when sqlstate '22023' then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: a doctor was assigned two branches' using errcode = 'P0002'; end if;
+  v_refused := false;
+  begin
+    perform public.set_staff_branches(v_desk_staff, array[v_main, v_west]);
+  exception when sqlstate '22023' then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: a front-desk seat was assigned two branches' using errcode = 'P0002'; end if;
+  v_refused := false;
+  begin
+    perform public.set_staff_branches(v_doctor_staff, array[v_other_branch]);
+  exception when sqlstate '22023' then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: another clinic''s branch was accepted' using errcode = 'P0002'; end if;
+  reset role;
+  select count(*) into v_n from public.staff_branches where staff_id = v_doctor_staff and active;
+  if v_n <> 1 then raise exception 'FAIL: a refused edit changed the doctor''s assignment' using errcode = 'P0002'; end if;
+  raise notice 'PASS: non-owners cannot configure branches; multi-seat and cross-clinic edits are refused';
+
+  ------------------------------------------------- one clinic, many tagged rows
+  insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source, branch_id)
+  values (v_clinic, v_patient, v_owner_staff, current_date, '09:00', 'walk-in', v_main)
+  returning id into v_legacy_appointment;
+  update public.appointments set branch_id = null where id = v_legacy_appointment;
+  insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source, branch_id)
+  values (v_clinic, v_patient, v_owner_staff, current_date, '09:15', 'walk-in', v_west);
+  insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source, branch_id)
+  values (v_clinic, v_patient, v_owner_staff, current_date, '09:30', 'walk-in', v_east);
+
+  insert into public.invoices (clinic_id, number, patient_id, doctor_id, total_paise, paid_paise, status, branch_id)
+  values (v_clinic, 'BR-MAIN-1', v_patient, v_owner_staff, 50000, 50000, 'paid', v_main)
+  returning id into v_legacy_invoice;
+  update public.invoices set branch_id = null where id = v_legacy_invoice;
+  insert into public.invoices (clinic_id, number, patient_id, doctor_id, total_paise, paid_paise, status, branch_id)
+  values (v_clinic, 'BR-WEST-1', v_patient, v_owner_staff, 50000, 0, 'unpaid', v_west);
+  insert into public.invoices (clinic_id, number, patient_id, doctor_id, total_paise, paid_paise, status, branch_id)
+  values (v_clinic, 'BR-EAST-1', v_patient, v_owner_staff, 50000, 0, 'unpaid', v_east);
+  raise notice 'PASS: appointments and invoices carry branch_id; untagged legacy rows stay readable';
+
+  --------------------------------------------------------- owner sees it all
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner, 'role', 'authenticated', 'email', 'branch-owner@test.local')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.branches where clinic_id = v_clinic and active;
+  if v_n <> 3 then raise exception 'FAIL: owner sees % branches', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.user_branch_ids(v_clinic);
+  if v_n <> 3 then raise exception 'FAIL: user_branch_ids() gave the owner % branches', v_n using errcode = 'P0002'; end if;
+  reset role;
+  raise notice 'PASS: an owner sees every branch of the clinic';
+
+  ------------------------------------------------------- doctor sees only west
+  perform set_config('request.jwt.claims', json_build_object('sub', v_doctor, 'role', 'authenticated', 'email', 'branch-doctor@test.local')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.branches where clinic_id = v_clinic;
+  if v_n <> 1 then raise exception 'FAIL: doctor sees % branches', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.user_branch_ids(v_clinic);
+  if v_n <> 1 then raise exception 'FAIL: user_branch_ids() gave the doctor % branches', v_n using errcode = 'P0002'; end if;
+  insert into public.consultations (clinic_id, patient_id, doctor_id, complaint)
+  values (v_clinic, v_patient, v_owner_staff, 'Branch tag smoke')
+  returning id into v_consultation;
+  select branch_id into v_tagged from public.consultations where id = v_consultation;
+  if v_tagged <> v_west then
+    raise exception 'FAIL: a new consultation was not tagged with the doctor''s active branch' using errcode = 'P0002';
+  end if;
+  reset role;
+  raise notice 'PASS: a doctor sees one branch and new consultations are tagged with it';
+
+  -------------------------------------- front desk sees only east, no switcher
+  perform set_config('request.jwt.claims', json_build_object('sub', v_desk, 'role', 'authenticated', 'email', 'branch-desk@test.local')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.branches where clinic_id = v_clinic;
+  if v_n <> 1 then raise exception 'FAIL: front desk sees % branches', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.user_branch_ids(v_clinic);
+  if v_n <> 1 then raise exception 'FAIL: user_branch_ids() gave the front desk % branches', v_n using errcode = 'P0002'; end if;
+  v_refused := false;
+  begin
+    perform public.set_active_branch(v_main);
+  exception when insufficient_privilege then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: front desk switched to an unassigned branch' using errcode = 'P0002'; end if;
+  perform public.set_active_branch(v_east);
+  select active_branch_id into v_tagged from public.profiles where id = v_desk;
+  if v_tagged <> v_east then
+    raise exception 'FAIL: set_active_branch() did not persist the desk''s branch' using errcode = 'P0002';
+  end if;
+
+  insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source)
+  values (v_clinic, v_patient, v_owner_staff, current_date, '10:00', 'walk-in')
+  returning id into v_new_appointment;
+  select branch_id into v_tagged from public.appointments where id = v_new_appointment;
+  if v_tagged <> v_east then
+    raise exception 'FAIL: a new appointment was not tagged with the active branch' using errcode = 'P0002';
+  end if;
+
+  select count(*) into v_n from public.patients where id = v_patient;
+  if v_n <> 1 then raise exception 'FAIL: patients are no longer shared' using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.appointments where branch_id = v_main;
+  if v_n <> 0 then raise exception 'FAIL: front desk read % Main-branch appointments', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.appointments where branch_id = v_west;
+  if v_n <> 0 then raise exception 'FAIL: front desk read % West-branch appointments', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.appointments where branch_id = v_east;
+  if v_n < 2 then raise exception 'FAIL: front desk lost its own appointments' using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.invoices where branch_id = v_west;
+  if v_n <> 0 then raise exception 'FAIL: front desk read % West-branch invoices', v_n using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.invoices where branch_id = v_east;
+  if v_n <> 1 then raise exception 'FAIL: front desk lost its own invoice' using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.appointments where id = v_legacy_appointment;
+  if v_n <> 1 then raise exception 'FAIL: a pre-schema-20 appointment became invisible' using errcode = 'P0002'; end if;
+  select count(*) into v_n from public.invoices where id = v_legacy_invoice;
+  if v_n <> 1 then raise exception 'FAIL: a pre-schema-20 invoice became invisible' using errcode = 'P0002'; end if;
+
+  v_refused := false;
+  begin
+    insert into public.appointments (clinic_id, patient_id, doctor_id, scheduled_on, scheduled_at, source, branch_id)
+    values (v_clinic, v_patient, v_owner_staff, current_date, '10:15', 'walk-in', v_main);
+  exception when insufficient_privilege then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: front desk wrote an appointment to another branch' using errcode = 'P0002'; end if;
+  v_refused := false;
+  begin
+    insert into public.invoices (clinic_id, number, patient_id, doctor_id, total_paise, status, branch_id)
+    values (v_clinic, 'BR-FORBIDDEN', v_patient, v_owner_staff, 50000, 'unpaid', v_main);
+  exception when insufficient_privilege then
+    v_refused := true;
+  end;
+  if not v_refused then raise exception 'FAIL: front desk wrote an invoice to another branch' using errcode = 'P0002'; end if;
+  reset role;
+  raise notice 'PASS: front desk reads one branch, shares patients, and cannot read or write another branch';
+
+  raise notice 'ALL BRANCH CONFIGURATION CHECKS COMPLETED';
+end $branch$;
 
 rollback;   -- nothing above survives; safe to re-run

@@ -151,3 +151,44 @@ test('the migration registry knows about schema 8', () => {
   assert.match(sql, /\(8, 'public-booking', '1\.11\.0'/);
   assert.match(sql, /set schema_version = 8/);
 });
+
+test('schema 20 branch policies keep the schema 17 cross-clinic guards', () => {
+  // Replacing the visit/invoice policies for branch access must not silently
+  // re-open IDOR: a row may still only name a patient and doctor of its clinic.
+  const block = sql.slice(sql.indexOf('§20 · v1.41.0'));
+  for (const [table, count] of [['appointments', 2], ['consultations', 2], ['invoices', 1]]) {
+    const matches = [...block.matchAll(new RegExp(
+      `where p\\.id = patient_id and p\\.clinic_id = ${table}\\.clinic_id`, 'g',
+    ))];
+    assert.equal(matches.length, count, `${table} must keep ${count} patient-ownership check(s)`);
+  }
+  assert.match(block, /where sd\.id = doctor_id and sd\.clinic_id = appointments\.clinic_id/);
+  assert.match(block, /where sd\.id = doctor_id and sd\.clinic_id = consultations\.clinic_id/);
+  assert.match(block, /doctor_id is null or exists \(select 1 from public\.staff sd/);
+});
+
+test('schema 20 adds branches without changing create_clinic() or destructive SQL', () => {
+  const block = sql.slice(sql.indexOf('§20 · v1.41.0'));
+  assert.match(block, /set schema_version = 20/);
+  assert.match(block, /\(20, 'branches', '1\.41\.0'/);
+  assert.match(block, /create table if not exists public\.branches \(/);
+  assert.match(block, /create table if not exists public\.staff_branches \(/);
+  assert.match(block, /alter table public\.profiles add column if not exists active_branch_id/);
+  for (const table of ['appointments', 'consultations', 'invoices']) {
+    assert.match(block, new RegExp(`alter table public\\.${table} add column if not exists branch_id`));
+  }
+  for (const fn of ['create_branch', 'set_staff_branches', 'set_active_branch']) {
+    assert.match(block, new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to authenticated`));
+  }
+  assert.match(block, /create trigger appointments_tag_branch/);
+  assert.match(block, /create trigger clinics_default_branch/);
+  assert.match(block, /create trigger staff_default_branch/);
+  assert.match(block, /create trigger branches_owner_assignment/);
+  assert.match(block, /execute function public\.tag_branch\(\)/);
+  assert.doesNotMatch(block, /delete\s+from/i, 'schema 20 retires assignments with active=false, not DELETE');
+  // The final function body is untouched: default branches are made by a trigger.
+  const start = sql.lastIndexOf('create or replace function public.create_clinic(');
+  const createClinic = sql.slice(start, sql.indexOf('$$;', start));
+  assert.match(createClinic, /public\.next_clinic_slug\(clinic_name\)/);
+  assert.doesNotMatch(createClinic, /public\.branches/, 'create_clinic() keeps its schema-19 body');
+});

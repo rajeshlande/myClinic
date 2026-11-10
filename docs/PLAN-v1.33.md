@@ -21,9 +21,10 @@ not-arrived / no-show / arrived-late tokens — is item 13 and shipped as **v1.3
 Doctors & staff — is item 14 and shipped as **v1.35.5** (§14). A fifth — the
 same clinic reading **Growth** on Doctors & staff but **Multi-clinic** on
 Subscription — is item 15 and shipped as **v1.35.6** (§15). Items 3 and 4 move to
-v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 still waits on the three
-decisions at the end of this document — §§14–15 are labels and a plan-source fix,
-not that schema release.
+v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 no longer waits: its
+decisions were confirmed on 2026-11-10 (see §9) and it ships as
+**v1.41.0** (schema + configuration) and **v1.42.0** (switcher + scoped lists).
+§§14–15 were labels and a plan-source fix, not that schema release.
 
 ---
 
@@ -39,7 +40,7 @@ not that schema release.
 | 6 | v1.38.0 | "Visit saved" → Collect payment: recorded once, never twice | medium | — | flow state + screen |
 | 7 | v1.39.0 | Only the owner can cancel an invoice | low | — (already enforced) | UI + guard test |
 | 8 | v1.40.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
-| 9 | v1.41.0+ | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** | schema + RPC + screens |
+| 9 | **v1.41.0 + v1.42.0** | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** (schema 20) | schema + RPC + screens |
 | 10 | **v1.34.0** | Onboarding / "Set up your clinic": clinic details, lead doctor, hours & fees | medium | **yes** (schema 19) | page + pure module + `create_clinic()` |
 | 11 | **v1.35.2** | Patient records: add a date filter to the All list | low | — | one pure module + `Patients.jsx` |
 | 12 | **v1.35.3** | Token issued: WhatsApp send, redesign the print slip, send the slip image with the message | medium | — | one pure module + slip component + composer |
@@ -270,35 +271,44 @@ prints; nothing migrates.
 
 ## 9 · v1.41.0+ — branches, each with its own front desk
 
-**Today.** "Branch" exists only as a **licence seat** (`plans.mjs:52–54`,
-`license.mjs:195`, `licensing-adapter.js:47` — `branches: 1`, hard-coded). There is no
-`branches` table, no branch switcher, no branch-scoped data, and no way to create a
-second one. A multi-clinic group on the `chain` plan cannot use the thing it is paying
-for.
+**Before v1.41.0.** "Branch" was only a **licence seat** (`plans.mjs:52–54`,
+`license.mjs:195`, `licensing-adapter.js:47` — `branches: 1`, hard-coded). There was
+no `branches` table, no branch switcher, no branch-scoped data and no way to create
+a second one. The v1.35.5 badge on Doctors & staff was explicitly display-only;
+this item is the real configuration and schema release.
 
-**This needs a schema release and, before that, three decisions from you** — they change
-the data model, so I will not guess:
+**Decisions received 2026-11-10 — no longer open.** Five choices plus the release
+sequence were confirmed before any code changed; do not ask them again.
 
-1. **Is a branch a second row in `clinics`, or a child of the first?** A child
-   (`clinics.parent_id`, one owner, one licence, branch-scoped staff and data) is the
-   smaller change and keeps one bill; a second `clinics` row is a separate licence and
-   a separate set of seats. *My recommendation: `parent_id`.*
-2. **What is shared and what is separate?** Patients and invoices are almost certainly
-   per branch; the drug directory, the formulary and the plan are almost certainly
-   shared. A patient seen at two branches is the interesting case — one record with
-   visits tagged by branch, or two records?
-3. **Who can see across branches?** Does the owner of two branches see a combined
-   today's-collection, and does a front-desk seat of branch A see branch B at all?
-   *My recommendation: owner sees both; a front-desk seat is scoped to its own branch
-   and does not even see the switcher.*
+| # | Decision | Answer |
+| --- | --- | --- |
+| 1 | Branch model | **Child `branches` table under one parent clinic**, one licence, one bill. |
+| 2 | Shared / separate | **Patients are shared records**; visits / appointments / consultations / invoices are tagged by branch. Drug directory, formulary and plan stay shared. |
+| 3 | Cross-branch visibility | **Owner sees all assigned branches**; front desk sees only its own branch and gets no switcher. |
+| 4 | Assignment cardinality | **Only owners may hold multiple branches**; doctors and front desk get exactly one. |
+| 5 | Scope | **Full release**, not display-only labels. |
+| 6 | Sequence | **Two releases**: v1.41.0 schema + configuration, then v1.42.0 switcher + scoped lists. |
 
-**Shape of the release, once those are answered.** Schema: a `branches` table (or
-`parent_id`) + `staff.branch_id` + RLS per branch + a `create_branch()` RPC that
-enforces the plan's branch cap. Client: a branch switcher in the sidebar, the active
-branch in the store, every list query scoped by it, "Add a branch" in Settings gated on
-`planLimits(plan).branches`, seat meters reading real branches instead of `1`, and
-front-desk invitations scoped to a branch. It will be at least two releases
-(schema + client), and it is the only item here that touches the database.
+**Two-release shape, confirmed.** The owner chose sequence over one large release.
+
+- **v1.41.0 — schema 20 + Branch Configuration.** `branches`,
+  `staff_branches`, `branch_id` on visits and invoices, a default **Main branch**
+  for every existing clinic, `create_branch()` / assignment RPCs, RLS that lets an
+  owner read all branches and a front-desk seat only its own, a new
+  **Settings → Branches** tab, and branch assignment controls on Doctors & staff.
+  New visits and invoices are tagged with the active branch through a database
+  trigger, so no existing RPC signature changes. `SCHEMA_VERSION` becomes 20.
+- **v1.42.0 — switcher + scoped data.** Active branch in the sidebar/store,
+  every list query scoped by it, branch-aware reporting/day-close, real branch
+  counts in seat meters, and front-desk invitations that carry a branch.
+
+**v1.41.0 acceptance.** One owner can create several branches under one clinic;
+owners can be assigned several branches, doctors/front desk exactly one; the
+roster and Branches tab show the same assignments; a front-desk account cannot
+read another branch's appointments or invoices; existing single-branch clinics
+keep working with a generated Main branch; `create_clinic()` keeps its signature
+and creates that branch; all gates and clean clones stay green. No change to the
+`clinics` row shape beyond the additive branch tables.
 
 ---
 
@@ -577,7 +587,8 @@ limit, waiting list, next-token and every other screen keep their behaviour.
    through `planLimits()` / `planId()` — no quoted plan id outside `plans.mjs` —
    and it introduces **no** `branches` table, `staff.branch_id` column, RPC, store
    field or `SCHEMA_VERSION` change. Real multi-branch data remains item 9 and
-   still needs the three decisions in §9.
+   was delivered as schema 20 and Branch Configuration in v1.41.0; the
+   switcher and scoped lists are v1.42.0 (§9).
 4. **Mobile drawer** shows two sign-outs and three shortcuts the user does not
    want. Keep the small sign-out icon beside the account row, remove the second
    **Sign out** button at the bottom of the drawer, and remove **Issue token** /

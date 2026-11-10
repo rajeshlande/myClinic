@@ -3,6 +3,30 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.41.0] — 2026-11-10 · schema 20
+
+**Branch Configuration is real now.** Item 9 of `docs/PLAN-v1.33.md` (§9) is the first of two confirmed releases. A branch is a child row of one parent clinic — one licence, one bill — not a second `clinics` row. Patients stay shared; appointments, consultations and invoices carry `branch_id`; the drug directory, formulary and plan stay shared. The six answers (child table, mixed data, owner-only multi-assignment, owner-all visibility, full scope, two releases) were confirmed on 2026-11-10 and are recorded in §9.
+
+| Change | File | Why |
+| --- | --- | --- |
+| pure assignment rules | `src/lib/branch-config.mjs` (new) | owners may hold several branches, doctors / front desk exactly one; no inline JSX policy |
+| child branches + assignments | `supabase/schema.sql` §20 | `branches`, `staff_branches`, additive `branch_id` columns, triggers, RLS and three owner-only RPCs |
+| default Main branch | `clinics_default_branch_trg`, `staff_default_branch_trg` | `create_clinic()` signature is unchanged; every old clinic is backfilled |
+| active branch in the store | `src/lib/store.jsx` | live/demo/empty state, optional schema-20 queries, `createBranch()` / `assignStaffBranches()` / `setActiveBranch()` |
+| one configuration screen | `src/components/settings/BranchesTab.jsx` (new) | Settings → Branches: plan-capped Add branch, active branch owner-only switcher, staff assignment roster |
+| one assignment dialog | `src/components/BranchAssignmentModal.jsx` (new) | shared by Team and Branches; owner gets checkboxes, doctors / front desk get one select |
+| same roster, same table | `src/pages/Team.jsx` | the Branch badge reads `staff_branches`, with the v1.35.5 label only as a pre-migration fallback |
+| demo seed | `src/lib/demo-data.js` | Main branch, real assignments, active branch and tagged visits/invoices |
+| verification | `tests/branch-config.test.mjs`, `tests/branch-wiring.test.mjs`, `tests/schema.test.mjs`, `supabase/schema-tests.sql` suite M | pure rules, client wiring, static schema guards and real Postgres RLS all stay together |
+
+**What changed for a clinic.** On a Multi-clinic plan the owner can create several branches and be assigned to all of them; doctors and front-desk seats are assigned exactly one. The Doctors & staff roster and Settings → Branches show the same assignments. A front-desk account sees patients (shared) and only its own branch's appointments and invoices; it has no branch switcher. An owner sees every branch. New visits and invoices are tagged automatically by a database trigger, so `issue_token()`, public booking and every existing write keep working. Existing single-branch clinics get a generated **Main branch**, and null `branch_id` rows from before schema 20 stay readable. `SCHEMA_VERSION` is 20; paste `supabase/schema.sql` once in the Supabase SQL editor.
+
+**Database.** Schema 20 is additive: no `DELETE`, no dropped table/column, no change to `create_clinic(jsonb, jsonb)`, and no quoted plan id outside `src/lib/plans.mjs`. Branch-scoped policies keep the schema-17 cross-clinic patient / doctor guards. `supabase/schema-tests.sql` gains suite M, which proves owner multi-assignment, one branch per seat, plan caps, branch tagging, shared patients, owner-all visibility and front-desk isolation. Real PostgreSQL 17 validation applied `schema.sql` twice: that exposed an older idempotence bug where unconditional top-level `create_clinic()`, counter functions and schema-2 policies silently downgraded the hardened schema-17/19/20 versions on a re-run. The top-level definitions are now guarded / hardened, so a second paste leaves the database at schema 20 with the same rules.
+
+**Gates.** 720/720 unit tests across 42 suites, `vite build`, `check:pages`, `check:contributing` 28/28 (version 1.41.0 / 1.41.0 / 1.41.0 · schema 20), `test:security`, clean-clone verification and the real PostgreSQL 17 schema-test suite all green. Lib census 54 modules, 22 import nothing. `SCHEMA_VERSION` 20 is an intentional change; `package.json`, root `package-lock.json` and both changelogs agree.
+
+**Still to come.** v1.42.0 adds the sidebar branch switcher, branch-scoped list queries and reports / day-close, real branch counts in seat meters, and front-desk invitations that carry a branch. v1.41.0 is schema + configuration only, exactly the two-release sequence confirmed in §9.
+
 ## [1.35.6] — 2026-11-02 · schema 19
 
 **One plan, one answer.** Item 15 of `docs/PLAN-v1.33.md` (§15), a patch so items

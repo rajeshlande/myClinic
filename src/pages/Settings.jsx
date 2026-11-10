@@ -19,6 +19,7 @@ import AppearanceTab from '../components/settings/AppearanceTab.jsx';
 import SyncTab from '../components/settings/SyncTab.jsx';
 import AboutTab from '../components/settings/AboutTab.jsx';
 import PlanDataTab from '../components/settings/PlanDataTab.jsx';
+import BranchesTab from '../components/settings/BranchesTab.jsx';
 
 export default function Settings() {
   const store = useStore();
@@ -71,7 +72,10 @@ export default function Settings() {
     { value: 'appearance', label: 'Appearance & colours' },
     { value: 'sync', label: 'Offline & sync' },
     { value: 'about', label: 'About & version' },
-    ...(canEdit ? [{ value: 'plan', label: 'Plan & data' }] : []),
+    ...(canEdit ? [
+      { value: 'plan', label: 'Plan & data' },
+      { value: 'branches', label: 'Branches' },
+    ] : []),
   ];
   const activeTab = visibleTabs.some((t) => t.value === tab) ? tab : visibleTabs[0].value;
   const clinicState = clinic ?? {};
@@ -234,6 +238,7 @@ export default function Settings() {
     sync: <SyncTab syncOpen={syncOpen} setSyncOpen={setSyncOpen} clinic={clinic} />,
     about: <AboutTab />,
     plan: <PlanDataTab planOpen={planOpen} setPlanOpen={setPlanOpen} resetOpen={resetOpen} setResetOpen={setResetOpen} exportAll={exportAll} clinic={clinic} />,
+    branches: <BranchesTab />,
  };
 
   return (

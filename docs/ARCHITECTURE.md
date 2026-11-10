@@ -18,7 +18,7 @@ A **functional core with an imperative shell**:
         ↓  (imports)
   lib/store.jsx                the one stateful seam: data, cache, queue, licence
         ↓  (imports)
-  lib/*.mjs                    pure domain: 53 modules, 22 of them import nothing
+  lib/*.mjs                    pure domain: 54 modules, 22 of them import nothing
         ↓  (never called from lib/)
   supabase/                    Postgres is the authority: RLS, triggers, one RPC
 ```
@@ -55,10 +55,10 @@ so four of the five letters are scored in their functional translation:
 
 | Principle | Grade | Evidence |
 | --- | --- | --- |
-| Single Responsibility | **B** | 22/53 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with eight 62–198-line tab components (v1.30.0) and `store.jsx` is 981 from 1,031 now that the outbox, the caches and the licence composition are injected modules (v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
+| Single Responsibility | **B** | 22/54 lib modules import nothing at all, `logic.mjs` is a 26-line barrel (v1.29.0), `Settings.jsx` is down from 969 lines to 275 with nine tab components (v1.30.0–v1.41.0) and `store.jsx` is 1,131 lines after three branch methods (the outbox, caches and licence composition remain injected modules, v1.31.0–v1.32.0) — `ConsultationForm.jsx` is still 682 |
 | Open/Closed | **B−** | **2 `switch` statements** in all of `src/`; rules are tables (`MATRIX`, `PLAN_LIMITS`, `CENTRAL_CODES`, `PAYMENT_METHODS`, `APPOINTMENT_TYPES`). A new refusal code = **2 files**; a new plan = **8 JS files + `schema.sql`** |
 | Liskov Substitution | **n/a → B** | No hierarchies. The functional analogue is honoured except one silent widening: `PLAN_LIMITS[plan] ?? PLAN_LIMITS.growth` treats an unknown plan as Growth, where `schema.sql` would reject it |
-| Interface Segregation | **C** | Pure modules take narrow arguments; but **32 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
+| Interface Segregation | **C** | Pure modules take narrow arguments; but **38 files** call `useStore()`, which spreads `...state` and publishes 30+ keys — every screen can read every table |
 | Dependency Inversion | **A−** | Only **3 files** import the concrete Supabase client; `central-sync.mjs` takes `fetch`/`storage`/`now` as parameters. One deliberate exception: `import.meta.env` is read at module scope in `supabase.js` |
 
 ### 2.1 Where it is solid
@@ -439,6 +439,25 @@ stays in the database as a last-resort fallback, not a migrated-away column:
 no schema, RPC, store, seed or `SCHEMA_VERSION` change.
 
 
+**v1.41.0 — item 9, the first branch release.** §9 of the plan is no longer a set
+of open questions: one parent clinic has many child `branches`; patients are shared
+while appointments, consultations and invoices carry `branch_id`; owners hold
+several assignments and doctors / front desk hold exactly one; owners see every
+branch and front desk sees only its own. `src/lib/branch-config.mjs` is the one
+pure home for those rules. It imports the display-label constants from
+`staff-branch.mjs`, so the lib census moves to **54 modules, still 22 importing
+nothing**. Schema 20 adds two tables, four additive columns, helper functions,
+insert / default / guard triggers, owner-only RPCs and a backfill. The provider
+grows by three branch methods rather than growing a second inline rules engine;
+the anti-regression line ceilings in the licensing-adapter and offline-queue tests
+move to 1150. Settings gains a ninth tab, and Team shares one assignment dialog
+with it. Real PostgreSQL 17 verification applies `schema.sql` twice: schema-2
+policies, `create_clinic()` and the two counter helpers are now guarded /
+hardened so a re-run cannot downgrade schema 17/19/20. v1.42.0 keeps the sidebar
+switcher, scoped lists and reports; this release is additive schema +
+configuration only.
+
+
 Two new lib files take the census to 50, still 22 importing nothing:
 `token-slip.mjs` is a pure module (one SVG string, XML-escaped, tested) and
 `token-slip-image.js` is deliberately *not* pure — it is the DOM/canvas boundary,
@@ -461,7 +480,7 @@ scanned). No schema, RPC, store or seed change.
 grep -rn "extends " src --include=*.js* | wc -l                       # classes: expect 1
 grep -rl "useStore" src | wc -l                                       # ISP: expect 32 → lower
 wc -l src/lib/store.jsx src/pages/Settings.jsx src/lib/logic.mjs     # SRP hotspots (logic is a 26-line barrel since 1.29.0)
-wc -l src/components/settings/*.jsx                                  # the eight tab panels (v1.30.0)
+wc -l src/components/settings/*.jsx                                  # the nine tab panels (v1.41.0)
 grep -rn "switch (" src | wc -l                                       # OCP: expect 2
 
 # coupling of the plan vocabulary (step 1)

@@ -60,6 +60,7 @@
 --    17  the audit fixes                v1.19.1
 --    18  the licence authority          v1.20.0
 --    19  what set-up collects             v1.34.0
+--    20  branches + assignments           v1.41.0
 --
 -- To add a migration: append a numbered block at the end of the file, inside its
 -- own `do $migration$ … $migration$` guard (it returns early when
@@ -608,6 +609,13 @@ drop policy if exists patients_delete on public.patients;
 create policy patients_delete on public.patients for delete to authenticated
   using (public.is_clinic_owner(clinic_id));
 
+-- These are the schema-2 starting policies. Later migrations (10, 17 and 20)
+-- replace them with narrower role and branch rules; on a re-run of schema.sql
+-- those migrations skip, so this block must not put the old rules back.
+do $keep_policies$
+begin
+  if public.app_schema_version() < 20 then
+    execute $legacy$
 -- ---------------------------------------------------------------- appointments
 drop policy if exists appointments_read on public.appointments;
 create policy appointments_read on public.appointments for select to authenticated
@@ -668,6 +676,10 @@ create policy invoices_update on public.invoices for update to authenticated
 drop policy if exists invoices_delete on public.invoices;
 create policy invoices_delete on public.invoices for delete to authenticated
   using (public.is_clinic_owner(clinic_id));
+
+    $legacy$;
+  end if;
+end $keep_policies$;
 
 -- Financial guard: a paid invoice may only be amended by an owner, and only the
 -- owner may void one. Money fields must stay internally consistent.
@@ -1511,6 +1523,10 @@ grant execute on function public.set_clinic_slug(uuid, text) to authenticated;
 -- The clinic's public address is minted here: a clinic that is created without a
 -- slug is a clinic whose booking link goes nowhere, and its owner has no reason
 -- to suspect it.
+do $keep_create_clinic$
+begin
+  if public.app_schema_version() < 19 then
+    execute $legacy$
 create or replace function public.create_clinic(p_clinic jsonb, p_owner jsonb)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare
@@ -1544,6 +1560,9 @@ begin
   update public.profiles set default_clinic_id = new_clinic where id = auth.uid();
   return new_clinic;
 end $$;
+    $legacy$;
+  end if;
+end $keep_create_clinic$;
 
 -- Next sequence values (server-side, race-safe).
 create or replace function public.next_patient_code(p_clinic uuid)
@@ -1560,10 +1579,16 @@ end $$;
 
 -- Next token for a doctor today (race-safe: call inside an insert transaction).
 create or replace function public.next_token_no(p_doctor uuid, p_on date default current_date)
-returns integer language sql stable security definer set search_path = public as $$
-  select coalesce(max(token_no), 0) + 1 from public.appointments
-  where doctor_id = p_doctor and scheduled_on = p_on;
-$$;
+returns integer language plpgsql stable security definer set search_path = public as $$
+declare v_clinic uuid;
+begin
+  select clinic_id into v_clinic from public.staff where id = p_doctor;
+  if v_clinic is null or not public.is_clinic_staff(v_clinic) then
+    raise exception 'not a member of this clinic' using errcode = '42501';
+  end if;
+  return (select coalesce(max(token_no), 0) + 1 from public.appointments
+           where doctor_id = p_doctor and scheduled_on = p_on);
+end $$;
 
 -- Issue a walk-in token atomically: creates the patient's same-day appointment
 -- with the next free token and returns the row. Every referenced id is
@@ -1634,6 +1659,9 @@ create or replace function public.next_invoice_number(p_clinic uuid, p_prefix te
 returns text language plpgsql stable security definer set search_path = public as $$
 declare n bigint;
 begin
+  if not public.has_role(p_clinic, array['owner','doctor','frontdesk']) then
+    raise exception 'not a member of this clinic' using errcode = '42501';
+  end if;
   select count(*) + 1 into n from public.invoices where clinic_id = p_clinic;
   return p_prefix || '/2526/' || lpad(n::text, 4, '0');
 end $$;
@@ -4397,5 +4425,505 @@ begin
          notes = 'set-up collects: hours, days off, sessions, GSTIN, follow-up window and doctor registration are persisted at clinic creation'
    where schema_version < 19;
 end $migration$;
+
+-- =============================================================================
+-- §20 · v1.41.0 — branches, staff assignments and branch-tagged visits
+--
+-- Decisions (docs/PLAN-v1.33.md §9, confirmed 2026-11-10): a branch is a child
+-- row of one clinic; patients stay shared while appointments, consultations and
+-- invoices carry a branch_id; only owners hold several branches; an owner sees
+-- all branches and a front-desk seat only its own. Everything here is additive:
+-- schema 19 databases keep working, and a null branch_id means "not tagged yet".
+-- =============================================================================
+do $migration$
+begin
+  if public.app_schema_version() >= 20 then
+    raise notice 'schema 20 (branches) already applied - skipping';
+    return;
+  end if;
+  raise notice 'applying schema 20 (branches)';
+
+  ------------------------------------------------------------------ tables
+  create table if not exists public.branches (
+    id uuid primary key default gen_random_uuid(),
+    clinic_id uuid not null references public.clinics(id) on delete cascade,
+    name text not null check (char_length(trim(name)) between 1 and 80),
+    code text not null check (char_length(trim(code)) between 1 and 16),
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (clinic_id, code),
+    unique (clinic_id, name)
+  );
+  create index if not exists branches_clinic_idx on public.branches(clinic_id, active);
+  drop trigger if exists branches_touch on public.branches;
+  create trigger branches_touch before update on public.branches
+    for each row execute function public.touch_updated_at();
+  alter table public.branches enable row level security;
+
+  -- `active` replaces DELETE: set_staff_branches() retires an assignment with an
+  -- UPDATE, so the whole schema stays free of destructive statements.
+  create table if not exists public.staff_branches (
+    staff_id uuid not null references public.staff(id) on delete cascade,
+    branch_id uuid not null references public.branches(id) on delete cascade,
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    primary key (staff_id, branch_id)
+  );
+  create index if not exists staff_branches_branch_idx on public.staff_branches(branch_id, active);
+  drop trigger if exists staff_branches_touch on public.staff_branches;
+  create trigger staff_branches_touch before update on public.staff_branches
+    for each row execute function public.touch_updated_at();
+  alter table public.staff_branches enable row level security;
+
+  ------------------------------------------------------------- additive columns
+  alter table public.profiles add column if not exists active_branch_id uuid
+    references public.branches(id) on delete set null;
+  alter table public.appointments add column if not exists branch_id uuid
+    references public.branches(id) on delete set null;
+  alter table public.consultations add column if not exists branch_id uuid
+    references public.branches(id) on delete set null;
+  alter table public.invoices add column if not exists branch_id uuid
+    references public.branches(id) on delete set null;
+  create index if not exists appointments_branch_idx on public.appointments(branch_id, scheduled_on);
+  create index if not exists consultations_branch_idx on public.consultations(branch_id, visited_on);
+  create index if not exists invoices_branch_idx on public.invoices(branch_id, issued_on);
+
+  ------------------------------------------------------------------- helpers
+  create or replace function public.branch_code(p_name text)
+  returns text language sql immutable set search_path = public as $$
+    select coalesce(
+      nullif(btrim(regexp_replace(upper(coalesce(p_name, '')), '[^A-Z0-9]+', '-', 'g'), '-'), ''),
+      'BRANCH');
+  $$;
+
+  -- Branch ids the signed-in member may read. Owners see every branch of the
+  -- clinic; everyone else sees only active assignments on their own staff row.
+  create or replace function public.user_branch_ids(p_clinic uuid)
+  returns setof uuid language sql stable security definer set search_path = public as $$
+    select sb.branch_id
+      from public.staff_branches sb
+      join public.staff s on s.id = sb.staff_id
+     where s.clinic_id = p_clinic and s.user_id = auth.uid() and s.active and sb.active
+     union
+    select b.id
+      from public.branches b
+     where b.clinic_id = p_clinic and b.active and public.is_clinic_owner(p_clinic);
+  $$;
+
+  create or replace function public.can_access_branch(p_clinic uuid, p_branch uuid)
+  returns boolean language sql stable security definer set search_path = public as $$
+    select p_branch is null
+        or exists (select 1 from public.user_branch_ids(p_clinic) u where u = p_branch);
+  $$;
+
+  -- Which branch a new visit / invoice belongs to, without changing any RPC
+  -- signature: the insert trigger below fills branch_id from this answer.
+  create or replace function public.current_branch_id(p_clinic uuid)
+  returns uuid language sql stable security definer set search_path = public as $$
+    select coalesce(
+      (select p.active_branch_id
+         from public.profiles p
+        where p.id = auth.uid()
+          and p.active_branch_id = any (array(select public.user_branch_ids(p_clinic)))),
+      (select u from public.user_branch_ids(p_clinic) u limit 1),
+      (select b.id from public.branches b
+        where b.clinic_id = p_clinic and b.active
+        order by b.created_at, b.id limit 1)
+    );
+  $$;
+
+  ------------------------------------------------------------------- triggers
+  create or replace function public.tag_branch()
+  returns trigger language plpgsql security definer set search_path = public as $$
+  begin
+    if new.branch_id is null then
+      new.branch_id := public.current_branch_id(new.clinic_id);
+    end if;
+    return new;
+  end $$;
+  drop trigger if exists appointments_tag_branch on public.appointments;
+  create trigger appointments_tag_branch before insert on public.appointments
+    for each row execute function public.tag_branch();
+  drop trigger if exists consultations_tag_branch on public.consultations;
+  create trigger consultations_tag_branch before insert on public.consultations
+    for each row execute function public.tag_branch();
+  drop trigger if exists invoices_tag_branch on public.invoices;
+  create trigger invoices_tag_branch before insert on public.invoices
+    for each row execute function public.tag_branch();
+
+  create or replace function public.ensure_default_branch(p_clinic uuid)
+  returns uuid language plpgsql security definer set search_path = public as $$
+  declare v_id uuid;
+  begin
+    insert into public.branches (clinic_id, name, code, active)
+    values (p_clinic, 'Main branch', 'MAIN', true)
+    on conflict (clinic_id, code) do update set active = true
+    returning id into v_id;
+    return v_id;
+  end $$;
+  create or replace function public.clinics_default_branch_trg()
+  returns trigger language plpgsql security definer set search_path = public as $$
+  begin
+    perform public.ensure_default_branch(new.id);
+    return new;
+  end $$;
+  drop trigger if exists clinics_default_branch on public.clinics;
+  create trigger clinics_default_branch after insert on public.clinics
+    for each row execute function public.clinics_default_branch_trg();
+
+  create or replace function public.assign_staff_branches(p_staff uuid)
+  returns void language plpgsql security definer set search_path = public as $$
+  declare v_role text; v_clinic uuid; v_user uuid; v_branch uuid;
+  begin
+    select s.role, s.clinic_id, s.user_id into v_role, v_clinic, v_user
+      from public.staff s where s.id = p_staff;
+    if v_clinic is null then return; end if;
+    v_branch := public.ensure_default_branch(v_clinic);
+    if v_role = 'owner' then
+      insert into public.staff_branches (staff_id, branch_id, active)
+      select p_staff, b.id, true from public.branches b
+       where b.clinic_id = v_clinic and b.active
+      on conflict (staff_id, branch_id) do update set active = true;
+    else
+      insert into public.staff_branches (staff_id, branch_id, active)
+      values (p_staff, v_branch, true)
+      on conflict (staff_id, branch_id) do update set active = true;
+    end if;
+    if v_user is not null then
+      update public.profiles
+         set active_branch_id = coalesce(active_branch_id, v_branch)
+       where id = v_user and active_branch_id is null;
+    end if;
+  end $$;
+  create or replace function public.staff_default_branch_trg()
+  returns trigger language plpgsql security definer set search_path = public as $$
+  begin
+    perform public.assign_staff_branches(new.id);
+    return new;
+  end $$;
+  drop trigger if exists staff_default_branch on public.staff;
+  create trigger staff_default_branch after insert on public.staff
+    for each row execute function public.staff_default_branch_trg();
+
+  create or replace function public.assign_owner_to_branch(p_branch uuid)
+  returns void language plpgsql security definer set search_path = public as $$
+  declare v_clinic uuid;
+  begin
+    select clinic_id into v_clinic from public.branches where id = p_branch;
+    if v_clinic is null then return; end if;
+    insert into public.staff_branches (staff_id, branch_id, active)
+    select s.id, p_branch, true from public.staff s
+     where s.clinic_id = v_clinic and s.active and s.role = 'owner'
+    on conflict (staff_id, branch_id) do update set active = true;
+  end $$;
+  create or replace function public.branches_owner_assignment_trg()
+  returns trigger language plpgsql security definer set search_path = public as $$
+  begin
+    perform public.assign_owner_to_branch(new.id);
+    return new;
+  end $$;
+  drop trigger if exists branches_owner_assignment on public.branches;
+  create trigger branches_owner_assignment after insert on public.branches
+    for each row execute function public.branches_owner_assignment_trg();
+
+  -- One active branch for doctors / front desk; several for owners. A branch must
+  -- belong to the staff member's own clinic.
+  create or replace function public.staff_branch_guard()
+  returns trigger language plpgsql security definer set search_path = public as $$
+  declare v_role text; v_clinic uuid; v_count int;
+  begin
+    select s.role, s.clinic_id into v_role, v_clinic
+      from public.staff s where s.id = new.staff_id;
+    if v_clinic is null then
+      raise exception 'unknown staff row' using errcode = '23503';
+    end if;
+    if not exists (select 1 from public.branches b
+                    where b.id = new.branch_id and b.clinic_id = v_clinic) then
+      raise exception 'branch belongs to another clinic' using errcode = '23503';
+    end if;
+    if v_role <> 'owner' and new.active then
+      select count(*) into v_count
+        from public.staff_branches sb
+       where sb.staff_id = new.staff_id and sb.active
+         and sb.branch_id is distinct from new.branch_id;
+      if v_count >= 1 then
+        raise exception 'only an owner can be assigned more than one branch' using errcode = '23514';
+      end if;
+    end if;
+    return new;
+  end $$;
+  drop trigger if exists staff_branches_guard on public.staff_branches;
+  create trigger staff_branches_guard before insert or update on public.staff_branches
+    for each row execute function public.staff_branch_guard();
+
+  ---------------------------------------------------------------------- RLS
+  drop policy if exists branches_read on public.branches;
+  create policy branches_read on public.branches for select to authenticated
+    using (
+      public.is_clinic_staff(clinic_id)
+      and (
+        public.is_clinic_owner(clinic_id)
+        or exists (
+          select 1 from public.staff_branches sb
+          join public.staff s on s.id = sb.staff_id
+         where sb.branch_id = branches.id and sb.active
+           and s.user_id = auth.uid() and s.active
+        )
+      )
+    );
+  drop policy if exists branches_owner_write on public.branches;
+  create policy branches_owner_write on public.branches for all to authenticated
+    using (public.is_clinic_owner(clinic_id))
+    with check (public.is_clinic_owner(clinic_id));
+
+  drop policy if exists staff_branches_read on public.staff_branches;
+  create policy staff_branches_read on public.staff_branches for select to authenticated
+    using (exists (
+      select 1 from public.staff s
+       where s.id = staff_id
+         and (s.user_id = auth.uid() or public.is_clinic_owner(s.clinic_id))
+    ));
+  drop policy if exists staff_branches_owner_write on public.staff_branches;
+  create policy staff_branches_owner_write on public.staff_branches for all to authenticated
+    using (exists (
+      select 1 from public.staff s
+       where s.id = staff_id and public.is_clinic_owner(s.clinic_id)
+    ))
+    with check (exists (
+      select 1 from public.staff s
+       where s.id = staff_id and public.is_clinic_owner(s.clinic_id)
+    ));
+
+  -- The old role matrix stays; branch access is an additional AND, never a
+  -- replacement. A null branch_id is a pre-schema-20 row and stays readable.
+  drop policy if exists appointments_read on public.appointments;
+  create policy appointments_read on public.appointments for select to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+  drop policy if exists appointments_write on public.appointments;
+  create policy appointments_write on public.appointments for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id)
+      -- schema 17's cross-clinic guards survive the branch rewrite
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = appointments.clinic_id)
+      and exists (select 1 from public.staff sd
+                   where sd.id = doctor_id and sd.clinic_id = appointments.clinic_id));
+  drop policy if exists appointments_update on public.appointments;
+  create policy appointments_update on public.appointments for update to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id))
+    with check (public.has_role(clinic_id, array['owner','doctor','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id)
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = appointments.clinic_id));
+  drop policy if exists appointments_delete on public.appointments;
+  create policy appointments_delete on public.appointments for delete to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+
+  drop policy if exists consultations_read on public.consultations;
+  create policy consultations_read on public.consultations for select to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor'])
+      and public.can_access_branch(clinic_id, branch_id));
+  drop policy if exists consultations_write on public.consultations;
+  create policy consultations_write on public.consultations for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','doctor'])
+      and public.can_access_branch(clinic_id, branch_id)
+      -- schema 17's cross-clinic guards survive the branch rewrite
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = consultations.clinic_id)
+      and exists (select 1 from public.staff sd
+                   where sd.id = doctor_id and sd.clinic_id = consultations.clinic_id));
+  drop policy if exists consultations_update on public.consultations;
+  create policy consultations_update on public.consultations for update to authenticated
+    using (public.has_role(clinic_id, array['owner','doctor'])
+      and public.can_access_branch(clinic_id, branch_id))
+    with check (public.has_role(clinic_id, array['owner','doctor'])
+      and public.can_access_branch(clinic_id, branch_id)
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = consultations.clinic_id));
+  drop policy if exists consultations_delete on public.consultations;
+  create policy consultations_delete on public.consultations for delete to authenticated
+    using (public.is_clinic_owner(clinic_id)
+      and public.can_access_branch(clinic_id, branch_id));
+
+  drop policy if exists invoices_read on public.invoices;
+  create policy invoices_read on public.invoices for select to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+  drop policy if exists invoices_write on public.invoices;
+  create policy invoices_write on public.invoices for insert to authenticated
+    with check (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id)
+      -- schema 17's cross-clinic guards survive the branch rewrite
+      and exists (select 1 from public.patients p
+                   where p.id = patient_id and p.clinic_id = invoices.clinic_id)
+      and (doctor_id is null or exists (select 1 from public.staff sd
+                                         where sd.id = doctor_id and sd.clinic_id = invoices.clinic_id)));
+  drop policy if exists invoices_update on public.invoices;
+  create policy invoices_update on public.invoices for update to authenticated
+    using (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id))
+    with check (public.has_role(clinic_id, array['owner','frontdesk'])
+      and public.can_access_branch(clinic_id, branch_id));
+  drop policy if exists invoices_delete on public.invoices;
+  create policy invoices_delete on public.invoices for delete to authenticated
+    using (public.is_clinic_owner(clinic_id)
+      and public.can_access_branch(clinic_id, branch_id));
+
+  --------------------------------------------------------------------- RPCs
+  create or replace function public.create_branch(p_clinic uuid, p_name text)
+  returns public.branches language plpgsql security definer set search_path = public as $$
+  declare
+    v_plan text; v_limit int; v_count int;
+    v_base text; v_code text; v_suffix text; v_n int := 2;
+    v_name text; v_row public.branches;
+  begin
+    if not public.is_clinic_owner(p_clinic) then
+      raise exception 'only a clinic owner can create a branch' using errcode = '42501';
+    end if;
+    v_name := btrim(coalesce(p_name, ''));
+    if char_length(v_name) not between 1 and 80 then
+      raise exception 'branch name must be 1–80 characters' using errcode = '22023';
+    end if;
+    select coalesce(s.plan, c.plan) into v_plan
+      from public.clinics c
+      left join public.clinic_subscriptions s on s.clinic_id = c.id
+     where c.id = p_clinic;
+    v_limit := public.plan_seat_limit(v_plan, 'branches');
+    select count(*) into v_count from public.branches b
+     where b.clinic_id = p_clinic and b.active;
+    if v_limit is not null and v_count >= v_limit then
+      raise exception 'the % plan allows % branch(es)', v_plan, v_limit using errcode = '22023';
+    end if;
+    v_base := left(public.branch_code(v_name), 16);
+    v_code := v_base;
+    while exists (select 1 from public.branches b
+                   where b.clinic_id = p_clinic and b.code = v_code) loop
+      v_suffix := '-' || v_n::text;
+      v_code := btrim(left(v_base, 16 - char_length(v_suffix)), '-') || v_suffix;
+      v_n := v_n + 1;
+    end loop;
+    insert into public.branches (clinic_id, name, code, active)
+    values (p_clinic, v_name, v_code, true)
+    returning * into v_row;
+    return v_row;
+  end $$;
+
+  create or replace function public.set_staff_branches(p_staff uuid, p_branch_ids uuid[])
+  returns void language plpgsql security definer set search_path = public as $$
+  declare v_role text; v_clinic uuid; v_valid uuid[];
+  begin
+    select s.role, s.clinic_id into v_role, v_clinic
+      from public.staff s where s.id = p_staff;
+    if v_clinic is null then raise exception 'unknown staff row' using errcode = '23503'; end if;
+    if not public.is_clinic_owner(v_clinic) then
+      raise exception 'only a clinic owner can assign branches' using errcode = '42501';
+    end if;
+    select coalesce(array_agg(b.id), '{}'::uuid[]) into v_valid
+      from public.branches b
+     where b.id = any (coalesce(p_branch_ids, '{}'::uuid[]))
+       and b.clinic_id = v_clinic and b.active;
+    if coalesce(array_length(v_valid, 1), 0) = 0 then
+      raise exception 'choose at least one branch' using errcode = '22023';
+    end if;
+    if v_role <> 'owner' and array_length(v_valid, 1) > 1 then
+      raise exception 'only an owner can be assigned more than one branch' using errcode = '22023';
+    end if;
+    update public.staff_branches
+       set active = false
+     where staff_id = p_staff and active;
+    insert into public.staff_branches (staff_id, branch_id, active)
+    select p_staff, u, true from unnest(v_valid) as t(u)
+    on conflict (staff_id, branch_id) do update set active = true;
+  end $$;
+
+  create or replace function public.set_active_branch(p_branch uuid)
+  returns void language plpgsql security definer set search_path = public as $$
+  declare v_clinic uuid;
+  begin
+    select clinic_id into v_clinic from public.branches
+     where id = p_branch and active;
+    if v_clinic is null then raise exception 'unknown branch' using errcode = '22023'; end if;
+    if not public.can_access_branch(v_clinic, p_branch) then
+      raise exception 'you are not assigned to this branch' using errcode = '42501';
+    end if;
+    update public.profiles set active_branch_id = p_branch where id = auth.uid();
+  end $$;
+
+  revoke all on function public.create_branch(uuid, text) from public, anon;
+  revoke all on function public.set_staff_branches(uuid, uuid[]) from public, anon;
+  revoke all on function public.set_active_branch(uuid) from public, anon;
+  grant execute on function public.create_branch(uuid, text) to authenticated;
+  grant execute on function public.set_staff_branches(uuid, uuid[]) to authenticated;
+  grant execute on function public.set_active_branch(uuid) to authenticated;
+
+  ----------------------------------------------------------------- backfill
+  -- Every existing clinic gets a Main branch; every active staff row gets an
+  -- assignment, and owners get every branch so they keep seeing all their data.
+  insert into public.branches (clinic_id, name, code, active)
+  select c.id, 'Main branch', 'MAIN', true
+    from public.clinics c
+   where not exists (select 1 from public.branches b where b.clinic_id = c.id)
+  on conflict (clinic_id, code) do update set active = true;
+
+  insert into public.staff_branches (staff_id, branch_id, active)
+  select s.id, b.id, true
+    from public.staff s
+    join public.branches b on b.clinic_id = s.clinic_id and b.active
+   where s.active and s.role = 'owner'
+  on conflict (staff_id, branch_id) do update set active = true;
+
+  insert into public.staff_branches (staff_id, branch_id, active)
+  select s.id,
+         (select b2.id from public.branches b2
+           where b2.clinic_id = s.clinic_id and b2.active
+           order by b2.created_at, b2.id limit 1),
+         true
+    from public.staff s
+   where s.active and s.role <> 'owner'
+     and not exists (select 1 from public.staff_branches sb
+                      where sb.staff_id = s.id and sb.active)
+  on conflict (staff_id, branch_id) do update set active = true;
+
+  update public.appointments a
+     set branch_id = (select b.id from public.branches b
+                       where b.clinic_id = a.clinic_id and b.active
+                       order by b.created_at, b.id limit 1)
+   where a.branch_id is null;
+  update public.consultations c
+     set branch_id = (select b.id from public.branches b
+                       where b.clinic_id = c.clinic_id and b.active
+                       order by b.created_at, b.id limit 1)
+   where c.branch_id is null;
+  update public.invoices i
+     set branch_id = (select b.id from public.branches b
+                       where b.clinic_id = i.clinic_id and b.active
+                       order by b.created_at, b.id limit 1)
+   where i.branch_id is null;
+
+  update public.profiles p
+     set active_branch_id = (
+       select sb.branch_id from public.staff_branches sb
+       join public.staff s on s.id = sb.staff_id
+      where s.user_id = p.id and sb.active
+      order by sb.created_at limit 1)
+   where p.active_branch_id is null;
+
+  --------------------------------------------------------------- migration row
+  insert into public.schema_migrations (version, name, app_version, summary)
+  values (20, 'branches', '1.41.0',
+          'child branches, staff_branches assignments, branch-tagged visits/invoices, default Main branch backfill and owner-only branch RPCs')
+  on conflict (version) do nothing;
+
+  update public.app_meta
+     set schema_version = 20, applied_at = now(),
+         notes = 'branches: one parent clinic, many child branches, owners see all, staff see assigned, visits and invoices tagged by branch'
+   where schema_version < 20;
+end $migration$;
+
 
 commit;
