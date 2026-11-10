@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.1';
+export const APP_VERSION = '1.35.2';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.35.2', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**Patient records now has a date filter.** The register had two fixed date rules — “New this month” and “Not seen recently” — but no way to choose a date, so a desk wanting everyone registered in the first week of November had to export the whole register and sort the CSV by hand. A compact bar under the tabs adds a **From** / **To** range, quick ranges (Today, Last 7 days, This month, Last 30 days, Last 90 days) and a **Clear** button.',
+      '**Both dates are selectable.** The request did not say which date, so the field picker offers **Registered** (the default — the same date the “New this month” tab reads) and **Last seen** (the permission-aware last visit, which already falls back to completed appointments when the front desk cannot read consultations). Switching the field switches the result.',
+      'The filtered set is the list: it feeds search, the **All** tab count, the on-screen “N patients” head and **Export**, so the CSV contains exactly what the desk sees. An `aria-live` line states the active field, range and match count; a reversed range shows an inline error and keeps every row instead of an empty register. A range can also be linked to with `?from=…&to=…&dateField=…`.',
+      'All rules live in `src/lib/patient-dates.mjs` (10 tests); an SSR smoke renders the unfiltered register, a real date-filtered view, the Last seen field, a reversed range and a malformed link. No schema, RPC, store or seed change.',
+    ],
+  },
   {
     version: '1.35.1', date: '2026-11-02', schema: 19,
     highlights: [

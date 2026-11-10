@@ -11,9 +11,10 @@ Written before any code changed, from the code as it stands at **v1.32.0**.
 **v1.34.0** (schema 19), ahead of the rest because it was asked for last — see §10
 for the plan and the deviation that discovery forced. Item 5 (the token queue)
 shipped in **v1.35.0**, ahead of the rest because it was asked for next — see §5, and
-refined in **v1.35.1** so each seat has its own Consult / Done. Items 3 and 4 move to
-v1.36.0 and v1.37.0; items 6–8 keep their slots; item 9 waits on the three decisions
-at the end of this document.
+refined in **v1.35.1** so each seat has its own Consult / Done. A later, unrelated
+request — a date filter on the Patient records list — is item 11 and shipped as
+**v1.35.2** (§11). Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their
+slots; item 9 waits on the three decisions at the end of this document.
 
 ---
 
@@ -31,6 +32,7 @@ at the end of this document.
 | 8 | v1.40.0 | Register a patient: first + last name, phone/email checks, no duplicates | medium | — (compose `full_name`) | form + validators |
 | 9 | v1.41.0+ | Multi-clinic: create and manage branches, each with its own front desk | **high** | **yes** | schema + RPC + screens |
 | 10 | **v1.34.0** | Onboarding / "Set up your clinic": clinic details, lead doctor, hours & fees | medium | **yes** (schema 19) | page + pure module + `create_clinic()` |
+| 11 | **v1.35.2** | Patient records: add a date filter to the All list | low | — | one pure module + `Patients.jsx` |
 
 Items 1 and 2 are the same release because both are the sidebar and nothing else.
 Everything else stays one item per release.
@@ -362,3 +364,44 @@ clinic phone and the doctor's phone are independent; a bad phone, email, fee or
 reversed hours cannot advance a step; a reload resumes at the step it was left on with
 the values typed; the review step names what will be created; and a payload with only
 a name still creates a working clinic with every default (the old behaviour).
+
+---
+
+## 11 · v1.35.2 — a date filter on Patient records
+
+**Today.** `Patients.jsx` is the register: a search box, a sort selector and five tabs
+(`All`, `New this month`, `Chronic flags`, `Has dues`, `Not seen recently`). Two of
+those tabs are already fixed date rules — `new` compares `created_at` with the first
+of the month, `inactive` compares the last visit with it — but there is **no way to
+choose a date**. A desk that wants "everyone registered in the first week of
+November", or "patients we saw on a particular day", can only export all of them and
+filter the CSV by hand.
+
+**Change.** A compact date-filter bar under the tabs, part of the `All` list and
+composing with every other filter:
+
+1. **`src/lib/patient-dates.mjs`** (pure, tested): `PATIENT_DATE_FIELDS`,
+   `DATE_PRESETS`, `isoDay()`, `patientDate(patient, field, lastVisit)`,
+   `normaliseDateRange(from, to)`, `presetRange(value, iso)`,
+   `filterPatientsByDate(patients, { field, from, to, lastVisitOf })`,
+   `dateFilterActive()` and `fieldLabel()`.
+2. **Two dates selectable**, because the request does not say which one:
+   **Registered** (`created_at`, the default — the same date the `New this month`
+   tab uses) and **Last seen** (`lastSeen(p.id).visited_on`, which already falls
+   back to completed appointments when the front desk cannot read consultations).
+3. **An inclusive `From` / `To` range** plus quick presets (Today, Last 7 days,
+   This month, Last 30 days, Last 90 days) and a **Clear** control. A reversed
+   range shows an inline error and does not filter; a half-typed bound is simply
+   ignored until it is a real date.
+4. The filtered set feeds `patientSearch`, the tabs' `All` count, the list, the
+   "N patients" head and **Export** — so the CSV is what the desk sees, not the whole
+   register. An `aria-live` line states the active field, range and match count.
+   `?from=…&to=…&dateField=…` opens a pre-filtered register (sanitised through
+   `isoDay`), which also makes the filtered view server-renderable in a smoke.
+
+**Acceptance.** With no dates set the register is byte-for-byte the same list it is
+today; a `From`/`To` range keeps only patients whose chosen date is inside it
+(inclusive); switching the field switches the result; a preset sets both bounds;
+`From > To` shows the error and keeps all rows; a patient with no date is excluded
+while a filter is active; Export exports the filtered rows; and the permission-aware
+`lastSeen` is the one used for "Last seen". No schema, RPC, store or seed change.

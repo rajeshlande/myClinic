@@ -3,6 +3,58 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.2] — 2026-11-02 · schema 19
+
+**A date filter on Patient records / All.**
+
+The register had a search box, a sort selector and five tabs — two of which are
+already *fixed* date rules ("New this month", "Not seen recently") — but no way to
+choose a date. A desk wanting "everyone registered in the first week of November"
+could only export all patients and filter the CSV by hand.
+
+| Change | File | Why |
+| --- | --- | --- |
+| pure date rules | `src/lib/patient-dates.mjs` (new) | no rule belongs inline in JSX; the two dates, the inclusive range and the presets are testable on their own |
+| **Date to filter**, **From**, **To**, **Quick range**, **Clear dates** bar under the tabs | `Patients.jsx` | there was no date control at all |
+| both **Registered** and **Last seen** selectable | `queue`-free `patient-dates.mjs` + page | the request did not say which date; covering both avoids guessing wrong |
+| the filtered set feeds search, the All count, the list and Export | `Patients.jsx` | a filter that only changes the visible rows while Export writes everything is a trap |
+
+- **Two dates, one picker.** **Registered** reads `created_at` (the default, and the
+  same date the "New this month" tab uses); **Last seen** reads the permission-aware
+  `lastSeen(p.id)`, which falls back to completed appointments when the front desk
+  cannot read consultation rows. The page passes `(p) => lastSeen(p.id)` into the
+  pure module — the first draft passed `lastSeen` directly, whose argument is an
+  **id**, not a row, and "Last seen" silently matched nobody. Caught by the SSR
+  smoke, not by reading the code.
+- **Inclusive range, no surprises.** `isoDay()` takes the first ten characters of a
+  timestamp or a plain date and refuses impossible days (`2026-02-30`); a
+  half-typed bound is dropped rather than treated as an error; a reversed range
+  shows *"The start date is after the end date."* in a `role="alert"` block and
+  keeps every row rather than showing an empty register. A row with no date is
+  excluded while a filter is active, and an inactive filter returns the **same
+  array** it was given — so with no dates set the register is exactly what it was.
+- **Quick ranges.** Today, Last 7 days, This month, Last 30 days and Last 90 days,
+  all ending on the clinic's local day and inclusive of both ends. Editing a bound
+  by hand clears the preset so the selector never lies about what is selected.
+- **One filtered set, everywhere.** `dateScoped` feeds `patientSearch`, the `All`
+  tab count, the list, the "N patients" head and `exportCsv`. An `aria-live` line
+  states the field, the range and the match count — *"Registered 1 Nov – 10 Nov ·
+  3 of 6 patients"*. `?from=…&to=…&dateField=…` opens a pre-filtered register
+  (sanitised through `isoDay`), which also makes a filtered view server-renderable.
+- **Verified.** 10 tests in `tests/patient-dates.test.mjs` pin the two fields, the
+  presets' arithmetic, inclusive bounds, reversal, undated rows, the permission
+  callback and three page-wiring ratchets. An SSR smoke at
+  `tools/patient-dates-smoke/` (28 checks) renders the real screen: the unfiltered
+  register with every control and `All (6)`, a `1–10 Nov` range with only the three
+  in-range names, the **Last seen** field matching visits rather than
+  registrations, a reversed range showing the alert while keeping all rows, and a
+  malformed link that opens plain rather than broken.
+- **Plan.** This request was not in the original nine; it is item 11 of
+  `docs/PLAN-v1.33.md` (§11) and ships as a patch release, v1.35.2, so items 3–9
+  keep their slots. The lib census goes to 48 modules (22 import nothing) in
+  `docs/ARCHITECTURE.md`. **No change** to the schema, any RPC, the store, seeds
+  or any other screen.
+
 ## [1.35.1] — 2026-11-02 · schema 19
 
 **Separate Consult / Done for each token in the room.**

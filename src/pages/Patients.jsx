@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
-  CalendarPlus, Download, Phone, Plus, Users, UserRound, ChevronRight, ShieldAlert, Wallet, MoreHorizontal,
+  CalendarPlus, Download, Phone, Plus, Users, UserRound, ChevronRight, ShieldAlert, Wallet, MoreHorizontal, X,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import {
-  useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, IconButton, SearchInput, Select, Tabs,
+  useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Field, IconButton, Input, SearchInput, Select, Tabs,
 } from '../components/ui.jsx';
 import PatientForm from '../components/PatientForm.jsx';
 import AppointmentForm from '../components/AppointmentForm.jsx';
@@ -13,6 +13,10 @@ import {
   ageLabel, appointmentVisitsSince, downloadFile, formatDate, formatMoney, lastAppointmentVisit, lastVisit, outstandingByPatient, patientSearch, toCSV, today, visitFrequency,
 } from '../lib/logic.mjs';
 import { can } from '../lib/permissions.js';
+import {
+  PATIENT_DATE_FIELDS, DATE_PRESETS, dateFilterActive, dateRangeLabel, filterPatientsByDate,
+  isoDay, normaliseDateRange, presetRange,
+} from '../lib/patient-dates.mjs';
 
 export default function Patients() {
   const store = useStore();
@@ -25,6 +29,13 @@ export default function Patients() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('recent');
   const [filter, setFilter] = useState('all');
+  // Date filter: which date to read, an inclusive range, and the last preset used.
+  // A filtered register can be linked to (?from=…&to=…&dateField=…); bounds are
+  // sanitised so a bad link opens the unfiltered list instead of a broken input.
+  const [dateField, setDateField] = useState(params.get('dateField') === 'lastVisit' ? 'lastVisit' : 'registered');
+  const [fromDate, setFromDate] = useState(isoDay(params.get('from')));
+  const [toDate, setToDate] = useState(isoDay(params.get('to')));
+  const [preset, setPreset] = useState('');
   const [formOpen, setFormOpen] = useState(params.get('new') === '1');
   const [editing, setEditing] = useState(null);
   const [apptFor, setApptFor] = useState(null);
@@ -51,7 +62,18 @@ export default function Patients() {
     : appointmentVisitsSince(store.appointments, patientId)), [canReadConsults, store.consultations, store.appointments]);
 
   const dues = useMemo(() => outstandingByPatient(store.invoices), [store.invoices]);
-  const searchFn = useMemo(() => patientSearch(store.patients, query), [store.patients, query]);
+  const dateRange = normaliseDateRange(fromDate, toDate);
+  const datesActive = dateFilterActive(fromDate, toDate);
+  // `lastSeen` already honours the front desk's consultation permission, so the
+  // "Last seen" field never reads a row the role cannot see.
+  const dateScoped = useMemo(
+    () => filterPatientsByDate(store.patients, {
+      field: dateField, from: dateRange.from, to: dateRange.to,
+      lastVisitOf: (p) => lastSeen(p.id),
+    }),
+    [store.patients, dateField, dateRange.from, dateRange.to, lastSeen],
+  );
+  const searchFn = useMemo(() => patientSearch(dateScoped, query), [dateScoped, query]);
   const rows = useMemo(() => {
     let list = searchFn;
     if (filter === 'dues') list = list.filter((p) => (dues.get(p.id) ?? 0) > 0);
@@ -69,6 +91,14 @@ export default function Patients() {
       return String(b._last?.visited_on ?? '').localeCompare(String(a._last?.visited_on ?? ''));
     });
   }, [searchFn, filter, sort, dues, store.consultations, store.appointments, lastSeen, visitCount]);
+
+  const applyPreset = (value) => {
+    setPreset(value);
+    const r = presetRange(value);
+    setFromDate(r.from);
+    setToDate(r.to);
+  };
+  const clearDates = () => { setFromDate(''); setToDate(''); setPreset(''); };
 
   const exportCsv = () => {
     const csv = toCSV(rows, [
@@ -111,13 +141,47 @@ export default function Patients() {
       <Tabs
         value={filter} onChange={setFilter}
         tabs={[
-          { value: 'all', label: 'All', count: store.patients.length },
+          { value: 'all', label: 'All', count: dateScoped.length },
           { value: 'new', label: 'New this month' },
           { value: 'chronic', label: 'Chronic flags' },
           { value: 'dues', label: 'Has dues' },
           { value: 'inactive', label: 'Not seen recently' },
         ]}
       />
+
+      {/* Date filter on the register. Composes with the tab, search and sort;
+          the same scoped list is what Export writes to the CSV. */}
+      <div className="card pad no-print" style={{ padding: 12, boxShadow: 'none' }}>
+        <div className="row wrap" style={{ gap: 10, alignItems: 'flex-end' }}>
+          <Field label="Date to filter">
+            <Select value={dateField} onChange={(e) => setDateField(e.target.value)} aria-label="Date to filter by" style={{ minWidth: 148 }}>
+              {PATIENT_DATE_FIELDS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </Select>
+          </Field>
+          <Field label="From">
+            <Input type="date" value={fromDate} max={toDate || undefined} aria-label="From date"
+              onChange={(e) => { setFromDate(e.target.value); setPreset(''); }} />
+          </Field>
+          <Field label="To">
+            <Input type="date" value={toDate} min={fromDate || undefined} aria-label="To date"
+              onChange={(e) => { setToDate(e.target.value); setPreset(''); }} />
+          </Field>
+          <Field label="Quick range">
+            <Select value={preset} onChange={(e) => applyPreset(e.target.value)} aria-label="Quick date range" style={{ minWidth: 158 }}>
+              <option value="">Choose…</option>
+              {DATE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </Select>
+          </Field>
+          {datesActive ? <Button size="sm" variant="ghost" icon={X} onClick={clearDates}>Clear dates</Button> : null}
+          <span className="spacer" />
+          <span className="tiny muted" role="status" aria-live="polite">
+            {datesActive && !dateRange.error
+              ? `${dateRangeLabel({ field: dateField, from: dateRange.from, to: dateRange.to })} · ${dateScoped.length} of ${store.patients.length} patients`
+              : `${store.patients.length} registered · no date filter`}
+          </span>
+        </div>
+        {dateRange.error ? <p className="tiny" role="alert" style={{ color: 'var(--danger)', marginTop: 8 }}>{dateRange.error}</p> : null}
+      </div>
 
       <div className="grid two" style={{ gap: 16 }}>
         <Card style={{ gridColumn: '1 / -1' }}>
@@ -157,7 +221,7 @@ export default function Patients() {
                 </div>
               );
             }) : (
-              <EmptyState icon={UserRound} title="No patients match" description="Try a different search or filter — or register the patient now."
+              <EmptyState icon={UserRound} title="No patients match" description="Try a different search, tab or date range — or register the patient now."
                 action={<Button size="sm" variant="primary" icon={Plus} onClick={() => setFormOpen(true)}>Register patient</Button>} />
             )}
             {rows.length > shown ? (
