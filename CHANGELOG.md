@@ -3,6 +3,49 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.26.1] — 2026-11-09 · schema 18
+
+**`docs/ARCHITECTURE.md`: the design, measured, with the debt written down.**
+
+No application code changed in this release. The new document records:
+
+- **The shape**: a functional core with an imperative shell — 30 modules under
+  `src/lib`, **17 of which import nothing**; one class in the app
+  (`ErrorBoundary`, because React requires it); the dependency arrow points down
+  only (`grep 'import .*components/' src/lib` returns nothing); Postgres is the
+  authority and the client is its mirror.
+- **The SOLID scorecard**, graded in the functional translation of each letter
+  because there are no interfaces or hierarchies to substitute into:
+
+  | Principle | Grade | The measurement behind it |
+  | --- | --- | --- |
+  | Single Responsibility | C+ | pure leaves vs `store.jsx` 1,030 lines, `Settings.jsx` 965 / 10 tabs, `logic.mjs` 88 exports |
+  | Open/Closed | B− | 2 `switch` statements in all of `src/`; a new refusal code = 2 files, a new plan = 8 files + `schema.sql` |
+  | Liskov | n/a → B | no hierarchies; one silent widening (`PLAN_LIMITS[plan] ?? growth`) |
+  | Interface Segregation | C | 32 files call `useStore()`, which spreads `...state` and publishes 30+ keys |
+  | Dependency Inversion | A− | 3 files import the Supabase client; `central-sync.mjs` takes `fetch`/`storage`/`now` |
+
+- **The honest failures**: the store god object; the plan vocabulary in eight
+  files; every business rule duplicated between JavaScript and SQL with nothing
+  testing the pair; `logic.mjs` as a "utils" gravity well.
+- **The DIP lesson from 1.25.1**, stated as a rule: *injection without a default,
+  and without a test through the real boundary, is an incompleteness — not a
+  virtue.*
+- **A five-step refactor plan ordered lowest risk first**, one release each:
+  1. `src/lib/plans.mjs` — one source for the plan vocabulary (v1.27.0)
+  2. `tests/schema-parity.test.mjs` — fail when the JS mirror and the SQL
+     authority disagree (v1.28.0)
+  3. `logic.mjs` split behind a re-export barrel, no call site touched (v1.29.0)
+  4. `Settings.jsx` split into its ten tabs (v1.30.0)
+  5. `store.jsx` split by capability in four sub-releases, ending with
+     `DataContext` + `ActionsContext` + selector hooks (v1.31.0+)
+
+  Each step lists its acceptance check, its blast radius and its rollback. The
+  standing rules for all five: no new dependency, no public API change, no
+  behaviour change, no test deleted, version bumped in lockstep.
+
+**529 tests / 25 suites**, 28/28 contributing checks, 0 warnings.
+
 ## [1.26.0] — 2026-11-09 · schema 18
 
 **One ending for every visit, and three things taken off the screens they were

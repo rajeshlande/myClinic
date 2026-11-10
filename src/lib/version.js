@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.26.0';
+export const APP_VERSION = '1.26.1';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.26.1', date: '2026-11-09', schema: 18,
+    highlights: [
+      '`docs/ARCHITECTURE.md` writes down what this codebase is: a functional core (30 modules under `src/lib`, 17 of which import nothing) behind a thin React shell, with Postgres as the authority and the client as its mirror. Every claim in it carries the command that measured it, so it can be re-measured instead of trusted.',
+      'It also records where the design is weak, in public: `store.jsx` is 1,030 lines and publishes 30+ keys to 32 files, the plan vocabulary lives in 8 JS files plus `schema.sql`, and every business rule exists twice — once in JavaScript, once in SQL — with nothing testing the two copies together. Grades: DIP A−, OCP B−, SRP C+, ISP C.',
+      'The refactor plan is ordered by effort and blast radius, not severity, one step per release: a single `plans.mjs` (v1.27.0), a schema-parity test that fails when the JS mirror and the SQL authority disagree (v1.28.0), `logic.mjs` split behind a re-export barrel (v1.29.0), `Settings.jsx` split into its ten tabs (v1.30.0), and `store.jsx` split by capability in four sub-releases (v1.31.0+). No step changes behaviour, the database, the RPC contract or the seal.',
+    ],
+  },
   {
     version: '1.26.0', date: '2026-11-09', schema: 18,
     highlights: [

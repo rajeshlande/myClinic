@@ -205,7 +205,7 @@ supabase/
   schema.sql              the whole database: tables, policies, functions, migrations 1→18
   schema-tests.sql        fourteen rolled-back SQL suites
 tests/                    529 unit tests across 25 suites
-docs/                     setup, security, dependency and gap analysis
+docs/                     setup, security, architecture, dependency and gap analysis
 scripts/                  check-pages.mjs, security-check.mjs
 ```
 
@@ -299,6 +299,7 @@ build expects.
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, conventions, and what must never regress. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Every release, with the schema version it needs. |
 | [`PUSH.md`](PUSH.md) | How this repository hands over releases as git bundles. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the code is held together, the SOLID scorecard with measured evidence, and the refactor plan ordered lowest risk first. |
 | [`docs/PRODUCT-GAP-ANALYSIS.md`](docs/PRODUCT-GAP-ANALYSIS.md) | What is deliberately **not** built yet, and why. |
 | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Dependencies and licences. |
 
