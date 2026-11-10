@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.35.3';
+export const APP_VERSION = '1.35.4';
 export const SCHEMA_VERSION = 19;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,15 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.35.4', date: '2026-11-02', schema: 19,
+    highlights: [
+      '**One token per patient per day.** Issuing a token used to insert a row unconditionally, so the same patient could hold T-03 at 09:15 and T-08 at 11:40 — two names on the display and two possible bills. **Issue a token** now checks the patient against the day and refuses with the number they already have. The check runs again from the freshest store at the moment of the click, so a stale board or a double click cannot write a second number.',
+      '**A refused token is not a dead end.** The desk gets an inline explanation with the existing number and its state, plus **Use T-xx** (print / WhatsApp / bill that same token), **Mark arrived** and **Arrived late**. Cancelled numbers do not burn the day; if duplicates already exist from before, the desk is told how many and which is the earliest.',
+      '**No show, not arrived and arrived later are now real states.** A token marked No show used to vanish from the queue entirely — which is exactly why the desk issued another one when the patient turned up. No-show tokens stay visible in a **No show / arrived later** strip and in the token table, and **Arrived late** puts the *same* number back in the queue. Not-arrived tokens can be marked Arrived or No show, and an arrival past its slot is labelled late automatically. The queue header counts all three.',
+      'All rules live in the tested pure module `src/lib/token-policy.mjs`; “arrived late” is a small note marker, not a new status, so the six-value status check in the schema is untouched. 12 new tests and a 37-check SSR smoke render the real duplicate refusal and the real queue. The guard is a client-side fresh-store check, not a database constraint — a strict multi-client race would need a server-side unique index. No schema, RPC, store, seed or `SCHEMA_VERSION` change.',
+    ],
+  },
   {
     version: '1.35.3', date: '2026-11-02', schema: 19,
     highlights: [

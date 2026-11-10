@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Ticket, UserPlus } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Field, Input, Modal, Select, Textarea, Segmented } from './ui.jsx';
@@ -7,10 +7,17 @@ import {
 } from '../lib/logic.mjs';
 import { canMessage, tokenMessage } from '../lib/messages.mjs';
 import { tokenSlipModel } from '../lib/token-slip.mjs';
+import { tokenIssueCheck, arrivalPatch } from '../lib/token-policy.mjs';
+import { ExistingTokenPanel } from './TokenAttendance.jsx';
 import { downloadSlip, printTokenSlip } from '../lib/token-slip-image.js';
 import { TokenIssuedPanel, TokenSlipPrintPortal } from './TokenSlip.jsx';
 import MessageSheet from './MessageSheet.jsx';
 import PatientForm from './PatientForm.jsx';
+
+/** Local HH:MM, passed into the pure attendance rules so they never read a clock. */
+function hhmm(now = new Date()) {
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
 
 /**
  * Front-desk token issue. One screen: pick patient (or register), pick doctor,
@@ -20,6 +27,10 @@ import PatientForm from './PatientForm.jsx';
 export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
   const store = useStore();
   const toast = useToast();
+  // A click can come from a board a few seconds old, or from a second desk: the
+  // one-token-per-day decision is re-taken from the freshest store at click time.
+  const storeRef = useRef(store);
+  storeRef.current = store;
   const doctors = store.doctors.filter((d) => d.active !== false);
   const [patientId, setPatientId] = useState(defaults.patient_id ?? '');
   const [doctorId, setDoctorId] = useState(defaults.doctor_id ?? doctors[0]?.id ?? '');
@@ -42,6 +53,12 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
 
   const doctor = doctors.find((d) => d.id === doctorId);
   const patient = store.patients.find((p) => p.id === patientId);
+  const makeCheck = (source) => tokenIssueCheck({
+    appointments: source.appointments, patientId, iso: today(),
+    patientName: source.patients.find((x) => x.id === patientId)?.full_name ?? 'This patient',
+    doctorName: source.doctors.find((x) => x.id === doctorId)?.full_name ?? '',
+  });
+  const check = makeCheck(store);
   const token = useMemo(
     () => nextTokenNo(store.appointments, doctorId, today()),
     [store.appointments, doctorId],
@@ -77,6 +94,8 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
   async function issue() {
     if (!patientId) { toast.error('Choose or register a patient first.'); return; }
     if (!doctorId) { toast.error('Choose the doctor this token is for.'); return; }
+    const freshCheck = makeCheck(storeRef.current);
+    if (!freshCheck.ok) { toast.error(freshCheck.reason || 'Could not issue the token.'); return; }
     setSaving(true);
     try {
       const now = new Date();
@@ -104,6 +123,33 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
       toast.error(e.message ?? 'Could not issue the token.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** The issued state is driven by one captured record, so "use the existing
+   *  number" and "arrived late" can show/print/WhatsApp that very same token. */
+  function showExisting(record) {
+    setIssued({
+      record, token: record.token_no, patient, doctor, fee,
+      kind: record.kind ?? kind, ahead, slot,
+      issuedOn: record.scheduled_on ?? today(),
+      issuedAt: String(record.scheduled_at ?? '').slice(0, 5),
+    });
+  }
+
+  async function applyAttendance(appt, forceLate = false) {
+    const now = new Date();
+    const patch = arrivalPatch(appt, {
+      at: hhmm(now), nowMinutes: now.getHours() * 60 + now.getMinutes(), forceLate,
+    });
+    try {
+      await store.update('appointments', appt.id, patch);
+      showExisting({ ...appt, ...patch });
+      toast.success(forceLate || patch.notes.includes('Arrived late')
+        ? `${tokenLabel(appt.token_no)} is back in the queue — marked arrived late.`
+        : `${tokenLabel(appt.token_no)} is at the desk.`);
+    } catch (e) {
+      toast.error(e.message ?? 'Could not update this token.');
     }
   }
 
@@ -135,7 +181,9 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
         ) : (
           <>
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" icon={Check} onClick={issue} loading={saving} disabled={!patientId}>
+            <Button variant="primary" icon={Check} onClick={issue} loading={saving}
+              disabled={!patientId || check.code === 'duplicate'}
+              title={check.code === 'duplicate' ? check.reason : ''}>
               Issue {tokenLabel(token)}
             </Button>
           </>
@@ -159,6 +207,7 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
                     <b>{patient.full_name}</b>
                     <span className="tiny muted">{patient.code} · {patient.phone || 'no phone'}</span>
                   </div>
+                  {check.existing ? <Badge tone="warn">{tokenLabel(check.existing.token_no)} today</Badge> : null}
                   <Button size="sm" variant="ghost" onClick={() => setPatientId('')}>Change</Button>
                 </div>
               ) : (
@@ -185,6 +234,15 @@ export default function TokenForm({ open, onClose, defaults = {}, onIssued }) {
                 </>
               )}
             </Field>
+
+            {check.code === 'duplicate' ? (
+              <ExistingTokenPanel
+                check={check}
+                onUse={showExisting}
+                onArrived={(appt) => applyAttendance(appt)}
+                onArrivedLate={(appt) => applyAttendance(appt, true)}
+              />
+            ) : null}
 
             <div className="form-grid">
               <Field label="Doctor *">

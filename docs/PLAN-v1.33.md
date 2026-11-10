@@ -15,8 +15,10 @@ refined in **v1.35.1** so each seat has its own Consult / Done. A later, unrelat
 request — a date filter on the Patient records list — is item 11 and shipped as
 **v1.35.2** (§11). A second later request — WhatsApp at token issue, a redesigned
 token slip, and the slip sent as an image with the message — is item 12 and ships as
-**v1.35.3** (§12). Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their
-slots; item 9 waits on the three decisions at the end of this document.
+**v1.35.3** (§12). A third — one token per patient per day, plus proper handling of
+not-arrived / no-show / arrived-late tokens — is item 13 and ships as **v1.35.4**
+(§13). Items 3 and 4 move to v1.36.0 and v1.37.0; items 6–8 keep their slots;
+item 9 waits on the three decisions at the end of this document.
 
 ---
 
@@ -36,6 +38,7 @@ slots; item 9 waits on the three decisions at the end of this document.
 | 10 | **v1.34.0** | Onboarding / "Set up your clinic": clinic details, lead doctor, hours & fees | medium | **yes** (schema 19) | page + pure module + `create_clinic()` |
 | 11 | **v1.35.2** | Patient records: add a date filter to the All list | low | — | one pure module + `Patients.jsx` |
 | 12 | **v1.35.3** | Token issued: WhatsApp send, redesign the print slip, send the slip image with the message | medium | — | one pure module + slip component + composer |
+| 13 | **v1.35.4** | One token per patient per day; improve not arrived / no show / arrived later | medium | — | one pure module + `queue.mjs` + 2 screens |
 
 Items 1 and 2 are the same release because both are the sidebar and nothing else.
 Everything else stays one item per release.
@@ -476,3 +479,68 @@ PNG works where file sharing does not; the five existing composer callers are
 unchanged; opt-out / bad-number refusals still win; and the SVG is XML-escaped so
 a patient name cannot inject markup. No schema, RPC, store, seed or `SCHEMA_VERSION`
 change.
+
+---
+
+## 13 · v1.35.4 — one token per patient per day, and attendance that can be recovered
+
+**Today.** Two defects in the same loop:
+
+1. `TokenForm.issue()` inserts an appointment with `token_no` unconditionally.
+   There is **no check on patient + day**. The DB has
+   `unique (doctor_id, scheduled_on, token_no)` and
+   `unique (doctor_id, scheduled_on, scheduled_at)`, so two tokens in the same
+   *minute* collide — but the same patient at 09:15 and again at 11:40 gets `T-03`
+   **and** `T-08`: two rows in the queue, two names on the display, two possible
+   bills. Booking an appointment (`AppointmentForm`) never sets `token_no`, so
+   `TokenForm` is the only issuer.
+2. `queueBoard()` builds `waiting` from `checked-in` + `booked` and the table
+   renders only `waiting` + `completed`. A token marked **No show** (`no-show` is
+   already a valid status, and the table already has a No show button) therefore
+   **disappears**. There is no way to see it, print it, or put the patient back in
+   the queue — so when they turn up late the desk issues a *second* token. That is
+   the most common way defect 1 happens. `booked` tokens say "Not arrived" but
+   `next = called[0] ?? null`, so a queue of only not-arrived tokens has no next;
+   and there is no "arrived late" state at all.
+
+**Change.**
+
+1. **`src/lib/token-policy.mjs`** (new, pure, tested) — the whole rule set:
+   `tokensForPatientOnDay()`, `tokenIssueCheck()` (returns the existing token,
+   its count and a sentence the desk can act on), `duplicateTokenReason()`,
+   `attendanceOf()` (Not arrived / Waiting / No show / Arrived late / In the room /
+   Done), `attendanceCounts()`, `isArrivedLate()` / `lateStamp()` /
+   `withLateNote()`, and `arrivalPatch()` / `noShowPatch()`.
+   "Arrived late" is recorded in the existing `notes` column as a small marker,
+   not a new status — the six-value `appointments_status_check` stays untouched.
+2. **`src/lib/queue.mjs`** — `queueBoard()` gains `missed` (no-show tokens with a
+   number) and `notArrived`, and `totals` gains `noShow` / `notArrived`. Every
+   existing key keeps its meaning; `next`, `waiting`, `seats` and the room limit
+   are unchanged.
+3. **`src/components/TokenAttendance.jsx`** (new) — presentational, server-
+   renderable: `AttendanceBadge`, `AttendanceActions` (Arrived / No show / Arrived
+   late), `MissedTokens` (the no-show strip with a re-use action) and
+   `ExistingTokenPanel` (the refusal shown instead of a second token).
+4. **`TokenForm.jsx`** — before issuing, and **again at click time from a fresh
+   store ref**, run `tokenIssueCheck`. A patient who already has a token today
+   gets an inline `role="alert"` panel with that token's number and state, a
+   disabled Issue button, and ways to **re-use** it: open/print/WhatsApp the
+   existing slip, **Mark arrived**, or **Arrived late**. Cancelled tokens do not
+   block; no-show and completed ones do. Pre-existing duplicates are described
+   honestly ("2 tokens today") rather than hidden.
+5. **`Queue.jsx`** — no-show tokens are listed with an **Arrived late** button
+   that restores the *same* token (`status → checked-in`, late marker in notes);
+   not-arrived tokens get **Arrived** and **No show**; past-slot arrivals are
+   labelled automatically. Badges and counts come from the pure module.
+6. **Verified** by unit tests + an SSR smoke that renders the real duplicate
+   refusal and the real attendance states. **No schema, RPC, store, seed or
+   `SCHEMA_VERSION` change.** The guard is a fresh-store client check, not a DB
+   constraint — recorded as a deviation in `CHANGELOG.md` / `ARCHITECTURE.md`;
+   a strict multi-client race still needs a server-side unique index.
+
+**Acceptance.** Issuing a second token for a patient who already has one today is
+refused with the existing token number and reason, and no row is written; a
+cancelled token does not block; a no-show token stays visible and can be restored
+with the same number; an arrived-late token is labelled on the queue and on the
+display; a not-arrived token can be marked arrived or no-show; the existing room
+limit, waiting list, next-token and every other screen keep their behaviour.

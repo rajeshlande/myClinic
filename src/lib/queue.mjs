@@ -107,6 +107,11 @@ export function queueBoard({ appointments = [], patients = [], doctors = [], iso
       const called = mine.filter((a) => a.status === 'checked-in' && a.token_no).sort(byToken);
       const booked = mine.filter((a) => a.status === 'booked' && a.token_no).sort(byToken);
       const done = mine.filter((a) => a.status === 'completed' && a.token_no);
+      // v1.35.4: a no-show token used to vanish from the board entirely, so the
+      // only way to serve the patient when they turned up later was a second
+      // token. Keep these rows *out* of `waiting` (they are not in the queue)
+      // but visible, so the same number can be restored with "Arrived late".
+      const missed = mine.filter((a) => a.status === 'no-show' && a.token_no).sort(byToken);
       return {
         doctor,
         serving,
@@ -120,6 +125,8 @@ export function queueBoard({ appointments = [], patients = [], doctors = [], iso
         waiting: [...called, ...booked],
         done: done.length,
         completed: done.sort(byToken),
+        missed,
+        notArrived: booked.length,
         issued: mine.filter((a) => a.token_no).length,
         nextToken: nextTokenNo(appointments, doctor.id, iso),
         label: (a) => nameOf(a?.patient_id),
@@ -137,6 +144,8 @@ export function queueBoard({ appointments = [], patients = [], doctors = [], iso
       inRoom: inRoomNow,
       done: withToken.filter((a) => a.status === 'completed').length,
       tokensLeft: withToken.filter((a) => ['booked', 'checked-in'].includes(a.status)).length,
+      noShow: withToken.filter((a) => a.status === 'no-show').length,
+      notArrived: withToken.filter((a) => a.status === 'booked').length,
     },
   };
 }

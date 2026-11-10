@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  CheckCircle2, Clock, CreditCard, HandCoins, MessageSquare, PlayCircle, Ticket, Timer, UserPlus, UserX, Users, Volume2, ChevronLeft, ChevronRight,
+  CheckCircle2, Clock, CreditCard, HandCoins, MessageSquare, PlayCircle, Ticket, Timer, UserPlus, Users, Volume2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { useToast, Avatar, Badge, Button, Card, CardHead, EmptyState, Kpi, Modal, Segmented } from '../components/ui.jsx';
@@ -13,8 +13,10 @@ import CollectPayment from '../components/CollectPayment.jsx';
 import { invoiceForVisit } from '../lib/visit-flow.mjs';
 import MessageSheet from '../components/MessageSheet.jsx';
 import { tokenMessage } from '../lib/messages.mjs';
+import { attendanceCounts, arrivalPatch, noShowPatch } from '../lib/token-policy.mjs';
+import { AttendanceBadge, AttendanceActions, AttendanceSummary, MissedTokens } from '../components/TokenAttendance.jsx';
 import {
-  addDays, averageWait, canCallNext, formatDate, formatMoney, formatTime, humanWait, invoiceBalance, nextTokenNo, queueBoard, queueState, relativeDay, roomFullMessage, tokenLabel, today, waitedMinutes,
+  addDays, averageWait, canCallNext, formatDate, formatMoney, formatTime, humanWait, invoiceBalance, nextTokenNo, queueBoard, relativeDay, roomFullMessage, tokenLabel, today, waitedMinutes,
 } from '../lib/logic.mjs';
 
 export default function Queue() {
@@ -37,6 +39,7 @@ export default function Queue() {
     [store.appointments, store.patients, store.doctors, date, doctorId],
   );
   const avg = useMemo(() => averageWait(store.consultations, store.appointments, date), [store.consultations, store.appointments, date]);
+  const counts = useMemo(() => attendanceCounts(store.appointments, date), [store.appointments, date]);
   const patientOf = (id) => store.patients.find((p) => p.id === id);
   const doctorOf = (id) => store.doctors.find((d) => d.id === id);
 
@@ -92,6 +95,37 @@ export default function Queue() {
     setStatus(appt, 'completed', `${tokenLabel(appt.token_no)} completed.`);
   };
 
+  /* v1.35.4 — attendance. Every path below updates the *existing* appointment;
+     none of them writes a new token number. A no-show used to vanish from the
+     board, which is exactly what made the desk issue a second token. */
+  const hhmm = (d = new Date()) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+  async function applyPatch(appt, patch, message) {
+    try {
+      await store.update('appointments', appt.id, patch);
+      toast.success(message);
+    } catch (e) { toast.error(e.message ?? 'Could not update this token.'); }
+  }
+
+  function markArrived(appt) {
+    const now = new Date();
+    const patch = arrivalPatch(appt, { at: hhmm(now), nowMinutes: now.getHours() * 60 + now.getMinutes() });
+    const late = patch.notes.includes('Arrived late');
+    applyPatch(appt, patch, late
+      ? `${tokenLabel(appt.token_no)} arrived late — back in the queue.`
+      : `${tokenLabel(appt.token_no)} is at the desk.`);
+  }
+
+  function markArrivedLate(appt) {
+    applyPatch(appt, arrivalPatch(appt, { at: hhmm(), forceLate: true }),
+      `${tokenLabel(appt.token_no)} is back in the queue — marked arrived late.`);
+  }
+
+  function markNoShow(appt) {
+    applyPatch(appt, noShowPatch(),
+      `${tokenLabel(appt.token_no)} marked as no show — restore it with Arrived late, not a new token.`);
+  }
+
   return (
     <div className="page stack" style={{ gap: 16 }}>
       <div className="page-head no-print">
@@ -130,6 +164,8 @@ export default function Queue() {
         <Kpi label="Next to issue" value={tokenLabel(nextTokenNo(store.appointments, doctorId === 'all' ? store.doctors[0]?.id : doctorId, date))} icon={Clock} meta={doctorId === 'all' ? store.doctors.find((d) => d.role !== 'frontdesk')?.full_name ?? '' : doctorOf(doctorId)?.full_name ?? ''} />
       </div>
 
+      <AttendanceSummary counts={counts} />
+
       {board.rows.length ? board.rows.map((row) => (
         <Card key={row.doctor.id} className="no-break">
           <CardHead
@@ -137,6 +173,8 @@ export default function Queue() {
             sub={`${row.doctor.specialty} · next token ${tokenLabel(row.nextToken)} · ${row.issued} issued today`}
             action={<div className="row no-print" style={{ gap: 6 }}>
               <Badge tone={row.waiting.length ? 'warn' : 'success'}>{row.waiting.length} waiting</Badge>
+              {row.notArrived ? <Badge tone="info">{row.notArrived} not arrived</Badge> : null}
+              {row.missed.length ? <Badge tone="danger">{row.missed.length} no show</Badge> : null}
               <Badge tone="neutral">{row.done} done</Badge>
             </div>}
           />
@@ -212,14 +250,13 @@ export default function Queue() {
                 {row.waiting.length ? (
                   <div className="stack" style={{ gap: 5 }}>
                     {row.waiting.slice(0, 3).map((appt) => {
-                      const st = queueState(appt, row.doctor);
                       const wait = waitedMinutes(appt);
                       return (
                         <div key={appt.id} className="row" style={{ gap: 8 }}>
                           <span className="mono small strong" style={{ minWidth: 38 }}>{tokenLabel(appt.token_no)}</span>
                           <span className="small truncate" style={{ flex: 1 }}>{patientOf(appt.patient_id)?.full_name}</span>
                           <span className="tiny faint nowrap">{['checked-in', 'in-consult'].includes(appt.status) ? humanWait(wait) : '—'}</span>
-                          <Badge tone={st.tone}>{st.label}</Badge>
+                          <AttendanceBadge appt={appt} />
                         </div>
                       );
                     })}
@@ -242,8 +279,10 @@ export default function Queue() {
               </div>
             </div>
 
+            <MissedTokens tokens={row.missed} patientOf={patientOf} onArrivedLate={markArrivedLate} />
+
             {/* full token table */}
-            {row.waiting.length || row.done ? (
+            {row.waiting.length || row.done || row.missed.length ? (
               <div className="table-wrap">
                 <table className="data">
                   <thead>
@@ -258,9 +297,8 @@ export default function Queue() {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...row.waiting, ...row.completed].map((appt) => {
+                    {[...row.waiting, ...row.completed, ...row.missed].map((appt) => {
                       const patient = patientOf(appt.patient_id);
-                      const st = queueState(appt, row.doctor);
                       return (
                         <tr key={appt.id}>
                           <td className="strong mono">{tokenLabel(appt.token_no)}</td>
@@ -273,10 +311,11 @@ export default function Queue() {
                           <td className="small">{appt.kind}{appt.reason ? <span className="tiny faint" style={{ display: 'block' }}>{appt.reason}</span> : null}</td>
                           <td className="small mono">{formatTime(appt.scheduled_at)}</td>
                           <td className="small">{['checked-in', 'in-consult'].includes(appt.status) ? humanWait(waitedMinutes(appt)) : '—'}</td>
-                          <td><Badge tone={st.tone}>{st.label}</Badge></td>
+                          <td><AttendanceBadge appt={appt} /></td>
                           <td className="num no-print">
                             <div className="row" style={{ gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                              {appt.status === 'booked' ? <Button size="sm" variant="subtle" onClick={() => setStatus(appt, 'checked-in', 'Patient is at the desk.')}>Arrived</Button> : null}
+                              <AttendanceActions appt={appt} onArrived={markArrived}
+                                onArrivedLate={markArrivedLate} onNoShow={markNoShow} />
                               {appt.status === 'checked-in' ? <Button size="sm" variant="primary" onClick={() => callIn(row, appt)}>Call in</Button> : null}
                               {appt.status === 'in-consult' ? <Button size="sm" variant="primary" icon={PlayCircle} onClick={() => setConsultFor(appt)}>Consult</Button> : null}
                               {appt.status === 'completed' ? (billFor(appt)
@@ -308,9 +347,7 @@ export default function Queue() {
                                   }}
                                 >Token</Button>
                               ) : null}
-                              {['booked', 'checked-in'].includes(appt.status)
-                                ? <Button size="sm" variant="ghost" icon={UserX} onClick={() => setStatus(appt, 'no-show', 'Marked as no show.')}>No show</Button>
-                                : null}
+
                             </div>
                           </td>
                         </tr>

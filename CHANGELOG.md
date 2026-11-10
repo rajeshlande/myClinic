@@ -3,6 +3,82 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.35.4] — 2026-11-02 · schema 19
+
+**One token per patient per day, and attendance states that can be recovered.**
+Item 13 of `docs/PLAN-v1.33.md` (§13), a patch so items 3–9 keep their planned
+releases.
+
+| Change | File | Why |
+| --- | --- | --- |
+| the whole rule set | `src/lib/token-policy.mjs` (new, pure) | no issuing or attendance rule belongs inline in JSX |
+| no-show tokens stay on the board | `src/lib/queue.mjs` | they used to disappear, which is why the desk issued a second number |
+| refusal + attendance UI | `src/components/TokenAttendance.jsx` (new) | presentational, so the real states are server-renderable in a smoke |
+| **one token per patient per day** | `TokenForm.jsx` | issuing inserted a row unconditionally |
+| attendance actions + tally | `Queue.jsx` | not arrived / no show / arrived late were invisible or unrecoverable |
+
+**The two defects were one loop.** `TokenForm.issue()` created an appointment with
+`token_no` without looking at the patient or the day. The database has
+`unique (doctor_id, scheduled_on, token_no)` and
+`unique (doctor_id, scheduled_on, scheduled_at)`, so two tokens in the same
+*minute* collide — but the same patient at 09:15 and again at 11:40 got `T-03`
+**and** `T-08`: two rows in the queue, two names on the display, two possible
+bills. Meanwhile `queueBoard()` built `waiting` from `checked-in` + `booked` only,
+so a token marked **No show** (already a valid status, already a button in the
+table) vanished from the screen. When that patient turned up later there was
+nothing to re-activate, and the desk's only option was to issue **another** token.
+That is the commonest way a duplicate was born.
+
+**The refusal.** `tokenIssueCheck()` returns the existing token(s), their count
+and a sentence the desk can act on — *"Aarav Sharma already has 2 tokens today
+(T-03, T-08 · the first is no show). Re-use T-03 — mark them arrived or arrived
+late instead of issuing another."* `TokenForm` shows it in a `role="alert"` panel
+before the Issue button is clicked, **disables** Issue, and re-takes the decision
+from a fresh store ref at click time so a stale board or a double click cannot
+write a second row. Cancelled tokens do **not** block; no-show and completed ones
+do; a booked appointment without a number is not a token.
+
+**Re-use, not a dead end.** The panel offers **Use T-xx** (which opens the
+existing token's slip, print and WhatsApp actions), **Mark arrived** and
+**Arrived late**. Every one of them updates the *existing* appointment — no
+insert. `Use` and the attendance actions share the same captured issued state,
+so the redesigned slip from v1.35.3 works unchanged.
+
+**Three states, one vocabulary.** `attendanceOf()` names Not arrived (`booked`),
+Waiting, Arrived late, No show, In the room and Done. "Arrived late" is a small
+marker in the existing `notes` column (`[Arrived late 14:35]`) rather than a new
+status, so the schema's six-value `appointments_status_check` is untouched and
+the desk's own notes are preserved. `arrivalPatch()` marks a no-show's return as
+late automatically, as well as any booked arrival past its slot plus a 15-minute
+grace; `forceLate` is there for the desk's explicit **Arrived late** button.
+`noShowPatch()` writes the one status. `attendanceCounts()` feeds a header tally.
+
+`queueBoard()` now returns `missed` (no-show tokens with a number), `notArrived`,
+and `totals.noShow` / `totals.notArrived`. **Every existing key keeps its
+meaning**: `missed` rows are deliberately *not* in `waiting`, `next`, `seats` or
+the room limit. The queue renders them in a **No show / arrived later** strip and
+in the token table, each with an **Arrived late** button that puts the same
+number back in the queue. `AttendanceActions` replaces the two ad-hoc buttons
+with one rule-driven set, and `AttendanceBadge` replaces `queueState()` in the
+queue so there is a single attendance vocabulary on screen.
+
+**Deviation.** The one-per-day guard is a **client-side fresh-store check**, like
+the room-limit guard in v1.35.0 — not a database constraint. Two receptionists
+on different devices racing at the same instant could still both pass; a strict
+fix needs a server-side unique index on
+`(clinic_id, patient_id, scheduled_on)` for token-bearing rows, which is a
+schema decision. Recorded in `docs/ARCHITECTURE.md` §4.1.
+
+**Verified.** 12 tests in `tests/token-policy.test.mjs` pin the day rule,
+cancelled/no-token rows, pre-existing duplicates, the six attendance labels, the
+late marker (escaping, replacement, 1000-character limit), lateness arithmetic,
+patches, counts, the queue board's `missed` list and four wiring ratchets. An SSR
+smoke at `tools/token-policy-smoke/` (**37 checks**) renders the real duplicate
+refusal with a disabled Issue button, a fresh patient who can still be issued,
+every badge state, the no-show strip restoring T-03, and the whole Queue page
+with its tally. **No change** to the schema, any RPC, the store, seeds or
+`SCHEMA_VERSION`; lib census 51 modules (22 import nothing).
+
 ## [1.35.3] — 2026-11-02 · schema 19
 
 **WhatsApp at token issue, a redesigned token slip, and that slip sent as an image
