@@ -127,3 +127,31 @@ test('_headers keeps the worker and the shell uncached on every static host', ()
   assert.match(headers, /\/assets\/\*[\s\S]*?immutable/, 'hashed chunks may be cached hard');
   assert.match(headers, /\/index\.html[\s\S]*?no-cache/, 'the shell must revalidate');
 });
+
+/*
+ * The lock file is a build input, not a formality: `npm ci` refuses to install
+ * without it, so a clone that cannot build is the symptom. v1.32.0 shipped a
+ * zero-byte `package-lock.json` — a shell rewrite that truncated the file before
+ * reading it — and every gate stayed green, because the suite needs no
+ * dependencies to run. These two tests close that hole.
+ */
+
+test('the lock file is present, is a real lock, and agrees on the version', () => {
+  const lockText = readFileSync(join(root, 'package-lock.json'), 'utf8');
+  assert.ok(lockText.length > 1000, 'package-lock.json is empty or truncated — `npm ci` cannot install');
+  const lock = JSON.parse(lockText);
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.ok(lock.lockfileVersion >= 1, 'not a lock file npm ci can use');
+  assert.equal(lock.version, pkg.version, 'the lock\'s root version has drifted from package.json');
+  assert.equal(lock.packages[''].version, pkg.version, 'packages[""] version has drifted from package.json');
+  // every dependency package.json declares must be locked, or `npm ci` fails on a clone
+  for (const name of [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})]) {
+    assert.ok(lock.packages[`node_modules/${name}`], `${name} is declared but not locked`);
+  }
+});
+
+test('the app version is the same in the package, the lock and version.js', () => {
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  const version = readFileSync(join(root, 'src/lib/version.js'), 'utf8');
+  assert.match(version, new RegExp(`APP_VERSION = '${pkg.version.replace(/\./g, '\\.')}'`));
+});

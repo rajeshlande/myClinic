@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.31.0';
+export const APP_VERSION = '1.32.0';
 export const SCHEMA_VERSION = 18;
 
 /** Injected by vite.config.js define(). */
@@ -21,6 +21,14 @@ export const BUILD = (() => {
 
 /** What changed, newest first. Shown in Settings → What's new. */
 export const CHANGELOG = [
+  {
+    version: '1.32.0', date: '2026-11-02', schema: 18,
+    highlights: [
+      '**The licence composition left the provider.** `license.mjs` already decided what a subscription means — `licenseState`, `canWrite`, `seatUsage`, `billingPeriod`, `extendPeriod` are pure and tested on their own. What sat inside `StoreProvider` was the composition: that Central\'s answer outranks the clinic\'s own row, that a demo workspace is exempt from "Central owns the plan", that a branch is one seat, and the exact subscription row a demo click writes. That is now `src/lib/licensing-adapter.js` — injected, clocked, with no React and no Supabase.',
+      'Three rules that were restated in several places are now each stated once: `resolveLicense()` (Central\'s silence reads as read-only, never as free), `assertPlanIsLocal()` (the same refusal, in Central\'s own words, from the same constant) and `writeGate()` — which returns *two* facts because there have always been two: what a screen shows and what the write path enforces. They differ in exactly one place, a demo workspace whose sandbox trial has lapsed, and that divergence is now written down instead of being implicit in two expressions.',
+      'The demo arithmetic is named and testable: `demoPlanChange`, `demoRenewal` (a payment buys the plan\'s own term — twelve months on a yearly plan, never the hard-coded 30 days that once made a yearly clinic look broken) and `demoTrial`. `store.jsx` is 981 lines, from 1,031 at the start of step 5. 594 tests.',
+    ],
+  },
   {
     version: '1.31.0', date: '2026-11-02', schema: 18,
     highlights: [

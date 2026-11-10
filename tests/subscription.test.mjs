@@ -11,6 +11,9 @@ import {
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const PAGE = read('../src/pages/Subscription.jsx');
 const STORE = read('../src/lib/store.jsx');
+// Since v1.32.0 the demo-mode subscription arithmetic lives in the licensing
+// adapter; the provider is checked for delegating to it, not for containing it.
+const ADAPTER = read('../src/lib/licensing-adapter.js');
 const LAYOUT = read('../src/components/AppLayout.jsx');
 
 const NOW = new Date('2026-11-04T09:00:00Z');
@@ -167,9 +170,14 @@ test('the subscription screen renews and quotes from the saved interval', () => 
 
 test('the demo workspace honours the term it is given', () => {
   // the old demo branch added a hard-coded 30 days whatever the plan
-  assert.doesNotMatch(STORE, /Math\.max\(from, Date\.now\(\)\) \+ 30 \* 86400000/);
-  assert.match(STORE, /extendPeriod\(sub\.current_period_end, wanted\)/);
-  assert.match(STORE, /billingPeriod\(sub\)\.months/);
+  for (const body of [STORE, ADAPTER]) {
+    assert.doesNotMatch(body, /Math\.max\(from, Date\.now\(\)\) \+ 30 \* 86400000/);
+  }
+  assert.match(ADAPTER, /extendPeriod\(current\.current_period_end, wanted, now\)/);
+  assert.match(ADAPTER, /billingPeriod\(current\)\.months/);
+  // and the provider uses it rather than keeping a second copy of the rule
+  assert.match(STORE, /demoRenewal\(\{ current: stateRef\.current\.subscription, months, reference \}\)/);
+  assert.doesNotMatch(STORE, /extendPeriod\(/, 'store.jsx grew a period calculation back');
 });
 
 test('only a seat that can open the subscription is offered it', () => {

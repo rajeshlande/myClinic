@@ -3,12 +3,16 @@ import { supabase, supabaseConfigured } from './supabase.js';
 import { makeDemoWorkspace } from './demo-data.js';
 import { inviteDefaults, recallInviteToken, rememberInviteError, rememberInviteToken } from './invites.mjs';
 import { nextId } from './logic.mjs';
-import { DEFAULT_PLAN, FALLBACK_PLAN } from './plans.mjs';
+import { DEFAULT_PLAN } from './plans.mjs';
 import { rememberError } from './errors.mjs';
 import { clinicSlug } from './public-booking.mjs';
-import { licenseState, canWrite, seatUsage, billingPeriod, extendPeriod, TRIAL_DAYS } from './license.mjs';
+import { TRIAL_DAYS, seatUsage } from './license.mjs';
 import {
-  CENTRAL_MANAGED_MESSAGE, CENTRAL_SYNC_INTERVAL_MS, centralHostLabel, centralStateFromResult,
+  assertCanWrite, assertPlanIsLocal, demoPlanChange, demoRenewal, demoTrial,
+  resolveLicense, seatUsageCounts, writeGate,
+} from './licensing-adapter.js';
+import {
+  CENTRAL_SYNC_INTERVAL_MS, centralHostLabel, centralStateFromResult,
   centralSubscriptionRow, centralSyncConfig, getOrCreateCentralDeviceId, maskEmail, probeCentralReadiness,
   readCachedCentralSubscription, readCentralDeviceId, resolveCentralIdentity, syncCentralSubscription,
 } from './central-sync.mjs';
@@ -668,25 +672,22 @@ export function StoreProvider({ children, session }) {
   // wrap these calls in try/catch and surface the message in a toast.
   // With Central configured, the licence comes from Central — never from the
   // clinic's own row, which the clinic could otherwise edit.
-  const license = useMemo(() => {
-    if (!centralEnabled) return licenseState(state.subscription);
-    return licenseState(centralSubscription ?? { status: 'read_only', plan: FALLBACK_PLAN, interval: 'yearly' });
-  }, [centralEnabled, centralSubscription, state.subscription]);
+  const license = useMemo(() => resolveLicense({
+    subscription: state.subscription,
+    central: { enabled: centralEnabled, subscription: centralSubscription },
+  }), [centralEnabled, centralSubscription, state.subscription]);
 
-  const licenseUsage = useMemo(() => ({
-    doctors: (state.staff ?? []).filter((s) => s.active !== false && s.role !== 'frontdesk').length,
-    frontdesk: (state.staff ?? []).filter((s) => s.active !== false && s.role === 'frontdesk').length,
-    branches: 1,
-  }), [state.staff]);
+  const licenseUsage = useMemo(() => seatUsageCounts(state.staff), [state.staff]);
 
   const licenseSeats = useMemo(() => seatUsage(license, licenseUsage), [license, licenseUsage]);
-  const writable = useMemo(() => (mode === 'demo' ? true : canWrite(license)), [mode, license]);
-  writableRef.current = mode === 'demo' ? canWrite(license) : writable;
+  // `writable` is what a screen shows; `readOnly` is what the write path enforces.
+  // A demo workspace shows itself writable and still refuses a write on a lapsed
+  // sandbox trial — the one divergence, and it is deliberate (licensing-adapter.js).
+  const gate = useMemo(() => writeGate({ mode, license }), [mode, license]);
+  const writable = gate.writable;
+  writableRef.current = !gate.readOnly;
 
-  const assertWritable = useCallback(() => {
-    if (writableRef.current) return;
-    throw new Error('The subscription is read-only, so this change was not saved. Everything stays readable and exportable — renew the plan to resume writing.');
-  }, []);
+  const assertWritable = useCallback(() => assertCanWrite({ readOnly: !writableRef.current }), []);
 
   /** Mirror the server's answer into local state (both modes). */
   const applyLicense = useCallback((row) => {
@@ -713,16 +714,9 @@ export function StoreProvider({ children, session }) {
     // Central owns the plan while it is configured: a local click would be a lie
     // the database is about to contradict. Demo mode is exempt — it is a sandbox
     // with no clinic behind it.
-    if (centralEnabled) throw new Error(CENTRAL_MANAGED_MESSAGE);
+    assertPlanIsLocal(centralEnabled);
     if (mode === 'demo') {
-      const period = billingPeriod({ interval });
-      return applyLicense({
-        ...(stateRef.current.subscription ?? {}),
-        plan, status: 'active', interval: period.interval,
-        current_period_start: new Date().toISOString(),
-        current_period_end: extendPeriod(new Date(), period.months),
-        ...billing,
-      });
+      return applyLicense(demoPlanChange({ current: stateRef.current.subscription, plan, interval, billing }));
     }
     return licenceRpc('change_plan', {
       p_clinic: stateRef.current.clinic?.id, p_plan: plan, p_interval: interval, p_billing: billing,
@@ -733,20 +727,12 @@ export function StoreProvider({ children, session }) {
     // Central owns the plan while it is configured: a local click would be a lie
     // the database is about to contradict. Demo mode is exempt — it is a sandbox
     // with no clinic behind it.
-    if (centralEnabled) throw new Error(CENTRAL_MANAGED_MESSAGE);
+    assertPlanIsLocal(centralEnabled);
     if (mode === 'demo') {
       // A payment buys the subscription's own period (12 months on a yearly plan)
       // unless the caller states a term — the demo used to hard-code 30 days, so a
       // yearly clinic renewed for a month and looked broken.
-      const sub = stateRef.current.subscription ?? {};
-      const wanted = Number.isFinite(Number(months)) && Number(months) > 0 ? Number(months) : billingPeriod(sub).months;
-      return applyLicense({
-        ...sub,
-        status: 'active',
-        current_period_start: sub.current_period_start ?? new Date().toISOString(),
-        current_period_end: extendPeriod(sub.current_period_end, wanted),
-        collection_ref: reference || sub.collection_ref || '',
-      });
+      return applyLicense(demoRenewal({ current: stateRef.current.subscription, months, reference }));
     }
     return licenceRpc('renew_subscription', {
       p_clinic: stateRef.current.clinic?.id, p_reference: reference, p_months: months,
@@ -906,13 +892,9 @@ export function StoreProvider({ children, session }) {
     // Central owns the plan while it is configured: a local click would be a lie
     // the database is about to contradict. Demo mode is exempt — it is a sandbox
     // with no clinic behind it.
-    if (centralEnabled) throw new Error(CENTRAL_MANAGED_MESSAGE);
+    assertPlanIsLocal(centralEnabled);
     if (mode === 'demo') {
-      return applyLicense({
-        ...(stateRef.current.subscription ?? {}),
-        plan: DEFAULT_PLAN, status: 'trial',
-        trial_ends_at: new Date(Date.now() + TRIAL_DAYS * 86400000).toISOString(),
-      });
+      return applyLicense(demoTrial({ current: stateRef.current.subscription }));
     }
     return licenceRpc('start_trial', { p_clinic: stateRef.current.clinic?.id });
   }, [mode, applyLicense, licenceRpc, centralEnabled]);

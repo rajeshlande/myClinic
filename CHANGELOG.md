@@ -3,6 +3,72 @@
 All notable changes to myClinic. Versions follow semver; `schema` refers to the
 Supabase migration level this release expects (`app_schema_version()`).
 
+## [1.32.0] — 2026-11-02 · schema 18
+
+**Architecture plan, step 5 sub-release 2 of 4: the licence composition leaves the
+provider.**
+
+`license.mjs` already decided what a subscription *means* — `licenseState`,
+`canWrite`, `seatUsage`, `billingPeriod`, `extendPeriod`, all pure and all tested.
+What sat inside `StoreProvider` was the composition around it: whose answer wins,
+which writes are refused, and the row a demo click writes.
+
+| File | Lines | Holds |
+| --- | --- | --- |
+| `src/lib/licensing-adapter.js` | **new** 121 | `resolveLicense`, `seatUsageCounts`, `writeGate`, `assertCanWrite`, `assertPlanIsLocal`, `demoPlanChange`, `demoRenewal`, `demoTrial` |
+| `src/lib/store.jsx` | 999 → **981** | calls those once each, and passes the clock nowhere it does not need one |
+
+- **Three restated rules became three named functions.** Every write path funnelled
+  through `assertWritable`, every plan action restated "Central owns the plan", and
+  the seat counts were three inline `filter`s. Now `assertCanWrite`,
+  `assertPlanIsLocal` (applied at exactly three call sites, and a test counts them)
+  and `seatUsageCounts`.
+- **Two facts that were one expression.** `writeGate({ mode, license })` returns
+  `{ writable, readOnly }` because the app has always had both: what a screen shows
+  and what a write path enforces. They differ in exactly one case — a **demo**
+  workspace shows itself writable (there is no server to refuse it) while its own
+  lapsed sandbox trial still blocks the write. That was two different expressions on
+  adjacent lines; it is now one function and a paragraph saying why. Collapsing them
+  would either grey out every demo button or let a lapsed demo keep writing.
+- **Central's silence is read-only, not free.** `resolveLicense()` holds the rule that
+  a configured Central outranks the clinic's own row — a plan the clinic can write is
+  a plan it can award itself — and that "Central has not answered yet" reads as
+  `read_only` on the fallback plan. That row is one frozen constant, and the resolver
+  hands back a fresh licence each call so no caller can mutate the shared one.
+- **The demo arithmetic is named.** `demoPlanChange` (a plan starts now, ends one
+  billing period later), `demoRenewal` — a payment buys the subscription's own term,
+  twelve months on a yearly plan, never the hard-coded 30 days that once made a yearly
+  clinic look broken — and `demoTrial` (the default plan, fourteen days out, keeping
+  the row it was given). All three take `now`, so all three are deterministic.
+- **The refusal sentences have one home.** `WRITE_BLOCKED_MESSAGE` moved here;
+  `CENTRAL_MANAGED_MESSAGE` is imported and re-exported from `central-sync.mjs`
+  rather than retyped, and a test fails if the sentence is ever copied.
+- **Thirteen new tests** (`tests/licensing-adapter.test.mjs`): whose answer wins with
+  Central on, off and silent; the seat split, including that only `active: false`
+  hides a seat; the write gate across six statuses in both modes, including the demo
+  divergence; both refusals; the three demo rows, including the yearly-renewal
+  arithmetic and a nonsense term falling back to the plan's period. Plus the ratchet:
+  `store.jsx` under 990 lines, no `licenseState`/`canWrite`/`billingPeriod`/
+  `extendPeriod` call left in it, and the adapter importing neither React, Supabase
+  nor the store.
+- **One test repointed, not weakened.** `tests/subscription.test.mjs` asserted the
+  renewal arithmetic lived in `store.jsx`; it now asserts it in the adapter, keeps the
+  hard-coded-30-days guard on **both** files, and adds that the provider delegates
+  (`demoRenewal(...)`) instead of growing a second period calculation.
+- **A shipped defect this release also fixes.** Bumping the version with a shell
+  rewrite truncated `package-lock.json` to zero bytes, and it was committed that way:
+  every gate stayed green because the suite needs no dependencies to run, but
+  `npm ci` refuses to install without a lock, so a fresh clone could not build. The
+  lock is restored from v1.31.0 with the version bumped as text, and two tests now
+  hold the line — the lock must parse, be a real lock, agree on the version with
+  `package.json` and lock every declared dependency, and `version.js` must agree too.
+  Found by the clean-clone verification, which is exactly what it is for.
+- **No behaviour change and no API change.** `useStore()` returns the same keys; the
+  licence, its seats, `writable` and all three plan actions behave as before.
+  594 tests across 33 suites, build clean, `check:pages` ✓, `check:contributing`
+  28/28, security suite ✓, and the provider smoke (demo build, no Supabase project)
+  still renders with `writable:true · seats:3`.
+
 ## [1.31.0] — 2026-11-02 · schema 18
 
 **Architecture plan, step 5 sub-release 1 of 4: the outbox and the cache leave the
