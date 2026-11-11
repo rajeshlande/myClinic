@@ -1,0 +1,105 @@
+{
+  "contract": "myclinic.central.tier-contract",
+  "contract_version": 1,
+  "central_schema_version": 3,
+  "description": "Single source of truth for the myClinic <-> Central wire vocabulary: tier ids, the myClinic plan each tier entitles, seat limits, the SQL fallback branch, the validator's no-lease and local-mode defaults, and every refusal code sync_clinic_subscription() can answer with. Central derives MYCLINIC_TIER_ENTITLEMENTS / TIER_CATALOG / SYNC_REFUSAL_HINTS from this file; the client mirrors CENTRAL_TIER_TO_PLAN and its diagnostic vocabulary against it; supabase/schema.sql keeps its own case statement and a drift test parses it.",
+  "tier_fallback": {
+    "plan": "chain",
+    "doctors": null,
+    "frontdesk": null,
+    "branches": null
+  },
+  "validator_defaults": {
+    "no_lease": {
+      "tier": "solo",
+      "plan": "solo"
+    },
+    "local_mode": {
+      "plan": "growth"
+    }
+  },
+  "tiers": {
+    "standard": {
+      "plan": "growth",
+      "doctors": 5,
+      "frontdesk": 3,
+      "branches": 1,
+      "label": "Standard · Default Node",
+      "hint": "Baseline single-site self-hosted installation (5 doctors · 3 front-desk)"
+    },
+    "solo": {
+      "plan": "solo",
+      "doctors": 1,
+      "frontdesk": 1,
+      "branches": 1,
+      "label": "myClinic Solo · 1 Doctor",
+      "hint": "1 doctor · 1 front-desk seat · 1 branch"
+    },
+    "growth": {
+      "plan": "growth",
+      "doctors": 5,
+      "frontdesk": 3,
+      "branches": 1,
+      "label": "myClinic Growth · 5 Doctors",
+      "hint": "5 doctors · 3 front-desk seats · 1 branch"
+    },
+    "chain": {
+      "plan": "chain",
+      "doctors": null,
+      "frontdesk": null,
+      "branches": null,
+      "label": "myClinic Chain · Multi-Branch",
+      "hint": "Unlimited doctors, front-desk seats & branches"
+    },
+    "enterprise": {
+      "plan": "chain",
+      "doctors": null,
+      "frontdesk": null,
+      "branches": null,
+      "label": "Enterprise · Dedicated SLA",
+      "hint": "Unlimited seats, multi-cluster HA & priority SLA"
+    }
+  },
+  "refusal_codes": {
+    "SUBSCRIPTION_NOT_FOUND": {
+      "label": "No match",
+      "hint": "The client called but nothing matched. Compare the email and Clinic URL it claimed with the pinned values — on a dual-pinned row BOTH must match exactly."
+    },
+    "ORIGIN_MISMATCH": {
+      "label": "Origin blocked",
+      "hint": "The browser Origin header disagreed with the claimed Clinic URL. Open the app from its real deployed address, not a proxy, tunnel or preview host."
+    },
+    "INVALID_ORIGIN": {
+      "label": "Bad Clinic URL",
+      "hint": "The claimed Clinic URL is not scheme + host. It must look like https://clinic.github.io — no path, no trailing slash."
+    },
+    "INVALID_EMAIL": {
+      "label": "Bad owner email",
+      "hint": "The claimed owner email is malformed. Fix the owner row in the clinic app, then let it re-sync."
+    },
+    "MISSING_IDENTITY": {
+      "label": "No identity sent",
+      "hint": "The client sent neither an owner email nor a Clinic URL. Sign in as the clinic owner, or pin a URL-only subscription."
+    },
+    "RATE_LIMITED": {
+      "label": "Rate limited",
+      "hint": "Too many calls from this network: Central allows 60/min and 15 unmatched lookups per 5 min. Wait, then re-check."
+    },
+    "SEAT_LIMIT_REACHED": {
+      "label": "Seats full",
+      "hint": "Every deployment seat is taken. Raise the device limit or revoke a stale node."
+    },
+    "SUBSCRIPTION_PAUSED": {
+      "label": "Paused",
+      "hint": "The kill-switch is on for this subscription. Resume it and the client writes again on its next sync."
+    },
+    "SUBSCRIPTION_EXPIRED": {
+      "label": "Expired",
+      "hint": "The contract end date has passed. Renew the subscription."
+    },
+    "SUBSCRIPTION_INACTIVE": {
+      "label": "Not active",
+      "hint": "The subscription status is not active. Set the status back to active."
+    }
+  }
+}

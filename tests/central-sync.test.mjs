@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CENTRAL_CACHE_PREFIX, CENTRAL_CODES, CENTRAL_DEVICE_KEY, CENTRAL_ENV_KEY, CENTRAL_ENV_URL,
   CENTRAL_GRACE_NOTE, CENTRAL_MANAGED_MESSAGE, CENTRAL_PROBE_BODY, CENTRAL_RPC, CENTRAL_SEAL_FIELDS,
-  CENTRAL_UNSEALED_FIELDS, centralCodeNote, centralHostLabel, centralMatchLabel, centralStateFromResult,
-  CENTRAL_TIER_TO_PLAN, isTransportFailure,
+  CENTRAL_UNSEALED_FIELDS, CENTRAL_PROBE_SCHEMA_VERSION, CENTRAL_STATE_FAMILY,
+  CENTRAL_STATUS_LABELS, centralCodeNote, centralHostLabel, centralMatchLabel, centralStateFromResult,
+  CENTRAL_TIER_TO_PLAN, centralStatusFamily, centralStatusPresentation, isTransportFailure,
   blockedCentralKey, centralCacheKey, maskEmail, probeCentralReadiness, readCentralDeviceId,
   resolveCentralIdentity,
   centralHeaders, centralStatusLabel, centralSubscriptionRow, centralSyncConfig, clearCachedCentralSubscription,
@@ -216,6 +218,7 @@ test('every refusal code the central project can send stops writes', async () =>
   const cases = [
     ['SUBSCRIPTION_PAUSED', 'paused'],
     ['SUBSCRIPTION_EXPIRED', 'expired'],
+    ['SUBSCRIPTION_INACTIVE', 'inactive'],
     ['SUBSCRIPTION_NOT_FOUND', 'unlicensed'],
     ['SEAT_LIMIT_REACHED', 'seat_limit'],
     ['ORIGIN_MISMATCH', 'origin_mismatch'],
@@ -234,6 +237,7 @@ test('every refusal code the central project can send stops writes', async () =>
     assert.equal(result.subscriptionRow.plan, 'solo', 'a refused clinic is not left on a paid plan');
   }
   assert.equal(CENTRAL_CODES.SUBSCRIPTION_PAUSED, 'paused');
+  assert.equal(CENTRAL_CODES.SUBSCRIPTION_INACTIVE, 'inactive');
 });
 
 test('dual (email+url), email-only and url-only all verify', async () => {
@@ -835,10 +839,92 @@ test('a real transport failure still reaches the offline branch, and only that d
 });
 
 test('every refusal code the card renders has a sentence, and the code survives verbatim', () => {
-  for (const code of ['SUBSCRIPTION_NOT_FOUND', 'ORIGIN_MISMATCH', 'SEAT_LIMIT_REACHED', 'SUBSCRIPTION_PAUSED', 'SUBSCRIPTION_EXPIRED', 'RATE_LIMITED', 'INVALID_EMAIL', 'INVALID_ORIGIN', 'MISSING_IDENTITY', 'FETCH_UNAVAILABLE']) {
+  for (const code of ['SUBSCRIPTION_NOT_FOUND', 'ORIGIN_MISMATCH', 'SEAT_LIMIT_REACHED', 'SUBSCRIPTION_PAUSED', 'SUBSCRIPTION_EXPIRED', 'SUBSCRIPTION_INACTIVE', 'RATE_LIMITED', 'INVALID_EMAIL', 'INVALID_ORIGIN', 'MISSING_IDENTITY', 'FETCH_UNAVAILABLE']) {
     assert.ok(centralCodeNote(code), `${code} needs a note`);
     assert.equal(centralCodeNote(code.toLowerCase()), centralCodeNote(code), 'lookup is case-insensitive');
   }
   assert.equal(centralCodeNote('SOMETHING_ELSE'), '');
   assert.equal(centralCodeNote(''), '');
+});
+
+test('a suspended clinic gets a named, explained FAULT card, not a generic refusal', async () => {
+  const note = 'Central says the subscription status is not active — set the row back to active on Central; the client writes again on its next sync.';
+  assert.equal(centralCodeNote('subscription_inactive'), note);
+
+  const result = await syncCentralSubscription({
+    config: config(), clinicId: 'clinic-1', email, origin, storage: fakeStorage(),
+    fetchImpl: async () => reply({
+      allowed: false,
+      code: 'SUBSCRIPTION_INACTIVE',
+      reason: 'The subscription status is not active.',
+    }),
+  });
+  assert.equal(result.code, 'SUBSCRIPTION_INACTIVE');
+  assert.equal(result.status, 'inactive', 'the code names the card even without a status field');
+  assert.equal(result.allowed, false);
+  assert.equal(canWrite(licenseState(result.subscriptionRow, new Date('2026-11-11T09:00:00.000Z'))), false);
+  assert.equal(result.subscriptionRow.collection_ref, 'SUBSCRIPTION_INACTIVE');
+
+  const card = centralStatusPresentation(result.status);
+  assert.deepEqual({ ...card }, { family: 'fault', tone: 'danger', label: 'Not active' });
+  assert.notEqual(card.family, CENTRAL_STATE_FAMILY.GENERIC);
+  assert.notEqual(card.family, CENTRAL_STATE_FAMILY.NOT_CONNECTED);
+  assert.equal(centralCodeNote(result.code), note);
+});
+
+test('inactive shares the paused/expired FAULT branch, and unknown codes stay generic', () => {
+  for (const status of ['paused', 'expired', 'inactive']) {
+    assert.equal(centralStatusFamily(status), CENTRAL_STATE_FAMILY.FAULT, status);
+    assert.equal(centralStatusPresentation(status).tone, 'danger', status);
+  }
+  assert.equal(CENTRAL_STATUS_LABELS.inactive, 'Not active');
+
+  assert.equal(centralCodeNote('FICTIONAL_CODE'), '');
+  assert.deepEqual(
+    { ...centralStatusPresentation('FICTIONAL_CODE') },
+    { family: CENTRAL_STATE_FAMILY.GENERIC, tone: 'neutral', label: 'Unknown' },
+  );
+  assert.equal(centralStatusFamily('not_connected'), CENTRAL_STATE_FAMILY.NOT_CONNECTED);
+  assert.equal(centralStatusFamily('offline'), CENTRAL_STATE_FAMILY.OFFLINE);
+});
+
+test('the exhaustive status switch covers every code and every named card label', () => {
+  const familyValues = Object.values(CENTRAL_STATE_FAMILY);
+  assert.deepEqual(familyValues, ['ok', 'fault', 'offline', 'not_connected', 'generic']);
+  for (const [code, status] of Object.entries(CENTRAL_CODES)) {
+    assert.equal(
+      centralStatusFamily(status),
+      code === 'ACTIVE' ? CENTRAL_STATE_FAMILY.OK : CENTRAL_STATE_FAMILY.FAULT,
+      `${code} → ${status} has no explicit family`,
+    );
+  }
+  for (const status of Object.keys(CENTRAL_STATUS_LABELS)) {
+    assert.notEqual(
+      centralStatusFamily(status),
+      CENTRAL_STATE_FAMILY.GENERIC,
+      `${status} is a named card and must have its own family`,
+    );
+  }
+  for (const status of ['idle', 'syncing', 'not-configured', 'not_connected']) {
+    assert.equal(centralStatusFamily(status), CENTRAL_STATE_FAMILY.NOT_CONNECTED, status);
+  }
+});
+
+test('both Central cards name and explain the verdict from the same helpers', () => {
+  const diagnostics = readFileSync(new URL('../src/components/CentralDiagnostics.jsx', import.meta.url), 'utf8');
+  const subscription = readFileSync(new URL('../src/pages/Subscription.jsx', import.meta.url), 'utf8');
+  assert.match(diagnostics, /centralStatusPresentation\(verdict\.status\)/);
+  assert.match(diagnostics, /presentation\.label/);
+  assert.match(diagnostics, /centralCodeNote\(verdict\.code\)/);
+  assert.match(subscription, /centralStatusPresentation\(/);
+  assert.doesNotMatch(diagnostics, /not connected yet/i, 'a recorded refusal is a fault, not Awaiting Connect');
+});
+
+test('the readiness probe defaults to the contract Central schema version', async () => {
+  assert.equal(CENTRAL_PROBE_SCHEMA_VERSION, 3);
+  const probe = await probeCentralReadiness(config(), {
+    fetchImpl: async () => reply({ ok: true, sync_ready: true }),
+  });
+  assert.equal(probe.ok, true);
+  assert.equal(probe.schemaVersion, 3);
 });

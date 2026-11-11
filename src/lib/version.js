@@ -7,7 +7,7 @@
  *   build  — injected at build time (commit + timestamp) for support
  */
 
-export const APP_VERSION = '1.42.0';
+export const APP_VERSION = '1.43.0';
 export const SCHEMA_VERSION = 21;
 
 /** Injected by vite.config.js define(). */
@@ -22,6 +22,18 @@ export const BUILD = (() => {
 /** What changed, newest first. Kept as the in-app version history; the
  *  Settings → What's new card was hidden in v1.35.5 at the clinic's request. */
 export const CHANGELOG = [
+  {
+    version: '1.43.0', date: '2026-11-11', schema: 21,
+    highlights: [
+      '**Central tier-contract v1 is vendored byte-for-byte.** `contract/tier-contract.json` carries the published 2-space JSON and trailing newline; `tests/tier-contract.test.mjs` hashes the raw bytes with `node:crypto` and pins sha256 `36c6af2bfe0ba7b82d9f9d240ef3aff1330539e82b1538169a0b66d1b2a96ea1`. A different digest needs a deliberate reviewed bump.',
+      'consume Central tier-contract v1 (sha256 36c6af2b…): derive CENTRAL_TIER_TO_PLAN; decode + explain SUBSCRIPTION_INACTIVE; cross-repo drift tests. `plans.mjs` imports the JSON with `with { type: \'json\' }` and generates `CENTRAL_TIER_TO_PLAN`, `TIER_SEAT_LIMITS`, `PLAN_LIMITS` and `PLAN_SEATS`; no second tier/seat/plan literal is allowed outside the contract and tests.',
+      '**`SUBSCRIPTION_INACTIVE` is the one user-visible change.** It decodes to `inactive`, gets the exact operator note about setting the row back to active on Central, and joins the `FAULT` family with paused/expired — a named, explained **Not active** card in `danger`, never a neutral "not connected yet" or a generic refusal. Unknown codes still return an empty note and an **Unknown** generic card.',
+      '**Cross-repo drift is ratcheted in both directions.** `tests/myclinic-compat.test.mjs` compares tier key sets and tier→plan values, all ten contract refusal codes against `CENTRAL_CODES` and `CENTRAL_CODE_NOTES`, contract seat limits against the displayed caps, and scans tracked source for new `doctors:` / `plan:` literals. A contract-only change fails the checksum pin; a client-only change fails the key-set ratchet.',
+      '**Build note.** The scoped-obfuscation plugin parses `central-sync.mjs` with a parser that predates import attributes, so only the unobfuscated `plans.mjs` imports the JSON; `central-sync.mjs` re-exports `CENTRAL_PROBE_SCHEMA_VERSION` (3) from it. No schema, environment, `wrangler` or Pages workflow change: `SCHEMA_VERSION` stays 21 and redeploy is the usual `.github/workflows/pages.yml`.',
+      '**Operator follow-up.** Central v2.4.0 `tests/myclinic-compat.test.mjs` still pins the v1.35.6 gaps (inactive undecoded and unnoted). Refresh those mirrors/pins in the Central repository after this release ships.',
+      'Gates: **743 tests / 46 files**, `vite build`, `check:pages`, `check:contributing` 28/28, `test:security`, mutation-proved drift ratchets and a clean-clone checksum verification all green.',
+    ],
+  },
   {
     version: '1.42.0', date: '2026-11-10', schema: 21,
     highlights: [

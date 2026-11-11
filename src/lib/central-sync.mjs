@@ -53,10 +53,15 @@ export const CENTRAL_RPC = 'sync_clinic_subscription';
 export const CENTRAL_MANAGED_MESSAGE = 'This clinic subscription is managed centrally.';
 
 /** The two build variables, named once so the UI, the workflow and the docs agree. */
-import { CENTRAL_TIER_TO_PLAN, FALLBACK_PLAN, planForTier } from './plans.mjs';
+import {
+  CENTRAL_PROBE_SCHEMA_VERSION, CENTRAL_TIER_TO_PLAN, FALLBACK_PLAN, planForTier,
+} from './plans.mjs';
 
 export const CENTRAL_ENV_URL = 'VITE_CENTRAL_SUPABASE_URL';
 export const CENTRAL_ENV_KEY = 'VITE_CENTRAL_SUPABASE_ANON_KEY';
+
+/** `plans.mjs` reads this from the vendored contract; the probe re-exports it. */
+export { CENTRAL_PROBE_SCHEMA_VERSION };
 
 /** The pepper mixed into every seal. Public by nature; see the note above. */
 const CENTRAL_SEAL_PEPPER = 'myclinic.central.lease.v2';
@@ -94,6 +99,7 @@ export const CENTRAL_CODES = Object.freeze({
   ACTIVE: 'active',
   SUBSCRIPTION_PAUSED: 'paused',
   SUBSCRIPTION_EXPIRED: 'expired',
+  SUBSCRIPTION_INACTIVE: 'inactive',
   SUBSCRIPTION_NOT_FOUND: 'unlicensed',
   SEAT_LIMIT_REACHED: 'seat_limit',
   ORIGIN_MISMATCH: 'origin_mismatch',
@@ -117,6 +123,7 @@ export const CENTRAL_CODE_NOTES = Object.freeze({
   SEAT_LIMIT_REACHED: 'Every machine the plan allows is in use; release a seat on Central.',
   SUBSCRIPTION_PAUSED: 'Central has paused this clinic. The plan resumes only when Central says so.',
   SUBSCRIPTION_EXPIRED: 'Central says the term has ended. Renew on Central.',
+  SUBSCRIPTION_INACTIVE: 'Central says the subscription status is not active — set the row back to active on Central; the client writes again on its next sync.',
   RATE_LIMITED: 'Too many calls from this IP. Wait a minute; the client re-syncs every half hour on its own.',
   INVALID_EMAIL: 'Central refused the email as malformed — check the owner address it was pinned from.',
   INVALID_ORIGIN: 'Central refused the origin as malformed. Send scheme + host only, e.g. https://clinic.github.io.',
@@ -183,11 +190,71 @@ export const CENTRAL_STATUS_LABELS = Object.freeze({
   active: 'Active',
   paused: 'Paused',
   expired: 'Expired',
+  inactive: 'Not active',
   unlicensed: 'Not licensed',
   seat_limit: 'Seat limit reached',
   origin_mismatch: 'This address is not licensed',
   offline: 'Offline grace',
 });
+
+/**
+ * Five mutually exclusive families for a Central card. A suspended subscription
+ * is a fault, in the same branch as paused and expired — never a neutral
+ * "not connected yet" state.
+ */
+export const CENTRAL_STATE_FAMILY = Object.freeze({
+  OK: 'ok',
+  FAULT: 'fault',
+  OFFLINE: 'offline',
+  NOT_CONNECTED: 'not_connected',
+  GENERIC: 'generic',
+});
+
+/** The card family for a Central status or a decoded refusal state. */
+export function centralStatusFamily(status) {
+  switch (String(status ?? '').toLowerCase()) {
+    case CENTRAL_CODES.ACTIVE:
+      return CENTRAL_STATE_FAMILY.OK;
+    case CENTRAL_CODES.SUBSCRIPTION_PAUSED:
+    case CENTRAL_CODES.SUBSCRIPTION_EXPIRED:
+    case CENTRAL_CODES.SUBSCRIPTION_INACTIVE:
+    case CENTRAL_CODES.SUBSCRIPTION_NOT_FOUND:
+    case CENTRAL_CODES.SEAT_LIMIT_REACHED:
+    case CENTRAL_CODES.ORIGIN_MISMATCH:
+    case CENTRAL_CODES.RATE_LIMITED:
+    case CENTRAL_CODES.INVALID_EMAIL:
+    case CENTRAL_CODES.INVALID_ORIGIN:
+    case CENTRAL_CODES.MISSING_IDENTITY:
+    case CENTRAL_CODES.FETCH_UNAVAILABLE:
+      return CENTRAL_STATE_FAMILY.FAULT;
+    case 'offline':
+      return CENTRAL_STATE_FAMILY.OFFLINE;
+    case 'idle':
+    case 'syncing':
+    case 'not-configured':
+    case 'not_connected':
+      return CENTRAL_STATE_FAMILY.NOT_CONNECTED;
+    case 'unknown':
+      return CENTRAL_STATE_FAMILY.GENERIC;
+    default:
+      return CENTRAL_STATE_FAMILY.GENERIC;
+  }
+}
+
+const CENTRAL_FAMILY_TONE = Object.freeze({
+  [CENTRAL_STATE_FAMILY.OK]: 'success',
+  [CENTRAL_STATE_FAMILY.FAULT]: 'danger',
+  [CENTRAL_STATE_FAMILY.OFFLINE]: 'warn',
+  [CENTRAL_STATE_FAMILY.NOT_CONNECTED]: 'neutral',
+  [CENTRAL_STATE_FAMILY.GENERIC]: 'neutral',
+});
+
+/** One answer for the label, the family and the tone a card must show. */
+export function centralStatusPresentation(status) {
+  const key = String(status ?? '').toLowerCase();
+  const family = centralStatusFamily(key);
+  return Object.freeze({ family, tone: CENTRAL_FAMILY_TONE[family], label: centralStatusLabel(key) });
+}
 
 /* ------------------------------------------------------------------ small parts */
 
@@ -491,7 +558,9 @@ export async function probeCentralReadiness(config, { fetchImpl, timeoutMs = CEN
   return {
     ok: syncReady,
     syncReady,
-    schemaVersion: typeof body?.schema_version === 'number' ? body.schema_version : null,
+    schemaVersion: typeof body?.schema_version === 'number'
+      ? body.schema_version
+      : syncReady ? CENTRAL_PROBE_SCHEMA_VERSION : null,
     httpStatus,
     error: syncReady ? '' : 'The RPC answered, but not with a readiness body — check which function is deployed.',
   };
@@ -883,8 +952,12 @@ export async function syncCentralSubscription({
     });
   }
 
-  const status = String(answer.status ?? '').toLowerCase();
   const code = String(answer.code ?? '').toUpperCase();
+  const decodedStatus = CENTRAL_CODES[code];
+  // A known code can name its own card even when Central omits `status`.
+  // An unknown code stays unknown: the note is empty and the card is generic.
+  const status = String(answer.status ?? '').toLowerCase()
+    || (decodedStatus && decodedStatus !== CENTRAL_CODES.ACTIVE ? decodedStatus : 'unknown');
 
   if (answer.allowed === true) {
     const tier = String(answer.tier ?? '').toLowerCase();

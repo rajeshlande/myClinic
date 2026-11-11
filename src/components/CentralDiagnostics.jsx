@@ -3,7 +3,7 @@ import { Globe2, RefreshCw, ShieldQuestion, TriangleAlert, WifiOff } from 'lucid
 import { useStore } from '../lib/store.jsx';
 import { Badge, Button, Card, CardHead, useToast } from './ui.jsx';
 import { formatExpiry } from '../lib/license.mjs';
-import { centralCodeNote, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
+import { centralCodeNote, centralMatchLabel, centralStatusPresentation } from '../lib/central-sync.mjs';
 
 /**
  * Central Auto-Sync, as the operator needs to see it.
@@ -42,6 +42,7 @@ export default function CentralDiagnostics() {
   const diagnostics = store.centralDiagnostics ?? {};
   const central = store.centralSync ?? { enabled: false };
   const verdict = central.verdict ?? null;
+  const presentation = verdict ? centralStatusPresentation(verdict.status) : null;
   const probe = diagnostics.probe ?? null;
 
   const [revealEmail, setRevealEmail] = useState(false);
@@ -63,7 +64,7 @@ export default function CentralDiagnostics() {
 
   const configured = Boolean(central.enabled);
   const emailKnown = Boolean(diagnostics.email);
-  const tone = central.state === 'offline' ? 'warn' : verdict?.allowed === false ? 'danger' : configured ? 'success' : 'neutral';
+  const tone = central.state === 'offline' ? 'warn' : verdict?.allowed === false ? presentation.tone : configured ? 'success' : 'neutral';
 
   const runSync = async () => {
     setSyncing(true);
@@ -97,7 +98,7 @@ export default function CentralDiagnostics() {
         title="Central Auto-Sync"
         sub="What this build sends to the central subscription service, and what came back. No key, no seal and no token is ever shown here."
         icon={Globe2}
-        action={<Badge tone={tone} dot>{configured ? (verdict ? centralStatusLabel(verdict.status) : 'Configured') : 'Not configured'}</Badge>}
+        action={<Badge tone={tone} dot>{configured ? (verdict ? presentation.label : 'Configured') : 'Not configured'}</Badge>}
       />
       <div className="card-body stack" style={{ gap: 12 }}>
         <div className="grid two" style={{ gap: 12, alignItems: 'start' }}>
@@ -177,8 +178,8 @@ export default function CentralDiagnostics() {
             {verdict ? (
               <div className="stack" style={{ gap: 6, minWidth: 0 }}>
                 <div className="row wrap" style={{ gap: 6 }}>
-                  <Badge tone={verdict.allowed ? 'success' : 'danger'} dot>{verdict.allowed ? 'Allowed' : 'Refused'}</Badge>
-                  <Badge tone="neutral">{centralStatusLabel(verdict.status)}</Badge>
+                  <Badge tone={presentation.tone} dot>{verdict.allowed ? 'Allowed' : 'Refused'}</Badge>
+                  <Badge tone={presentation.tone}>{presentation.label}</Badge>
                   {verdict.code ? <Badge tone="neutral">{verdict.code}</Badge> : null}
                   {verdict.offline ? <Badge tone="warn">Offline</Badge> : null}
                 </div>

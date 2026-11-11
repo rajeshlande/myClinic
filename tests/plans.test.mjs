@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CENTRAL_TIER_TO_PLAN, DEFAULT_PLAN, FALLBACK_PLAN, PLANS, PLAN_BLURB, PLAN_IDS, PLAN_LABEL,
-  PLAN_LIMITS, PLAN_PRICE_PAISE, PLAN_SEATS, PLAN_SIDEBAR_LABEL, SALES_PLAN,
+  PLAN_LIMITS, PLAN_PRICE_PAISE, PLAN_SEATS, PLAN_SIDEBAR_LABEL, SALES_PLAN, TIER_SEAT_LIMITS,
   isPlanId, planForTier, planId, planLabel, planLimits, planNeedsSales, planPrice, planRow, planSidebarLabel,
 } from '../src/lib/plans.mjs';
 import { PLAN_LIMITS as REEXPORTED_LIMITS, PLAN_ORDER, planPrice as reexportedPrice, seatUsage, canAddSeat } from '../src/lib/license.mjs';
@@ -104,6 +104,23 @@ test('Central tier names translate in one place, unknown tiers fall back small',
   assert.equal(planForTier('platinum'), FALLBACK_PLAN);
   assert.equal(planForTier(null), FALLBACK_PLAN);
   assert.deepEqual(Object.keys(CENTRAL_TIER_TO_PLAN).sort(), ['chain', 'enterprise', 'growth', 'solo', 'standard']);
+});
+
+test('CENTRAL_TIER_TO_PLAN and the displayed plan caps are the shipped contract view', () => {
+  assert.ok(Object.isFrozen(CENTRAL_TIER_TO_PLAN));
+  assert.deepEqual({ ...CENTRAL_TIER_TO_PLAN }, {
+    solo: 'solo',
+    standard: 'growth',
+    growth: 'growth',
+    chain: 'chain',
+    enterprise: 'chain',
+  });
+  assert.deepEqual({ ...TIER_SEAT_LIMITS.solo }, { doctors: 1, frontdesk: 1, branches: 1 });
+  assert.deepEqual({ ...TIER_SEAT_LIMITS.growth }, { doctors: 5, frontdesk: 3, branches: 1 });
+  assert.deepEqual({ ...TIER_SEAT_LIMITS.chain }, { doctors: null, frontdesk: null, branches: null });
+  assert.equal(PLAN_LIMITS.solo, TIER_SEAT_LIMITS.solo);
+  assert.equal(PLAN_LIMITS.growth, TIER_SEAT_LIMITS.growth);
+  assert.equal(PLAN_LIMITS.chain, TIER_SEAT_LIMITS.chain);
 });
 
 test('the old import paths still resolve to the same objects', () => {

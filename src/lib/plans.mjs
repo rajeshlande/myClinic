@@ -17,8 +17,31 @@
  * Rules for this file:
  *   - ids, caps, prices, labels and blurbs live here and nowhere else;
  *   - nothing else in `src/` may contain a quoted plan id;
- *   - unknown input is normalised by `planId()`, never by a ternary at a call site.
+ *   - unknown input is normalised by `planId()`, never by a ternary at a call site;
+ *   - Central tier → plan and tier seat limits are generated from
+ *     `contract/tier-contract.json`, never typed a second time.
  */
+
+import raw from '../../contract/tier-contract.json' with { type: 'json' };
+
+/** Contract v1 pins the Central schema version the readiness probe defaults to. */
+export const CENTRAL_PROBE_SCHEMA_VERSION = raw.central_schema_version;
+
+const seatLimits = (tier) => Object.freeze({
+  doctors: raw.tiers[tier].doctors,
+  frontdesk: raw.tiers[tier].frontdesk,
+  branches: raw.tiers[tier].branches,
+});
+
+const seatLine = ({ doctors, frontdesk }) => {
+  if (doctors === null || frontdesk === null) return 'Unlimited seats';
+  return `${doctors} ${doctors === 1 ? 'doctor' : 'doctors'} + ${frontdesk} front desk`;
+};
+
+/** Seat caps for every Central tier, read from the contract. */
+export const TIER_SEAT_LIMITS = Object.freeze(
+  Object.fromEntries(Object.keys(raw.tiers).map((tier) => [tier, seatLimits(tier)])),
+);
 
 /** The plans this build knows, in the order they are sold. */
 export const PLAN_IDS = Object.freeze(['solo', 'growth', 'chain']);
@@ -49,9 +72,9 @@ export function planNeedsSales(plan) {
 
 /** Seat caps per plan. `null` means unlimited. Mirrors `license_seats()` in SQL. */
 export const PLAN_LIMITS = Object.freeze({
-  solo: Object.freeze({ doctors: 1, frontdesk: 1, branches: 1 }),
-  growth: Object.freeze({ doctors: 5, frontdesk: 3, branches: 1 }),
-  chain: Object.freeze({ doctors: null, frontdesk: null, branches: null }),
+  solo: TIER_SEAT_LIMITS.solo,
+  growth: TIER_SEAT_LIMITS.growth,
+  chain: TIER_SEAT_LIMITS.chain,
 });
 
 /** Monthly price in paise. Mirrors `plan_price()` in SQL. */
@@ -72,9 +95,9 @@ export const PLAN_BLURB = Object.freeze({
 
 /** The seat line, used on the team screen. */
 export const PLAN_SEATS = Object.freeze({
-  solo: '1 doctor + 1 front desk',
-  growth: '5 doctors + 3 front desk',
-  chain: 'Unlimited seats',
+  solo: seatLine(TIER_SEAT_LIMITS.solo),
+  growth: seatLine(TIER_SEAT_LIMITS.growth),
+  chain: seatLine(TIER_SEAT_LIMITS.chain),
 });
 
 /** The full catalogue: what the landing and pricing screens render. */
@@ -111,14 +134,14 @@ export const PLANS = Object.freeze([
  *
  * Says nothing about *entitlement* — Central decides who is licensed. This only
  * translates the word it sends into the word this build uses, in one place.
+ * Generated from `contract/tier-contract.json`; the checksum and compat suites
+ * fail if either repository's vocabulary drifts.
  */
-export const CENTRAL_TIER_TO_PLAN = Object.freeze({
-  solo: 'solo',
-  standard: 'growth',
-  growth: 'growth',
-  chain: 'chain',
-  enterprise: 'chain',
-});
+export const CENTRAL_TIER_TO_PLAN = Object.freeze(
+  Object.fromEntries(
+    Object.entries(raw.tiers).map(([tier, spec]) => [tier, spec.plan]),
+  ),
+);
 
 /* ------------------------------------------------------------------ lookups */
 

@@ -13,7 +13,7 @@ import {
   planPrice, upgradeCost,
 } from '../lib/license.mjs';
 import { APP_VERSION } from '../lib/version.js';
-import { CENTRAL_GRACE_NOTE, centralMatchLabel, centralStatusLabel } from '../lib/central-sync.mjs';
+import { CENTRAL_GRACE_NOTE, centralMatchLabel, centralStatusPresentation } from '../lib/central-sync.mjs';
 
 function money(paise) { return formatMoney(paise ?? 0); }
 
@@ -43,15 +43,16 @@ export default function Subscription() {
   const central = store.centralSync ?? { enabled: false };
   const centrallyManaged = isCentralManaged(store);
   const centralVerdict = central.verdict ?? null;
-  const centralStatusText = central.state === 'offline'
-    ? 'Offline grace'
-    : centralStatusLabel(centralVerdict?.status ?? (license?.status === 'expired' ? 'expired' : 'active'));
+  const centralPresentation = centralStatusPresentation(
+    centralVerdict?.status ?? (license?.status === 'expired' ? 'expired' : 'active'),
+  );
+  const centralStatusText = central.state === 'offline' ? 'Offline grace' : centralPresentation.label;
   const centralTone = central.state === 'syncing' || central.state === 'idle'
     ? 'neutral'
     : central.state === 'offline'
       ? 'warn'
       : centralVerdict?.allowed === false
-        ? 'danger'
+        ? centralPresentation.tone
         : 'success';
 
   const isOwner = store.role === 'owner';

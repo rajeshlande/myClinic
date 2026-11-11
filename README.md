@@ -82,7 +82,7 @@ Requirements: **Node 26 LTS** (pinned in `.nvmrc`; anything ≥ 22.22 works) and
 |---|---|
 | `npm run dev` | Dev server on `0.0.0.0:5173` |
 | `npm run build` | Production bundle in `dist/` |
-| `npm test` | 729 unit tests across 43 suites |
+| `npm test` | 743 unit tests across 46 suites |
 | `npm run check:pages` | Proves the bundle is deployable as-is |
 | `npm run deploy:function` | Redeploys the legacy licence Edge Function (schema 18). Nothing in the app calls it since 1.24.0 — see [`docs/SUBSCRIPTION.md`](docs/SUBSCRIPTION.md) |
 | `npm run verify` | `test` + `build` + `check:pages` — the gate CI runs |
@@ -204,7 +204,7 @@ src/
 supabase/
   schema.sql              the whole database: tables, policies, functions, migrations 1→18
   schema-tests.sql        fourteen rolled-back SQL suites
-tests/                    729 unit tests across 43 suites
+tests/                    743 unit tests across 46 suites
 docs/                     setup, security, architecture, dependency and gap analysis
 scripts/                  check-pages.mjs, security-check.mjs
 ```
@@ -251,7 +251,7 @@ node scripts/security-check.mjs
 
 | Gate | Scope |
 |---|---|
-| `npm test` | **729 tests / 43 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the keyless Central Auto-Sync lease and its seal, replay, responsive breakpoints, landing-page promises, schema-shaped guards, settings panels, mobile chrome, plan-aware branch labels, one effective plan across screens, the schema-20 branch configuration and the schema-21 branch-view wiring. |
+| `npm test` | **743 tests / 46 files** — domain logic, day book, licensing, RBAC, invites, medicines, drug search and import, payments, public booking, the offline cache and its expiry, the keyless Central Auto-Sync lease and its seal, replay, responsive breakpoints, landing-page promises, schema-shaped guards, settings panels, mobile chrome, plan-aware branch labels, one effective plan across screens, the schema-20 branch configuration, the schema-21 branch-view wiring, the vendored Central tier-contract checksum, derived tier/seat maps, the named `SUBSCRIPTION_INACTIVE` card and cross-repo drift ratchets. |
 | `supabase/schema-tests.sql` | **Seventeen SQL suites** in rolled-back transactions: RLS role matrix, licensing, public booking, slug handling, booking links, role split and self-promotion, hours, profiles, the drug directory and drug search at scale, investigations, the audit fixes (schema 17), the licence authority (schema 18), set-up (schema 19), branch configuration (schema 20) and branch views / day close / invitations (schema 21). |
 | CI (`.github/workflows/ci.yml`) | Node 22 and 26, tests, build, Pages readiness, sub-path build, security checklist, `npm audit --audit-level=high`. |
 
