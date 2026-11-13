@@ -28,13 +28,13 @@ Work stays on v2/account-trust-validation. No Google project/client/bucket/accou
 
 All clinic routes require short-lived clinic session verification AND authoritative active owner resolution (not a browser role/clinic ID, cached JWT role or service token alone). OAuth endpoints additionally require reviewed Origin/CSRF protection, exact redirect URI, safe return routing and session binding. Rate-limit connect, callbacks and manual jobs. Do not cache Auth/Drive callbacks, tokens or backup requests in service worker, offline queue or browser persistence.
 
-Suggested contract, not deployed routes:
+Request/Response handler and browser client now implement this contract locally; see P7-DRIVE-HTTP-BOUNDARY.md. No routes are deployed, and production session/state/queue adapters remain missing:
 
 - GET /v2/clinics/:id/drive-backup: `{connected,lastBackupAt}` sanitized owner summary.
 - POST .../connect: `{consentUrl}` only; secure state cookie/session binding as reviewed integration requires.
 - OAuth callback: server exchanges code, stores encrypted binding, redirects to fixed Backups page with no token/code persisted in history/logs.
 - POST .../disconnect: authoritative transactional disable/revision bump, credential cleanup job, `{connected:false,lastBackupAt:null}`.
-- POST .../backup: owner-authenticated job admission; return status only after actual job evidence, or extend UI contract to show QUEUED/RUNNING explicitly. Current controller expects summary and must NOT mislabel enqueue as completion.
+- POST .../backup: owner-authenticated job admission;202 `{jobId,status:'QUEUED'}`. Controller now shows a pending request without changing last verified backup time. Durable queue/completion tracking is not yet implemented.
 
 State store `create(hash,record)` must durably create without overwrite. `claim(hash,{userId,clinicId,now})` must atomically verify owner+clinic+expiry and consume once; wrong owner cannot consume another state. State/verifier never logged. Protect server session from OAuth login-CSRF; coordinator is not a complete HTTP security boundary.
 

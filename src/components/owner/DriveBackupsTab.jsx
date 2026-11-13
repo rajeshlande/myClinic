@@ -27,7 +27,8 @@ export default function DriveBackupsTab({access,controller}){
         <Button variant="primary" disabled={!consent||busy||unavailable} onClick={()=>controller.connect()}>Connect Google Drive</Button>
       </>:<>
         <p className="small muted">Daily changed-row backups and 30-day retention require an active server-side exporter. This screen does not promise that a schedule is running.</p>
-        <Button disabled={busy||unavailable} onClick={()=>controller.backupNow()}>Request encrypted backup</Button>
+        {snapshot.pendingJobId&&<p role="status">Backup request queued. This is not a completed backup; the last verified backup time has not changed. Job progress tracking is not available on this screen yet.</p>}
+        <Button disabled={busy||unavailable||Boolean(snapshot.pendingJobId)} onClick={()=>controller.backupNow()}>Request encrypted backup</Button>
         <label className="row" style={{gap:8}}><input type="checkbox" checked={confirmDisconnect} onChange={e=>setConfirmDisconnect(e.target.checked)} disabled={busy||unavailable}/>Disconnect this clinic's Drive connection. Existing backup files are not deleted.</label>
         <Button disabled={!confirmDisconnect||busy||unavailable} onClick={()=>controller.disconnect()}>Disconnect Google Drive</Button>
       </>}
