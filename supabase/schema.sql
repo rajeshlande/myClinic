@@ -65,6 +65,14 @@
 --    19  what set-up collects             v1.34.0
 --    20  branches + assignments           v1.41.0
 --    21  branch views + invitations       v1.42.0
+--   NEXT / PLANNED - NOT APPLIED (this is not a released schema version).
+--   Target for v2.0.0: section 22 of the shared clinical database -
+--   clinic_memberships, schema_meta, and the three-predicate RLS matrix
+--   (clinic_id claim + membership EXISTS + restrictive iss policy).
+--   The released-version list above still ends at 21, and app_schema_version()
+--   must keep reporting 21 until that migration block actually exists.
+--   Authority: opd-multitenant-final-plan-free-tier.md (R4, section 5).
+--
 --
 -- To add a migration: append a numbered block at the end of the file, inside its
 -- own `do $migration$ … $migration$` guard (it returns early when

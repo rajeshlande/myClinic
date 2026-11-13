@@ -1,0 +1,226 @@
+{
+  "runtime": "v22.22.0",
+  "browser": "145.0.7632.6",
+  "origin": "http://127.0.0.1:4174",
+  "syntheticOnly": true,
+  "forbiddenRequests": 0,
+  "passed": 43,
+  "failed": 0,
+  "results": [
+    {
+      "name": "native secure context, Web Locks and IndexedDB available",
+      "status": "PASS",
+      "ms": 228
+    },
+    {
+      "name": "native IndexedDB roundtrip survives page reload",
+      "status": "PASS",
+      "ms": 299
+    },
+    {
+      "name": "user/workspace/clinic physical namespaces remain isolated across tabs",
+      "status": "PASS",
+      "ms": 745
+    },
+    {
+      "name": "native cross-tab Web Locks serialize CAS, exactly one concurrent commit succeeds",
+      "status": "PASS",
+      "ms": 343
+    },
+    {
+      "name": "native storage event invalidates remote session and cleans remote registered cache",
+      "status": "PASS",
+      "ms": 509
+    },
+    {
+      "name": "durable fence rejects stale tab when no storage-event listener is installed",
+      "status": "PASS",
+      "ms": 354
+    },
+    {
+      "name": "pending outbox is retained and cleanup blocks reload rather than discarding work",
+      "status": "PASS",
+      "ms": 291
+    },
+    {
+      "name": "closing lock-owning tab releases native Web Lock to waiting tab",
+      "status": "PASS",
+      "ms": 358
+    },
+    {
+      "name": "page closure after persisted cleanup fence leaves new tab fail-closed",
+      "status": "PASS",
+      "ms": 349
+    },
+    {
+      "name": "injected metadata write refusal is not reported as successful logout cleanup",
+      "status": "PASS",
+      "ms": 177
+    },
+    {
+      "name": "injected IDB open refusal during cleanup preserves blocked generation",
+      "status": "PASS",
+      "ms": 193
+    },
+    {
+      "name": "native IDB versionchange closes old connection without reuse",
+      "status": "PASS",
+      "ms": 178
+    },
+    {
+      "name": "native cross-tab notification invalidates real controller and its old token provider",
+      "status": "PASS",
+      "ms": 350
+    },
+    {
+      "name": "stale tab cleanup cannot erase newly reopened authenticated generation",
+      "status": "PASS",
+      "ms": 537
+    },
+    {
+      "name": "explicit recovery clears an interrupted empty-queue cleanup, never a stale generation",
+      "status": "PASS",
+      "ms": 590
+    },
+    {
+      "name": "native recovery summary and retry preserve pending writes and keep block",
+      "status": "PASS",
+      "ms": 206
+    },
+    {
+      "name": "recovery never exposes foreign namespace identifiers or cleans foreign work",
+      "status": "PASS",
+      "ms": 198
+    },
+    {
+      "name": "account change invalidates inspected recovery confirmation before mutation",
+      "status": "PASS",
+      "ms": 186
+    },
+    {
+      "name": "two reviewed recovery tabs cannot use a stale epoch to override each other",
+      "status": "PASS",
+      "ms": 525
+    },
+    {
+      "name": "native replay acknowledgement durably commits queue/cache/conflicts together",
+      "status": "PASS",
+      "ms": 337
+    },
+    {
+      "name": "native replay conflicts remain durable and block cleanup and recovery",
+      "status": "PASS",
+      "ms": 219
+    },
+    {
+      "name": "native concurrent append during replay refuses ACK without losing either queue item",
+      "status": "PASS",
+      "ms": 226
+    },
+    {
+      "name": "native per-namespace replay lock refuses simultaneous flush in another tab",
+      "status": "PASS",
+      "ms": 336
+    },
+    {
+      "name": "native staged loader publishes and durably caches exact scoped snapshot",
+      "status": "PASS",
+      "ms": 194
+    },
+    {
+      "name": "native delayed clinical load cannot republish PHI after controller logout",
+      "status": "PASS",
+      "ms": 190
+    },
+    {
+      "name": "native enqueue during load protects local work and refuses cache publication",
+      "status": "PASS",
+      "ms": 182
+    },
+    {
+      "name": "native optimistic command durably pairs cache/outbox across reload",
+      "status": "PASS",
+      "ms": 312
+    },
+    {
+      "name": "native concurrent optimistic commands keep one CAS winner and permit reviewed retry",
+      "status": "PASS",
+      "ms": 401
+    },
+    {
+      "name": "native stale operation after paused read cannot enqueue or alter cache",
+      "status": "PASS",
+      "ms": 197
+    },
+    {
+      "name": "native injected write refusal and expired licence preserve durable state",
+      "status": "PASS",
+      "ms": 189
+    },
+    {
+      "name": "native repeated optimistic edits retain complete FIFO bases",
+      "status": "PASS",
+      "ms": 198
+    },
+    {
+      "name": "native facade publishes loaded and durably queued immutable observations",
+      "status": "PASS",
+      "ms": 194
+    },
+    {
+      "name": "native facade delayed load clears immediately on logout and refuses stale publication",
+      "status": "PASS",
+      "ms": 194
+    },
+    {
+      "name": "native facade disposal clears PHI and closes future commands",
+      "status": "PASS",
+      "ms": 172
+    },
+    {
+      "name": "native reviewed local conflict discard is explicit and durable across reload",
+      "status": "PASS",
+      "ms": 301
+    },
+    {
+      "name": "native two reviewed tabs cannot discard against a stale revision",
+      "status": "PASS",
+      "ms": 431
+    },
+    {
+      "name": "native review panel renders fresh comparison as text and requires explicit loss acknowledgement",
+      "status": "PASS",
+      "ms": 393
+    },
+    {
+      "name": "native review panel cancellation retains sources and clears displayed PHI",
+      "status": "PASS",
+      "ms": 288
+    },
+    {
+      "name": "native review panel invalidation clears comparison and prevents stale confirmation",
+      "status": "PASS",
+      "ms": 253
+    },
+    {
+      "name": "native pending fresh comparison cannot repopulate disposed panel",
+      "status": "PASS",
+      "ms": 274
+    },
+    {
+      "name": "native attendance no-show and late restoration keep same durable token and FIFO bases",
+      "status": "PASS",
+      "ms": 293
+    },
+    {
+      "name": "native attendance other-day and full-note refusals preserve durable state",
+      "status": "PASS",
+      "ms": 195
+    },
+    {
+      "name": "native replay conflict barrier preserves tail and blocks later sends/review bypass",
+      "status": "PASS",
+      "ms": 186
+    }
+  ]
+}

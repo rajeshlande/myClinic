@@ -1,0 +1,8 @@
+[
+  "Fresh consolidated install + 180 cross-tenant operation/role checks and supplemental tests: PASS",
+  "Reapplication preserves committed clinic/identity/metadata; test suite still passes: PASS",
+  "Mutation dropping issuer-policy rejected by independent policy-presence ratchet: PASS",
+  "Mutation dropping membership-policy rejected by independent policy-presence ratchet: PASS",
+  "Mutation removing explicit clinic-claim binding rejected: PASS",
+  "Nonempty schema21 destination refused atomically, still version21: PASS"
+]

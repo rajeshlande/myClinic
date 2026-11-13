@@ -17,3 +17,6 @@ coverage/
 
 # security-audit skill output (findings.json, coverage-ledger.json, reports/)
 .security-audit/
+
+# Local synthetic browser output; checked handoff evidence lives under evidence/.
+tools/workspace-browser/*results.json

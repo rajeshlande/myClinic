@@ -42,7 +42,9 @@ export const ALLOWED_DEPENDENCIES = [
 // high-severity advisory — and `npm audit --audit-level=high` in ci.yml counts
 // dev dependencies, so "latest" would have made every build red for a reason
 // that has nothing to do with this app.
-export const ALLOWED_DEV_DEPENDENCIES = ['@vitejs/plugin-react', 'javascript-obfuscator', 'vite'];
+// fake-indexeddb is pinned, Apache-2.0, dependency-free and test-only; it is not
+// imported by src/ or used as a production/browser storage fallback.
+export const ALLOWED_DEV_DEPENDENCIES = ['@vitejs/plugin-react', 'fake-indexeddb', 'javascript-obfuscator', 'vite'];
 
 /** Files we never scan for secrets, and why. */
 export const SECRET_SCAN_SKIP = [

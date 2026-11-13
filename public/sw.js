@@ -36,9 +36,12 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // Only same-origin app files. Supabase REST/auth calls must hit the network.
+  // Only same-origin app files. REST, Auth and Edge Functions must hit the
+  // network, including OIDC discovery/JWKS and tenant-token endpoints.
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.includes('/rest/v1/') || url.pathname.includes('/auth/v1/')) return;
+  if (['/rest/v1', '/auth/v1', '/functions/v1'].some(
+    (path) => url.pathname.endsWith(path) || url.pathname.includes(`${path}/`),
+  )) return;
 
   // Navigations (hash routes included): network first, cached shell offline.
   if (request.mode === 'navigate') {

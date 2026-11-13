@@ -1,3 +1,5 @@
+> **Staged multitenant branch:** Read [local handoff](docs/multitenant/LOCAL-HANDOFF.md) before using this branch. It is not an activated v2 release; the live app remains on the legacy path.
+
 <div align="center">
   <img src="public/icon.svg" width="88" height="88" alt="myClinic" />
   <h1>myClinic</h1>

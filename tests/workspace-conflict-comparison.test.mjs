@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readWorkspaceConflictComparison} from '../src/lib/workspace-conflict-comparison.mjs';
+const sourceOp={op_id:'op',type:'update',table:'patients',clinic_id:'clinic',id:'patient',patch:{notes:'local'}};
+const conflict={id:'c',opId:'op',table:'patients',clinic_id:'clinic',sourceOp,remote:{notes:'old'}};
+function fixture(){let result={data:{id:'patient',clinic_id:'clinic',notes:'fresh'}};let active=true;const calls=[];
+ const client={from(table){const filters=[];const q={select(columns){calls.push({table,columns,filters});return q;},eq(k,v){filters.push([k,v]);return q;},maybeSingle(){return Promise.resolve(result);}};return q;}};
+ const lease={clinicId:'clinic',memberRole:'owner',assertCurrent(){if(!active)throw Error('stale');},async run(fn){this.assertCurrent();return fn(client);}};
+ return {lease,calls,result(v){result=v;},expire(){active=false;},read(conflicts=[structuredClone(conflict)],extra={}){return readWorkspaceConflictComparison({lease,conflicts,...extra});}};
+}
+test('fresh comparison explicitly scopes and freezes source/captured/current values',async()=>{const f=fixture();const view=await f.read();assert.equal(view.comparisons[0].byId.notes,'fresh');assert.equal(view.comparisons[0].capturedRemote.notes,'old');assert.ok(Object.isFrozen(view.comparisons[0].sourceOp.patch));assert.deepEqual(f.calls[0].filters,[['clinic_id','clinic'],['id','patient']]);});
+test('no visible row is represented as null without claiming deletion',async()=>{const f=fixture();f.result({data:null});const v=await f.read();assert.equal(v.comparisons[0].byId,null);assert.match(v.warning,/not proof of deletion/);});
+for(const data of [{id:'patient',clinic_id:'foreign'},{id:'other',clinic_id:'clinic'},[],undefined])test(`malformed or wrong-scope result ${JSON.stringify(data)} refuses`,async()=>{const f=fixture();f.result({data});await assert.rejects(f.read(),{code:'COMPARISON_SCOPE_MISMATCH'});});
+test('backend error including PGRST116 is not treated as absence',async()=>{const f=fixture();f.result({data:null,error:{code:'PGRST116',message:'private'}});await assert.rejects(f.read(),{code:'COMPARISON_READ_FAILED'});});
+test('non-owner cannot compare',async()=>{const f=fixture();f.lease.memberRole='doctor';await assert.rejects(f.read(),{code:'COMPARISON_OWNER_REQUIRED'});assert.equal(f.calls.length,0);});
+test('invalid batch and duplicate ids refuse',async()=>{const f=fixture();await assert.rejects(f.read([]),{code:'COMPARISON_BATCH_LIMIT'});await assert.rejects(f.read(Array(51).fill(conflict)),{code:'COMPARISON_BATCH_LIMIT'});await assert.rejects(f.read([conflict,conflict]),{code:'COMPARISON_INVALID_SOURCE'});});
+test('foreign source refuses before network',async()=>{const f=fixture();await assert.rejects(f.read([{...conflict,sourceOp:{...sourceOp,clinic_id:'foreign'}}]),{code:'COMPARISON_INVALID_SOURCE'});assert.equal(f.calls.length,0);});
+test('create uses both row id and supported client id',async()=>{const f=fixture();f.result({data:null});const create={...conflict,sourceOp:{...sourceOp,type:'create',row:{id:'patient',clinic_id:'clinic',client_id:'client'},client_id:'client'}};await f.read([create]);assert.equal(f.calls.length,2);assert.deepEqual(f.calls[1].filters,[['clinic_id','clinic'],['client_id','client']]);});
+test('stale lease after remote read refuses comparison',async()=>{const f=fixture();f.lease.run=async()=>{f.expire();return {data:null};};await assert.rejects(f.read(),/stale/);});
+test('bad clock refuses publication',async()=>{const f=fixture();await assert.rejects(f.read(undefined,{now:()=>NaN}),{code:'INVALID_CLOCK'});});

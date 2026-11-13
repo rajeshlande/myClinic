@@ -7,6 +7,7 @@ myClinic is built on open-source software. The production bundle includes:
 | [React](https://react.dev) / react-dom | MIT | UI runtime |
 | [React Router](https://reactrouter.com) (`react-router`) | MIT | Client routing (hash history for static hosting) |
 | [Vite](https://vite.dev) | MIT | Build tooling (dev dependency) |
+| [fake-indexeddb](https://github.com/dumbmatter/fakeIndexedDB) | Apache-2.0 | Test-only in-memory IndexedDB implementation, pinned to 6.2.8; no runtime dependencies, no import from production source, not a browser storage fallback |
 | [javascript-obfuscator](https://github.com/javascript-obfuscator/javascript-obfuscator) | BSD-2-Clause | Build tooling (dev dependency), pinned to 5.2.1 — obfuscates two released modules, `src/lib/central-sync.mjs` and `src/lib/license.mjs`, and nothing else. Not part of the runtime dependency tree |
 | [@supabase/supabase-js](https://supabase.com/docs/reference/javascript) | MIT | Auth + Postgres client |
 | [lucide-react](https://lucide.dev) | ISC | Icon set |
@@ -18,4 +19,4 @@ myClinic is built on open-source software. The production bundle includes:
 
 Every package above is a published dependency with its licence stated. The vendored
 skill is the only non-npm entry: it is contributor tooling, it never reaches
-`dist/`, and it is MIT like the rest. myClinic's own source is MIT — see [`LICENSE`](LICENSE).
+`dist/`, and it is MIT. Dependency licences are listed individually above; myClinic's own source is MIT — see [`LICENSE`](LICENSE).
