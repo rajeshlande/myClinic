@@ -1,0 +1,64 @@
+name: Staged v2 validation (no deployment)
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: ['v2/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    name: Portable tests and build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run check:contributing
+      - run: npm run test:security
+      - run: npm run build
+      - run: npm run check:pages
+      - name: Operations dry run (no credentials or requests)
+        run: node scripts/v2-ops-probe.mjs --dry-run
+
+  synthetic-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+          cache-dependency-path: tools/workspace-browser/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: tools/workspace-browser
+      - run: npx playwright install --with-deps chromium
+        working-directory: tools/workspace-browser
+      - name: Native storage and UI boundary checks with synthetic Auth
+        run: node run.mjs
+        working-directory: tools/workspace-browser
+      - name: Upload synthetic result only (no clinical data or environment dump)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-synthetic-browser-results
+          path: tools/workspace-browser/local-browser-results.json
+          if-no-files-found: ignore
+          retention-days: 7
