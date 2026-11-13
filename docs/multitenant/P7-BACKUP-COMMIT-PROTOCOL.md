@@ -2,7 +2,7 @@
 
 ## Implementation status
 
-`scripts/lib/v2-backup-commit.mjs` implements an adapter-driven commit protocol and bounded chain retrieval. Tests use an in-memory fault-injection store only. No durable filesystem/cloud adapter, live bucket, credential, SQL, schedule or activation is supplied. Continue only on v2/account-trust-validation.
+`scripts/lib/v2-backup-commit.mjs` implements an adapter-driven commit protocol and bounded chain retrieval. Tests use an in-memory fault-injection store and now a Linux local-filesystem adapter (`P7-LOCAL-DISK-STORE.md`) with persistence/reopen checks. No external/cloud adapter, live bucket, credential, SQL, schedule or activation is supplied. Local filesystem support is not offsite or power-loss proof. Continue only on v2/account-trust-validation.
 
 ## Storage adapter requirements (not optional)
 

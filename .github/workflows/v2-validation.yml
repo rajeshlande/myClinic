@@ -40,6 +40,9 @@ jobs:
         run: node scripts/v2-backup-drill.mjs
       - name: Synthetic operations freshness and capacity policy drill
         run: node scripts/v2-ops-drill.mjs
+      - name: Synthetic Linux private-disk backup drill
+        if: runner.os == 'Linux'
+        run: node scripts/v2-backup-disk-drill.mjs
 
   synthetic-browser:
     runs-on: ubuntu-latest
