@@ -21,7 +21,7 @@ All development stays on `v2/account-trust-validation`; no new branch is needed.
 
 Per batch decoded JSON capped4 MiB, envelope capped8 MiB; decompression output is capped. This is a small-pilot prototype, not a streaming large-clinic backup path. Complete restore is in memory with no aggregate chain-size limit; trusted caller must bound chain count/total data. No arbitrary JSON or real PHI upload/CLI parser is exposed. Caller holds encryption keys and is responsible for approved storage, restricted scopes, rotation, custody/recovery, memory/disk handling and nonce/key lifetime policy. Core output reveals schema/project metadata and ciphertext size.
 
-No SQL, HTTP, object storage, scheduler, exporter watermark, upload/manifest commit, durable retry/ACK, locking, FK verification, schema installation, credential reconciliation or alert integration is implemented. No real restore/RPO/capacity proof is claimed. AES-GCM provided by Node crypto is used rather than a custom cipher; the format/integration still needs security review before production.
+The separate adapter-driven `v2-backup-commit.mjs` now implements upload/readback/CAS cursor semantics and bounded chain retrieval with memory/fault tests (see P7-BACKUP-COMMIT-PROTOCOL.md). No live/durable storage adapter, SQL, HTTP, scheduler, source journal/ACK, FK verification, schema installation, credential reconciliation or alert integration is implemented. No real restore/RPO/capacity proof is claimed. AES-GCM provided by Node crypto is used rather than a custom cipher; the format/integration still needs security review before production.
 
 ## Run locally
 
