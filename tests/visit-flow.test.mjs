@@ -122,3 +122,23 @@ test('the follow-up date prefers the doctor, then the clinic default', () => {
   assert.equal(followUpDateFor(visit({ follow_up_on: 'not a date' }), { days: 7, today: '2026-11-09' }), '2026-11-16');
   assert.equal(followUpDateFor(null, { days: 0, today: '2026-11-09' }), '2026-11-24', 'a nonsense default falls back to 15 days');
 });
+
+// Separate processes make timezone coverage deterministic without mutating the
+// clock/timezone of tests running concurrently in this process.
+for (const zone of ['Asia/Kolkata', 'UTC', 'America/New_York']) {
+  test(`follow-up calendar dates survive timezone ${zone}`, async () => {
+    const { spawnSync } = await import('node:child_process');
+    const moduleUrl = new URL('../src/lib/visit-flow.mjs', import.meta.url).href;
+    const script = `import { followUpDateFor } from ${JSON.stringify(moduleUrl)};
+      console.log(JSON.stringify([
+        followUpDateFor(null, {days:15,today:'2026-11-09'}),
+        followUpDateFor(null, {days:30,today:'2026-12-01'}),
+        followUpDateFor(null, {days:1,today:'2026-03-08'})
+      ]));`;
+    const result = spawnSync(process.execPath, ['--input-type=module','-e',script], {
+      env: {...process.env,TZ:zone}, encoding:'utf8', timeout:10000,
+    });
+    assert.equal(result.status,0,result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout),['2026-11-24','2026-12-31','2026-03-09']);
+  });
+}

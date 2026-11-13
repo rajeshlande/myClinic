@@ -201,7 +201,7 @@ test('the attendance components are presentational and server-renderable', () =>
 test('queueBoard gained the missed rows without a schema change', () => {
   const q = code('src/lib/queue.mjs');
   assert.match(q, /const missed = mine\.filter\(\(a\) => a\.status === 'no-show'/);
-  assert.match(q, /missed,\n        notArrived: booked\.length,/);
+  assert.match(q, /missed,\r?\n        notArrived: booked\.length,/);
   assert.match(q, /noShow: withToken\.filter/);
   const schema = readFileSync(join(root, 'supabase/schema.sql'), 'utf8');
   assert.match(schema, /status in \('booked','checked-in','in-consult','completed','cancelled','no-show'\)/,

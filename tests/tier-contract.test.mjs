@@ -54,3 +54,8 @@ test('the release note names the reviewed contract digest and the consumer work'
   );
   assert.match(changelog, /36c6af2bfe0ba7b82d9f9d240ef3aff1330539e82b1538169a0b66d1b2a96ea1/);
 });
+
+test('Git checkout policy preserves the reviewed contract bytes on Windows', () => {
+  const attributes = readFileSync(join(root, '.gitattributes'), 'utf8');
+  assert.match(attributes, /^\* text=auto eol=lf$/m);
+});

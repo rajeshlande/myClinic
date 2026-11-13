@@ -15,6 +15,8 @@
  * a browser.
  */
 
+import { addDays, today } from './dates.mjs';
+
 /** The five steps, in the order a patient meets them. */
 export const VISIT_STEPS = Object.freeze([
   { id: 'token', label: 'Token', hint: 'Checked in and given a token' },
@@ -109,8 +111,8 @@ export function visitNextActions({ consultation = null, invoice = null, canBill 
 export function followUpDateFor(consultation, { days = 15, today: todayIso } = {}) {
   const planned = String(consultation?.follow_up_on ?? '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(planned)) return planned;
-  const base = new Date(`${todayIso ?? new Date().toISOString().slice(0, 10)}T00:00:00`);
   const span = Number.isFinite(days) && days > 0 ? days : 15;
-  base.setDate(base.getDate() + span);
-  return base.toISOString().slice(0, 10);
+  // Calendar days stay local; converting local midnight to UTC shifts dates
+  // backwards in positive offsets (including Asia/Kolkata).
+  return addDays(todayIso ?? today(), span);
 }
