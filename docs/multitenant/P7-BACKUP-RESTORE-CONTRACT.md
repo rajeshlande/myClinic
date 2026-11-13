@@ -1,4 +1,6 @@
-# P7 external incremental backup and restore contract — NOT IMPLEMENTED
+# P7 external incremental backup and restore contract — production path pending
+
+Local prototype now exists: see P7-BACKUP-CORE.md for compressed authenticated encryption, ordered replay and synthetic drill. It has no DB/journal adapter, durable upload protocol or external storage.
 
 ## Acceptance target
 
@@ -32,4 +34,4 @@ Before implementation choose object provider/bucket/region, encryption key custo
 
 Equal timestamps; update during pagination; delete before/after boundary; multi-table commit; crash before/after upload/manifest/ACK; duplicate retry; corrupted/truncated ciphertext; missing baseline/increment/key; lost watermark; out-of-order sequence; revoked/rotated key; object-store denial; expired retention dependency; source540/network outage. Local fixture tests precede separate live isolated drills.
 
-**Current result: design/checklist only. No exporter, schedule, uploaded backup or executed restore exists from this work.**
+**Current result: contract plus local encryption/replay prototype and synthetic in-memory drill. No live exporter, schedule, uploaded backup or executed database restore exists from this work.**

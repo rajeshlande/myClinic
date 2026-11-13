@@ -36,6 +36,8 @@ jobs:
       - run: npm run check:pages
       - name: Operations dry run (no credentials or requests)
         run: node scripts/v2-ops-probe.mjs --dry-run
+      - name: Synthetic in-memory encrypted backup and restore drill
+        run: node scripts/v2-backup-drill.mjs
 
   synthetic-browser:
     runs-on: ubuntu-latest

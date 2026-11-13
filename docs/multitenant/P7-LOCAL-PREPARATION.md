@@ -2,14 +2,15 @@
 
 ## Scope / current status
 
-Validation-only preparation on `v2/p7-local-preparation`. No live calls, SQL, secret configuration, pushes, deployment, schedule activation or flag changes. Existing ci.yml/pages.yml and live app connection remain unchanged. This is not a completed P7 release or an activated v2 application.
+Local-only preparation on `v2/account-trust-validation` (P7 commit fast-forwarded here; temporary P7 branch removed). No live calls, SQL, secret configuration, pushes, deployment, schedule activation or flag changes. Existing ci.yml/pages.yml and live app connection remain unchanged. This is not a completed P7 release or an activated v2 application.
 
 ### Delivered locally
 
 - `.github/workflows/v2-validation.yml`: secretless Ubuntu/Windows Node22.22.0 tests/contributing/security/build/Pages matrix, plus native synthetic Chromium job and7-day synthetic-result artifact. Triggers only validation; no deployment permissions or scheduled live jobs. Existing CI remains independent. Hosted execution unrun until explicitly pushed/enabled.
 - `tools/workspace-browser/run.mjs`: one-shot portable runner starts the allowlisted synthetic server, waits for readiness, invokes existing browser tests and stops its server. Port4174 must be free. No account credentials or real clinic requests.
 - `scripts/v2-ops-probe.mjs`: read-only server/operator metadata probe, dry-run by default. Live mode requires both --live and OPS_ALLOW_LIVE_READS=yes, plus both server credentials. Pins Master/new clinical URLs, GETs only app_meta schema_version limit1, rejects redirects, uses10s timeout and emits sanitized status/version results. No arbitrary URL override, token mint or capacity/patient reads. Master4 deliberately reports schema mismatch, not ready.
-- Backup/restore requirements and runbooks: `P7-BACKUP-RESTORE-CONTRACT.md` and `P7-RELEASE-CHECKLIST.md`. These define blocked gates, not a working exporter or executed restore drill.
+- Backup/restore core: `scripts/lib/v2-backup-core.mjs` and synthetic-only `scripts/v2-backup-drill.mjs`; see `P7-BACKUP-CORE.md` for APIs, resource limits and source/inventory trust assumptions. Implements compressed AES-GCM batches, validated ordered replay with tombstones and dependency-aware retention planning. Not a database exporter or hosted restore drill.
+- Backup/restore requirements and runbooks: `P7-BACKUP-RESTORE-CONTRACT.md` and `P7-RELEASE-CHECKLIST.md`. Production exporter, external storage, scheduling and live restore remain blocked.
 
 ## Local validation
 
