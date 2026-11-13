@@ -38,6 +38,8 @@ jobs:
         run: node scripts/v2-ops-probe.mjs --dry-run
       - name: Synthetic in-memory encrypted backup and restore drill
         run: node scripts/v2-backup-drill.mjs
+      - name: Synthetic operations freshness and capacity policy drill
+        run: node scripts/v2-ops-drill.mjs
 
   synthetic-browser:
     runs-on: ubuntu-latest
