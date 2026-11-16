@@ -94,6 +94,7 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
+      input: { app: 'index.html', staging: 'v2-staging.html' },
       output: {
         // Vite 8 / rolldown requires a function here, not the object form.
         manualChunks(id) {
