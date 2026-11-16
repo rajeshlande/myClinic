@@ -1,6 +1,6 @@
 # P7 external incremental backup and restore contract — production path pending
 
-Local prototype now exists: see P7-BACKUP-CORE.md for compressed authenticated encryption, ordered replay and synthetic drill. It has no DB/journal adapter, durable upload protocol or external storage.
+Local implementation now includes compressed authenticated encryption/replay, durable local jobs/ledger, mocked Google Drive archive transport and a bounded source-window encoder with synthetic PostgreSQL snapshot/journal proof. See P7-BACKUP-CORE.md, P7-DRIVE-JOBS-LEDGER.md and P7-SOURCE-EXPORT.md. No production clinical journal/read adapter, live external storage or actual DB restore is activated.
 
 ## Acceptance target
 
@@ -8,7 +8,7 @@ Daily compressed, encrypted changed-row exports to an approved external object s
 
 ## Blocked decisions / authority
 
-Before implementation choose object provider/bucket/region, encryption key custody and recovery, access/retention policy, credential scopes, authorised operator identity, alert channel and schema/table inventory. Obtain explicit live SQL/backend/config/job authority. Never request those credentials in chat. No bucket/credential/workflow configured in this increment.
+Owner-connected Google Drive is the selected destination. Before activation finalise encryption key custody/recovery, account governance, access/retention policy, credential scopes, authorised operator identity, alert channel and clinical schema/table inventory. Obtain explicit live SQL/backend/config/job authority. Never request those credentials in chat. No bucket/credential/workflow configured in this increment.
 
 ## Export design requirements
 
