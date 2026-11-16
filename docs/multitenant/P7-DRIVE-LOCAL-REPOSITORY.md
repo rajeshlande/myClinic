@@ -39,6 +39,10 @@ Run with supported Node:
 node --test tests/v2-drive-local-repository.test.mjs
 ```
 
+## Folder binding extension
+
+Local `drive_folders` table and folders API now persist candidate ID/binding before remote creation, reverify destination under current connection revision, clear mapping on consent/disconnect and advance it atomically on same-account token refresh rotation. See P7-DRIVE-FOLDER-BINDING.md for21 additional tests and the private-folder policy. No live Google call or production schema change.
+
 ## Still pending
 
 Production database/repository target and manually reviewed schema/privileges, authoritative membership/session/CSRF/rate-limit adapters, connection intent/account/folder binding, durable job/export ledger, source-consistent journal/exporter, scheduler/alerts, mounted v2 owner Settings, actual Google/hosted/isolation/restore acceptance. No live configuration, SQL or activation is performed by this preparation.

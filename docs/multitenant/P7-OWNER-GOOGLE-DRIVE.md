@@ -15,6 +15,8 @@ Work stays on v2/account-trust-validation. No Google project/client/bucket/accou
 
 - `scripts/lib/v2-drive-local-repository.mjs`: local Linux SQLite state/encrypted-grant persistence with one-time consent consumption, expiry, revision CAS and disconnect fencing. See P7-DRIVE-LOCAL-REPOSITORY.md. Uses explicit synthetic owner fixtures, not production authority; production repository/session setup remains pending.
 
+- `scripts/lib/v2-drive-folder.mjs`: private app-created folder transport/coordinator, with persisted intent and revision-fenced verification in local SQLite. See P7-DRIVE-FOLDER-BINDING.md. No real folder is created and owner/account identity/live acceptance remain pending.
+
 ## Required owner journey after activation
 
 1. Sign into clinic normally; active owner opens Settings → Backups in migrated v2 UI.
