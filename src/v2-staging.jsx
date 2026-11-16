@@ -7,8 +7,13 @@ import { createStagingRuntime, stagingConfig } from './lib/v2-staging-runtime.mj
 
 // Deliberately not main.jsx: no legacy Auth/Store, PHI cache, PWA or SW registration.
 // Controller construction is outside React effects, including StrictMode replay.
-const config = stagingConfig(import.meta.env);
-const runtime = config.ok ? createStagingRuntime({env:import.meta.env,createClient,mountClinicalClient}) : null;
+// Never pass the whole Vite env object: that embeds unrelated local VITE_* values.
+const centralEnv = {
+  VITE_CENTRAL_SUPABASE_URL: import.meta.env.VITE_CENTRAL_SUPABASE_URL,
+  VITE_CENTRAL_SUPABASE_ANON_KEY: import.meta.env.VITE_CENTRAL_SUPABASE_ANON_KEY,
+};
+const config = stagingConfig(centralEnv);
+const runtime = config.ok ? createStagingRuntime({env:centralEnv,createClient,mountClinicalClient}) : null;
 function Staging() {
   const snapshot = useSyncExternalStore(runtime.controller.subscribe,runtime.controller.getSnapshot,runtime.controller.getSnapshot);
   const [busy,setBusy] = useState(false);

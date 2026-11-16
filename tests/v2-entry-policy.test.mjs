@@ -16,6 +16,11 @@ test('legacy root and explicit staging HTML remain unchanged by policy',()=>{
  assert.equal(guardedEntryPlugin('').transformIndexHtml.handler('legacy',{filename:'/repo/index.html'}),'legacy');
  assert.equal(guardedEntryPlugin('v2-staging').transformIndexHtml.handler('explicit',{filename:'/repo/v2-staging.html'}),'explicit');
 });
+test('staging entry reads only the two explicitly allowed build variables',()=>{
+ const entry=readFileSync(new URL('../src/v2-staging.jsx',import.meta.url),'utf8');
+ assert.deepEqual([...entry.matchAll(/import\.meta\.env\.([A-Z_]+)/g)].map(m=>m[1]).sort(),['VITE_CENTRAL_SUPABASE_ANON_KEY','VITE_CENTRAL_SUPABASE_URL']);
+ assert.ok(!/import\.meta\.env(?!\.)/.test(entry));
+});
 test('Pages v2 deployment selects isolated target and excludes legacy build credentials',()=>{
  const workflow=readFileSync(new URL('../.github/workflows/pages.yml',import.meta.url),'utf8');
  assert.match(workflow,/VITE_APP_TARGET:.*refs\/heads\/v2\/account-trust-validation.*v2-staging/);
