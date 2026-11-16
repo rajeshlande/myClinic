@@ -1,7 +1,7 @@
 // Staging-only composition. No browser storage, legacy imports or automatic boot.
 import { createWorkspaceController } from './workspace-controller.mjs';
 import { validateClinicalDescriptor } from './tenant-client.mjs';
-export const STAGING_MASTER = 'https://inaqzvzfongngahxptzw.supabase.co';
+export const STAGING_MASTER = 'https://yzgwrnqlugyrzqymzmps.supabase.co';
 export const STAGING_CLINICAL = 'https://kvxmcdezpozkvdmvmicr.supabase.co';
 export function stagingConfig(env = {}) {
   const url = String(env.VITE_CENTRAL_SUPABASE_URL ?? '').trim();
@@ -11,7 +11,7 @@ export function stagingConfig(env = {}) {
     try {
       const part = key.split('.')[1];
       const claims = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
-      publicKey = key.split('.').length === 3 && claims.role === 'anon' && claims.ref === 'inaqzvzfongngahxptzw';
+      publicKey = key.split('.').length === 3 && claims.role === 'anon' && claims.ref === 'yzgwrnqlugyrzqymzmps';
     } catch { publicKey = false; }
   }
   if (url !== STAGING_MASTER || !publicKey || /service_role|sb_secret|sbp_/i.test(key)) return Object.freeze({ok:false});

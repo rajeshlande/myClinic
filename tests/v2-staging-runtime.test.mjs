@@ -11,6 +11,14 @@ test('staging pins Central origin and excludes old clinical/static env',()=>{
  assert.equal(stagingConfig({VITE_SUPABASE_URL:STAGING_MASTER,VITE_SUPABASE_ANON_KEY:env.VITE_CENTRAL_SUPABASE_ANON_KEY}).ok,false);
  assert.equal(stagingConfig(env).ok,true);
 });
+test('new Central mapping rejects previous Central URL and previous project anon JWT',()=>{
+ assert.equal(STAGING_MASTER,'https://yzgwrnqlugyrzqymzmps.supabase.co');
+ assert.equal(stagingConfig({...env,VITE_CENTRAL_SUPABASE_URL:'https://inaqzvzfongngahxptzw.supabase.co'}).ok,false);
+ const jwt=(ref,role='anon')=>'synthetic.'+Buffer.from(JSON.stringify({ref,role})).toString('base64url')+'.synthetic';
+ assert.equal(stagingConfig({...env,VITE_CENTRAL_SUPABASE_ANON_KEY:jwt('yzgwrnqlugyrzqymzmps')}).ok,true);
+ assert.equal(stagingConfig({...env,VITE_CENTRAL_SUPABASE_ANON_KEY:jwt('inaqzvzfongngahxptzw')}).ok,false);
+ assert.equal(stagingConfig({...env,VITE_CENTRAL_SUPABASE_ANON_KEY:jwt('yzgwrnqlugyrzqymzmps','service_role')}).ok,false);
+});
 test('staging rejects privileged and malformed public key shapes',()=>{
  for(const key of ['sb_secret_example','service_role','abc','','a.e30.c'])assert.equal(stagingConfig({...env,VITE_CENTRAL_SUPABASE_ANON_KEY:key}).ok,false);
 });
