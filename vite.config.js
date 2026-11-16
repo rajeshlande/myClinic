@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { guardedEntryPlugin } from './scripts/lib/v2-entry-policy.mjs';
 import JavaScriptObfuscator from 'javascript-obfuscator';
 import { execSync } from 'node:child_process';
 
@@ -75,7 +76,7 @@ const base = override ? (override.endsWith('/') ? override : `${override}/`) : '
 
 export default defineConfig({
   base,
-  plugins: [react(), scopedObfuscation()],
+  plugins: [guardedEntryPlugin(process.env.VITE_APP_TARGET ?? ''), react(), scopedObfuscation()],
   define: {
     __BUILD_BASE__: JSON.stringify(base),
     __MYCLINIC_BUILD__: JSON.stringify({ id: commitId(), at: new Date().toISOString() }),

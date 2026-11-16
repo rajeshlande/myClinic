@@ -96,17 +96,24 @@ jobs:
         # without changes. Set the VITE_BASE repo variable only to force absolute URLs.
         env:
           VITE_BASE: ${{ vars.VITE_BASE }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # v2 root must never mount the legacy static-client application.
+          VITE_APP_TARGET: ${{ github.ref == 'refs/heads/v2/account-trust-validation' && 'v2-staging' || 'legacy' }}
+          VITE_SUPABASE_URL: ${{ github.ref != 'refs/heads/v2/account-trust-validation' && secrets.VITE_SUPABASE_URL || '' }}
+          VITE_SUPABASE_ANON_KEY: ${{ github.ref != 'refs/heads/v2/account-trust-validation' && secrets.VITE_SUPABASE_ANON_KEY || '' }}
           # Keyless Central Auto-Sync. Both empty = license locally, as before.
           VITE_CENTRAL_SUPABASE_URL: ${{ vars.VITE_CENTRAL_SUPABASE_URL }}
           VITE_CENTRAL_SUPABASE_ANON_KEY: ${{ vars.VITE_CENTRAL_SUPABASE_ANON_KEY }}
         run: npm run build
 
+      - name: Refuse legacy root or clinical RPCs in v2 staging artifact
+        if: github.ref == 'refs/heads/v2/account-trust-validation'
+        run: node scripts/check-v2-staging-build.mjs
+
       - name: Check GitHub Pages readiness
         run: npm run check:pages
 
       - name: Report Supabase build configuration
+        if: github.ref != 'refs/heads/v2/account-trust-validation'
         # Two jobs: (1) make it obvious whether the repo secrets reached the build,
         # (2) fail only on a real misconfiguration. Only the *value* of
         # VITE_SUPABASE_URL can bake a project URL into the bundle, so that value is

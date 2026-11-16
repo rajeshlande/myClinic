@@ -2,7 +2,7 @@
 
 ## Scope
 
-Separate Vite entry `v2-staging.html` builds alongside unchanged legacy `index.html`. Opening the root still opens legacy1.43; it does NOT test v2. No legacy login/store/client imports in staging composition. Existing Central Management UI being live/configurable is not evidence that its deployed boot/mint contracts or gateway trust match this client.
+Separate Vite entry `v2-staging.html` builds alongside the default legacy `index.html`. UPDATED: with explicit VITE_APP_TARGET=v2-staging the root also builds the staging entry, with no legacy app imports. Pages selects this target for v2/account-trust-validation only. Default local/legacy builds retain the original root. See V2-CROSS-REPO-GAP-REVIEW.md for the cross-repo contract mismatch and root correction. No legacy login/store/client imports in staging composition. Existing Central Management UI being live/configurable is not evidence that its deployed boot/mint contracts or gateway trust match this client.
 
 After an explicitly approved bundle transfer/push/build/deploy, open:
 
