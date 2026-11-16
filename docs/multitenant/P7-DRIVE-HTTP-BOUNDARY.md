@@ -13,7 +13,10 @@ All work on v2/account-trust-validation. No live SQL/deploy/activation.
 | /v2/clinics/:id/drive-backup | GET | connected,lastBackupAt |
 | .../connect | POST | consentUrl |
 | .../disconnect | POST | connected=false,lastBackupAt=null |
-| .../backup | POST |202 jobId,status=QUEUED |
+| .../backup | POST |202 jobId,status=QUEUED/RUNNING/STAGED |
+| .../overview | GET |Atomic connected,lastBackupAt,job |
+| .../jobs/latest | GET |Current destination latest safe job or null |
+| .../jobs/:jobId | GET |Clinic-owner-scoped known safe job |
 | /v2/drive/callback | GET |303 to fixed /#/settings?tab=backups after callback success |
 
 The callback URL must be registered exactly with Google and configured as OAuth coordinator redirectUri. The fixed destination is the intended future v2 Settings route; that route/tab is NOT yet mounted. Handler is not ready to route production traffic merely because these tests pass.
@@ -36,7 +39,7 @@ POST bodies empty or literal empty JSON object, <=1024 bytes; no body identity/r
 
 Uses fixed relative /v2 endpoints, same-origin credentials, redirect:error, no-store and10s timeout. Calls getCsrfToken for POST, not localStorage. Bounded16 KiB response read; returns only explicit consent/status/queue fields, never raw backend payload/token.
 
-Owner controller now treats accepted backup as QUEUED with pendingJobId. It does NOT change lastBackupAt or connected status to claim completion. This screen disables another backup request while a local pending job remains and explicitly says progress tracking is unavailable. Disconnect clears local pending request state; this does not prove an already-running job was cancelled or files removed. Refreshing summary cannot establish job completion; persistent job tracking/completion states and authoritative backend deduplication remain pending. Reloading UI cannot be relied on as a rate limiter.
+Owner controller now treats admission as actual QUEUED/RUNNING/STAGED and recovers durable latest-job state through manual atomic overview refresh. COMPLETED/CANCELLED clears pending display without inferring backup time from a job event; lastBackupAt comes only from server ledger summary. See P7-DRIVE-JOB-PROGRESS.md for API/SQLite/service/controller integration and18 additional tests. No polling, production route activation or rate-limit guarantee from UI. Disconnect display cannot prove already-sent requests were cancelled or files removed.
 
 ## Verification and limits
 

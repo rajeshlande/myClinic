@@ -27,7 +27,8 @@ export default function DriveBackupsTab({access,controller}){
         <Button variant="primary" disabled={!consent||busy||unavailable} onClick={()=>controller.connect()}>Connect Google Drive</Button>
       </>:<>
         <p className="small muted">Daily changed-row backups and 30-day retention require an active server-side exporter. This screen does not promise that a schedule is running.</p>
-        {snapshot.pendingJobId&&<p role="status">Backup request queued. This is not a completed backup; the last verified backup time has not changed. Job progress tracking is not available on this screen yet.</p>}
+        {snapshot.lastJob&&<p role="status">{({QUEUED:'Queued — waiting for a worker. No new backup is complete.',RUNNING:'Running — preparing the encrypted backup. No new backup is complete.',STAGED:'Staged — encrypted candidate saved; verified upload completion is pending.',COMPLETED:'Completed — the server committed a verified upload receipt. This is not a restore drill.',CANCELLED:'Cancelled — no new backup was committed by this request. Existing files are not deleted.'})[snapshot.lastJob.status]}</p>}
+        <p className="tiny muted">Use Refresh backup status to load the latest saved job state, including after reopening this screen. There is no automatic polling.</p>
         <Button disabled={busy||unavailable||Boolean(snapshot.pendingJobId)} onClick={()=>controller.backupNow()}>Request encrypted backup</Button>
         <label className="row" style={{gap:8}}><input type="checkbox" checked={confirmDisconnect} onChange={e=>setConfirmDisconnect(e.target.checked)} disabled={busy||unavailable}/>Disconnect this clinic's Drive connection. Existing backup files are not deleted.</label>
         <Button disabled={!confirmDisconnect||busy||unavailable} onClick={()=>controller.disconnect()}>Disconnect Google Drive</Button>

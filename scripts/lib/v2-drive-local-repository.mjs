@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS drive_folders(clinic TEXT PRIMARY KEY, user_id TEXT N
         verifyIfCurrent:guard(a=>txn(()=>{if(!current(a))return false;const result=db.prepare('UPDATE drive_folders SET verified_at=? WHERE clinic=? AND user_id=? AND revision=? AND file_id=? AND binding_id=?').run(now(),a.clinicId,a.userId,a.revision,a.fileId,a.bindingId);return result.changes===1;})),
       },
       readOwnerStatus:guard(a=>{if(!allowed(a?.userId,a?.clinicId))fail();const c=connection(a.clinicId),connected=Boolean(c&&c.enabled===1&&allowed(c.user_id,a.clinicId));if(connected)openDriveGrant({envelope:JSON.parse(c.envelope),keys,userId:c.user_id,clinicId:a.clinicId,revision:c.revision});return {connected,lastBackupAt:connected?localJobs.lastBackupAt(a.clinicId):null};}),
+      readOwnerOverview:guard(a=>txn(()=>({...api.readOwnerStatus(a),job:localJobs.latestStatus(a)}))),
       purgeExpiredStates:guard(()=>db.prepare('DELETE FROM oauth_states WHERE expires<=?').run(now()).changes),
       close:()=>{if(!closed){db.close();closed=true;}},
     };

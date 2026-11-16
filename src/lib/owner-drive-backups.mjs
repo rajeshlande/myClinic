@@ -16,7 +16,7 @@ export function createOwnerDriveBackups({getAccess,service=null,redirectUri,onCo
   if(typeof getAccess!=='function'||typeof onConsent!=='function')throw Error('BACKUP_SETTINGS_DEPENDENCIES_REQUIRED');
   let disposed=false,generation=0;
   const listeners=new Set();
-  const blank=()=>({phase:scopeKey(getAccess())?'IDLE':'FORBIDDEN',connected:false,lastBackupAt:null,configured:Boolean(service),pendingJobId:null,error:null});
+  const blank=()=>({phase:scopeKey(getAccess())?'IDLE':'FORBIDDEN',connected:false,lastBackupAt:null,configured:Boolean(service),pendingJobId:null,lastJob:null,error:null});
   let state=Object.freeze(blank());
   const publish=patch=>{state=Object.freeze({...state,...patch});for(const fn of listeners)fn();};
   function reset(){generation++;state=Object.freeze(blank());for(const fn of listeners)fn();}
@@ -30,22 +30,37 @@ export function createOwnerDriveBackups({getAccess,service=null,redirectUri,onCo
     publish({phase:'BUSY',error:null});
     try{
       // Hints route the request; backend MUST independently authorise active owner.
-      const result=await action({clinicId:access.clinicId});
+      const result=await action({clinicId:access.clinicId},current);
       if(!current())return false;
       if(kind==='consent'){const url=validateDriveConsentUrl(result?.consentUrl,redirectUri);publish({phase:'IDLE'});onConsent(url);return true;}
       if(kind==='job'){
-        if(result?.status!=='QUEUED'||!id(result.jobId))throw Error();
-        publish({phase:'QUEUED',pendingJobId:result.jobId});return true;
+        if(!['QUEUED','RUNNING','STAGED'].includes(result?.status)||!id(result.jobId))throw Error();
+        publish({phase:result.status,pendingJobId:result.jobId,lastJob:Object.freeze({jobId:result.jobId,status:result.status,createdAt:null,finishedAt:null})});return true;
       }
       if(!result||typeof result.connected!=='boolean'||(result.lastBackupAt!==null&&(!Number.isSafeInteger(result.lastBackupAt)||result.lastBackupAt<0)))throw Error();
-      publish({phase:'READY',connected:result.connected,lastBackupAt:result.lastBackupAt,...(!result.connected?{pendingJobId:null}:{})});return true;
+      let jobPatch={};
+      if(Object.hasOwn(result,'job')){
+        const j=result.job;
+        if(j!==null&&(!id(j.jobId)||!['QUEUED','RUNNING','STAGED','COMPLETED','CANCELLED'].includes(j.status)||!Number.isSafeInteger(j.createdAt)||j.createdAt<0||(j.finishedAt!==null&&(!Number.isSafeInteger(j.finishedAt)||j.finishedAt<j.createdAt))||(j.status==='COMPLETED'&&j.finishedAt===null)))throw Error();
+        const lastJob=j===null?null:Object.freeze({jobId:j.jobId,status:j.status,createdAt:j.createdAt,finishedAt:j.finishedAt});
+        jobPatch={lastJob,pendingJobId:j&&['QUEUED','RUNNING','STAGED'].includes(j.status)?j.jobId:null};
+      }
+      publish({phase:'READY',connected:result.connected,lastBackupAt:result.lastBackupAt,...jobPatch,...(!result.connected?{pendingJobId:null,lastJob:null}:{})});return true;
     }catch{if(current())publish({phase:'ERROR',error:'Backup action failed. Please retry or contact your administrator.'});return false;}
     finally{if(!disposed&&ticket===generation&&scopeKey(getAccess())!==scope)reset();}
   }
   return {
     getSnapshot:()=>state,
     subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},
-    refresh:()=>run(input=>service.status(input)),
+    refresh:()=>run(async(input,isCurrent)=>{
+      if(typeof service.overview==='function')return service.overview(input);
+      const summary=await service.status(input);
+      if(!isCurrent())throw Error();
+      if(typeof service.latestJob!=='function')return summary;
+      const latest=await service.latestJob(input);
+      if(!latest||!Object.hasOwn(latest,'job'))throw Error();
+      return {...summary,job:latest.job};
+    }),
     connect:()=>run(input=>service.beginConnect(input),'consent'),
     disconnect:()=>run(input=>service.disconnect(input)),
     backupNow:()=>state.pendingJobId?Promise.resolve(false):run(input=>service.backupNow(input),'job'),

@@ -30,6 +30,13 @@ digest TEXT NOT NULL,high INTEGER NOT NULL,file_id TEXT NOT NULL,source_created 
   }
   function work(j){return {jobId:j.job_id,clinicId:j.clinic,userId:j.user_id,revision:j.revision,folderId:j.folder_id,bindingId:j.binding_id,project:j.project,schema:j.schema_version,status:j.status,expectedDigest:j.expected_digest,expectedHigh:j.expected_high,leaseToken:j.lease_token,leaseUntil:j.lease_until,attempts:j.attempts,...(j.candidate===null?{}:{entry:{object:Buffer.from(j.candidate),digest:j.digest},fileId:j.file_id})};}
   const cancelClinic=clinic=>db.prepare(`UPDATE backup_jobs SET status='CANCELLED',lease_token=NULL,lease_until=NULL WHERE clinic=? AND ${active}`).run(clinic);
+  function latestStatus({userId,clinicId}){
+      if(!allowed(userId,clinicId))fail();
+      const c=db.prepare('SELECT * FROM connections WHERE clinic=?').get(clinicId),f=db.prepare('SELECT * FROM drive_folders WHERE clinic=?').get(clinicId);
+      if(!c||!current({userId:c.user_id,clinicId,revision:c.revision})||!f||f.revision!==c.revision||f.user_id!==c.user_id)return null;
+      const j=db.prepare('SELECT job_id,status,created_at,finished_at FROM backup_jobs WHERE clinic=? AND binding_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').get(clinicId,f.binding_id);
+      return j?{jobId:j.job_id,status:j.status,createdAt:j.created_at,finishedAt:j.finished_at}:null;
+  }
   const api={
     enqueue:guard(a=>txn(()=>{
       // Source project/schema MUST come from reviewed backend registry, not HTTP body.
@@ -74,12 +81,13 @@ digest TEXT NOT NULL,high INTEGER NOT NULL,file_id TEXT NOT NULL,source_created 
       db.prepare("UPDATE backup_jobs SET status='COMPLETED',lease_token=NULL,lease_until=NULL,finished_at=? WHERE job_id=?").run(finishedAt,jobId);
       return {jobId,status:'COMPLETED',digest:j.digest,watermark:j.high,finishedAt};
     })),
+    ownerLatestStatus:guard(a=>txn(()=>latestStatus(a))),
     ownerStatus:guard(({userId,clinicId,jobId})=>{
       if(!allowed(userId,clinicId)||!id(jobId))fail();const j=get(jobId);if(!j||j.clinic!==clinicId)fail();
       return {jobId,status:j.status,createdAt:j.created_at,finishedAt:j.finished_at};
     }),
   };
-  return {api,cancelClinic,advanceRevision:(clinic,userId,oldRevision,nextRevision)=>db.prepare(`UPDATE backup_jobs SET revision=? WHERE clinic=? AND user_id=? AND revision=? AND ${active}`).run(nextRevision,clinic,userId,oldRevision),lastBackupAt:clinic=>{
+  return {api,cancelClinic,latestStatus,advanceRevision:(clinic,userId,oldRevision,nextRevision)=>db.prepare(`UPDATE backup_jobs SET revision=? WHERE clinic=? AND user_id=? AND revision=? AND ${active}`).run(nextRevision,clinic,userId,oldRevision),lastBackupAt:clinic=>{
     const f=db.prepare('SELECT binding_id FROM drive_folders WHERE clinic=?').get(clinic);if(!f)return null;
     return db.prepare('SELECT finished_at FROM backup_heads WHERE clinic=? AND binding_id=?').get(clinic,f.binding_id)?.finished_at??null;
   }};
